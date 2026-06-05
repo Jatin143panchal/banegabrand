@@ -8,7 +8,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useCrmQuery, useCrmInsert, useCrmUpdate, useCrmDelete } from "@/hooks/useCrm";
 import { useCanAssignTasks, useAllProfiles } from "@/hooks/useAdmin";
@@ -23,13 +22,52 @@ import { useBulkAssignLeads } from "@/hooks/useLeadComments";
 import { isToday, subDays } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import {
-  DEFAULT_LEAD_STAGE,
-  formatStageLabel,
-  getSubStagesForStage,
-  LEAD_STAGES,
-  LEAD_STATUSES,
-} from "@/lib/leadStages";
+
+// ── Stages config ─────────────────────────────────────────────────────────────
+const DEFAULT_LEAD_STAGE = "ringing";
+
+const LEAD_STAGES = [
+  { value: "ringing",   label: "Ringing"   },
+  { value: "callback",  label: "Callback"  },
+  { value: "dp",        label: "DP"        },
+  { value: "vms",       label: "VMS"       },
+  { value: "pg",        label: "PG"        },
+  { value: "converted", label: "Converted" },
+];
+
+const LEAD_STATUSES = [
+  { value: "new",          label: "New"          },
+  { value: "Ringing",    label: "Ringing"    },
+  { value: "Callback",     label: "Callback"     },
+  { value: "DP", label: "DP" },
+  { value: "VMS", label: "VMS" },
+  { value: "PG", label: "PG" },
+  { value: "Converted",    label: "Converted"    },
+  { value: "Meeting Booked",         label: "Meeting Booked"         },
+  { value: "Business Generated",         label: "Business Generated"         },
+];
+
+const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
+  ringing:  [{ value: "ringing_1st", label: "1st Ring" }, { value: "ringing_2nd", label: "2nd Ring" }, { value: "ringing_3rd", label: "3rd Ring" }],
+  callback: [{ value: "callback_scheduled", label: "Callback Scheduled" }, { value: "callback_done", label: "Callback Done" }],
+  dp:       [{ value: "dp_sent", label: "DP Sent" }, { value: "dp_reviewed", label: "DP Reviewed" }],
+  vms:      [{ value: "vms_left", label: "VMS Left" }, { value: "vms_replied", label: "VMS Replied" }],
+  pg:       [{ value: "pg_initiated", label: "PG Initiated" }, { value: "pg_confirmed", label: "PG Confirmed" }],
+  converted:[{ value: "meeting_booked", label: "Meeting Booked" }, { value: "business_generated", label: "Business Generated" }],
+};
+
+function getSubStagesForStage(stage: string | null | undefined) {
+  return SUB_STAGES[stage || ""] || [];
+}
+
+function formatStageLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  for (const s of LEAD_STAGES) if (s.value === value) return s.label;
+  for (const arr of Object.values(SUB_STAGES)) for (const s of arr) if (s.value === value) return s.label;
+  for (const s of LEAD_STATUSES) if (s.value === value) return s.label;
+  return value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface DbLead {
   id: string; name: string; email: string | null; phone: string | null; company: string | null;
@@ -42,17 +80,11 @@ interface DbLead {
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
 const BUDGETS = ["₹5l+", "₹50k - ₹1l", "₹1l - ₹3l", "₹3l - ₹5l", "Below ₹50k"];
 const statusColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  new: "default",
-  contacted: "outline",
-  answered: "outline",
-  not_answered: "outline",
-  qualified: "secondary",
-  converted: "default",
-  lost: "destructive",
+  new: "default", contacted: "outline", answered: "outline", not_answered: "outline",
+  qualified: "secondary", converted: "default", lost: "destructive",
 };
 const formatCurrency = (val: number) => `₹${(val / 100000).toFixed(1)}L`;
 
-// Lead scoring based on data completeness and status
 function getLeadScore(lead: DbLead): number {
   let score = 0;
   if (lead.name) score += 10;
@@ -138,7 +170,7 @@ export default function Leads() {
     const matchPreset =
       filterPreset === "all" ||
       (filterPreset === "today" && isToday(new Date(l.created_at))) ||
-      (filterPreset === "fresh" && (l.status === "new" || l.stage === "new") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
+      (filterPreset === "fresh" && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
       (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
     return matchSearch && matchStatus && matchStage && matchAssignment && matchPreset;
   });
@@ -170,7 +202,6 @@ export default function Leads() {
     toast.success("Lead added successfully");
   };
 
-  // Excel/CSV upload handler
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -179,11 +210,8 @@ export default function Leads() {
       try {
         const data = evt.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-        
-        // Map common column names
         const mapped = jsonData.map((row: any) => ({
           name: row.Name || row.name || row["Full Name"] || row["Lead Name"] || "",
           email: row.Email || row.email || row["Email Address"] || "",
@@ -199,14 +227,9 @@ export default function Leads() {
           sub_stage: row["Sub Stage"] || row.sub_stage || "",
           remark: row.Remark || row.remark || row.Remarks || "",
         })).filter((r: any) => r.name);
-
         setUploadPreview(mapped);
-        if (mapped.length === 0) {
-          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value");
-        }
-      } catch {
-        toast.error("Failed to parse file. Please upload a valid Excel or CSV file.");
-      }
+        if (mapped.length === 0) toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value");
+      } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
     };
     reader.readAsBinaryString(file);
   };
@@ -217,43 +240,18 @@ export default function Leads() {
     let success = 0;
     for (const lead of uploadPreview) {
       try {
-        await insertLead.mutateAsync({
-          name: lead.name, email: lead.email, phone: lead.phone,
-          company: lead.company, source: lead.source, value: lead.value,
-          status: "new" as any,
-          lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-          budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage, remark: lead.remark,
-        } as any);
+        await insertLead.mutateAsync({ name: lead.name, email: lead.email, phone: lead.phone, company: lead.company, source: lead.source, value: lead.value, status: "new" as any, lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment, budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage, remark: lead.remark } as any);
         success++;
-      } catch { /* skip duplicates */ }
+      } catch { }
     }
-    setUploading(false);
-    setUploadPreview([]);
-    setUploadOpen(false);
+    setUploading(false); setUploadPreview([]); setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
     toast.success(`${success} leads imported successfully!`);
   };
 
   const handleUpdate = async () => {
     if (!editLead) return;
-    await updateLead.mutateAsync({
-      id: editLead.id,
-      name: editLead.name,
-      email: editLead.email,
-      phone: editLead.phone,
-      company: editLead.company,
-      source: editLead.source,
-      value: editLead.value,
-      status: editLead.status as any,
-      business_status: editLead.business_status,
-      lead_type: editLead.lead_type,
-      address: editLead.address,
-      cx_comment: editLead.cx_comment,
-      budget: editLead.budget,
-      stage: editLead.stage,
-      sub_stage: editLead.sub_stage,
-      remark: editLead.remark,
-    } as any);
+    await updateLead.mutateAsync({ id: editLead.id, name: editLead.name, email: editLead.email, phone: editLead.phone, company: editLead.company, source: editLead.source, value: editLead.value, status: editLead.status as any, business_status: editLead.business_status, lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment, budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage, remark: editLead.remark } as any);
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
     toast.success("Lead updated");
@@ -265,15 +263,8 @@ export default function Leads() {
     toast.success("Lead deleted");
   };
 
-  // Export leads to Excel
   const handleExport = () => {
-    const exportData = leads.map(l => ({
-      Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
-      "Lead type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
-      Budget: l.budget, Stage: l.stage, "Sub Stage": l.sub_stage, Remark: l.remark,
-      Source: l.source, Status: l.status, Value: l.value, "Business Status": l.business_status,
-      "Created At": new Date(l.created_at).toLocaleDateString(),
-    }));
+    const exportData = leads.map(l => ({ Name: l.name, Email: l.email, Number: l.phone, Company: l.company, "Lead type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment, Budget: l.budget, Stage: l.stage, "Sub Stage": l.sub_stage, Remark: l.remark, Source: l.source, Status: l.status, Value: l.value, "Business Status": l.business_status, "Created At": new Date(l.created_at).toLocaleDateString() }));
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Leads");
@@ -289,6 +280,8 @@ export default function Leads() {
         <div><h1 className="text-2xl font-bold tracking-tight">Leads</h1><p className="text-muted-foreground">Manage your sales leads</p></div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" onClick={handleExport}><Download className="mr-2 h-4 w-4" />Export</Button>
+
+          {/* Import Dialog */}
           <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
             <DialogTrigger asChild><Button variant="outline"><Upload className="mr-2 h-4 w-4" />Import Excel</Button></DialogTrigger>
             <DialogContent className="max-w-2xl">
@@ -308,18 +301,10 @@ export default function Leads() {
                     </div>
                     <div className="max-h-60 overflow-auto rounded border">
                       <Table>
-                        <TableHeader><TableRow>
-                          <TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead>
-                        </TableRow></TableHeader>
+                        <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead></TableRow></TableHeader>
                         <TableBody>
                           {uploadPreview.slice(0, 10).map((r, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="text-sm">{r.name}</TableCell>
-                              <TableCell className="text-sm">{r.email}</TableCell>
-                              <TableCell className="text-sm">{r.phone}</TableCell>
-                              <TableCell className="text-sm">{r.company}</TableCell>
-                              <TableCell className="text-sm">{r.source}</TableCell>
-                            </TableRow>
+                            <TableRow key={i}><TableCell className="text-sm">{r.name}</TableCell><TableCell className="text-sm">{r.email}</TableCell><TableCell className="text-sm">{r.phone}</TableCell><TableCell className="text-sm">{r.company}</TableCell><TableCell className="text-sm">{r.source}</TableCell></TableRow>
                           ))}
                         </TableBody>
                       </Table>
@@ -335,6 +320,8 @@ export default function Leads() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Add Lead Dialog */}
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild><Button><Plus className="mr-2 h-4 w-4" />Add Lead</Button></DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -406,6 +393,7 @@ export default function Leads() {
         <Card><CardContent className="p-4"><p className="text-2xl font-bold">{formatCurrency(leads.reduce((s, l) => s + (l.value || 0), 0))}</p><p className="text-xs text-muted-foreground">Total Value</p></CardContent></Card>
       </div>
 
+      {/* Filters */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -456,9 +444,7 @@ export default function Leads() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" onClick={handleBulkAssign} disabled={bulkAssign.isPending}>
-                <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
-              </Button>
+              <Button size="sm" onClick={handleBulkAssign} disabled={bulkAssign.isPending}><UserCheck className="mr-1 h-4 w-4" />Bulk Assign</Button>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
             </div>
           )}
@@ -468,75 +454,75 @@ export default function Leads() {
             <p className="text-sm text-muted-foreground text-center py-8">No leads found. Add your first lead or import from Excel!</p>
           ) : (
             <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {canAssign && <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>}
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
-                  <TableHead className="hidden md:table-cell">Address</TableHead>
-                  <TableHead className="hidden xl:table-cell">CX Comment</TableHead>
-                  <TableHead className="hidden lg:table-cell">Budget</TableHead>
-                  <TableHead>Brand Stage</TableHead>
-                  <TableHead className="hidden md:table-cell">Sub Stage</TableHead>
-                  <TableHead className="hidden xl:table-cell">Remark</TableHead>
-                  <TableHead>Score</TableHead>
-                  <TableHead>Status</TableHead>
-                  {canAssign && <TableHead>Assigned To</TableHead>}
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map(lead => {
-                  const score = getLeadScore(lead);
-                  return (
-                    <TableRow key={lead.id}>
-                      {canAssign && <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>}
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{lead.name}</p>
-                          {lead.email && <a href={`mailto:${lead.email}`} className="text-xs text-muted-foreground hover:text-primary block">{lead.email}</a>}
-                          {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs text-muted-foreground hover:text-primary">📞 {lead.phone}</a>}
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell">{lead.lead_type && <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/10">{lead.lead_type}</Badge>}</TableCell>
-                      <TableCell className="hidden md:table-cell text-sm">{lead.address || "-"}</TableCell>
-                      <TableCell className="hidden xl:table-cell text-xs max-w-[180px] truncate">{lead.cx_comment || "-"}</TableCell>
-                      <TableCell className="hidden lg:table-cell text-sm">{lead.budget || "-"}</TableCell>
-                      <TableCell><span className="text-xs">{formatStageLabel(lead.stage)}</span></TableCell>
-                      <TableCell className="hidden md:table-cell text-xs">{formatStageLabel(lead.sub_stage)}</TableCell>
-                      <TableCell className="hidden xl:table-cell text-xs max-w-[160px] truncate">{lead.remark || "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <Star className={`h-3.5 w-3.5 ${getScoreColor(score)}`} />
-                          <span className={`text-sm font-medium ${getScoreColor(score)}`}>{score}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell><Badge variant={statusColors[lead.status] || "outline"}>{formatStageLabel(lead.status)}</Badge></TableCell>
-                      {canAssign && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {canAssign && <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>}
+                    <TableHead>Name</TableHead>
+                    <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
+                    <TableHead className="hidden md:table-cell">Address</TableHead>
+                    <TableHead className="hidden xl:table-cell">CX Comment</TableHead>
+                    <TableHead className="hidden lg:table-cell">Budget</TableHead>
+                    <TableHead>Brand Stage</TableHead>
+                    <TableHead className="hidden md:table-cell">Sub Stage</TableHead>
+                    <TableHead className="hidden xl:table-cell">Remark</TableHead>
+                    <TableHead>Score</TableHead>
+                    <TableHead>Status</TableHead>
+                    {canAssign && <TableHead>Assigned To</TableHead>}
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map(lead => {
+                    const score = getLeadScore(lead);
+                    return (
+                      <TableRow key={lead.id}>
+                        {canAssign && <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>}
                         <TableCell>
-                          <Select value={lead.assigned_to || ""} onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
-                            <SelectTrigger className="w-36 h-8"><SelectValue placeholder="Assign" /></SelectTrigger>
-                            <SelectContent>
-                              {(profiles as { user_id: string; display_name: string | null }[]).map(p => (
-                                <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div>
+                            <p className="font-medium">{lead.name}</p>
+                            {lead.email && <a href={`mailto:${lead.email}`} className="text-xs text-muted-foreground hover:text-primary block">{lead.email}</a>}
+                            {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs text-muted-foreground hover:text-primary">📞 {lead.phone}</a>}
+                          </div>
                         </TableCell>
-                      )}
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openLeadDetail(lead)}><Eye className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditLead(lead)}><Edit className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(lead.id)}><Trash2 className="h-4 w-4" /></Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        <TableCell className="hidden lg:table-cell">{lead.lead_type && <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/10">{lead.lead_type}</Badge>}</TableCell>
+                        <TableCell className="hidden md:table-cell text-sm">{lead.address || "-"}</TableCell>
+                        <TableCell className="hidden xl:table-cell text-xs max-w-[180px] truncate">{lead.cx_comment || "-"}</TableCell>
+                        <TableCell className="hidden lg:table-cell text-sm">{lead.budget || "-"}</TableCell>
+                        <TableCell><span className="text-xs">{formatStageLabel(lead.stage)}</span></TableCell>
+                        <TableCell className="hidden md:table-cell text-xs">{formatStageLabel(lead.sub_stage)}</TableCell>
+                        <TableCell className="hidden xl:table-cell text-xs max-w-[160px] truncate">{lead.remark || "-"}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <Star className={`h-3.5 w-3.5 ${getScoreColor(score)}`} />
+                            <span className={`text-sm font-medium ${getScoreColor(score)}`}>{score}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell><Badge variant={statusColors[lead.status] || "outline"}>{formatStageLabel(lead.status)}</Badge></TableCell>
+                        {canAssign && (
+                          <TableCell>
+                            <Select value={lead.assigned_to || ""} onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
+                              <SelectTrigger className="w-36 h-8"><SelectValue placeholder="Assign" /></SelectTrigger>
+                              <SelectContent>
+                                {(profiles as { user_id: string; display_name: string | null }[]).map(p => (
+                                  <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openLeadDetail(lead)}><Eye className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditLead(lead)}><Edit className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(lead.id)}><Trash2 className="h-4 w-4" /></Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
@@ -563,8 +549,48 @@ export default function Leads() {
                 <div><p className="text-muted-foreground">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
                 <div><p className="text-muted-foreground">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
-                <div><p className="text-muted-foreground">Brand Stage</p><p className="font-medium">{formatStageLabel(detailLead.stage)}</p></div>
-                <div><p className="text-muted-foreground">Sub Stage</p><p className="font-medium">{formatStageLabel(detailLead.sub_stage)}</p></div>
+
+                {/* Brand Stage dropdown — live save */}
+                <div className="grid gap-1">
+                  <p className="text-muted-foreground">Brand Stage</p>
+                  <Select
+                    value={detailLead.stage || "ringing"}
+                    onValueChange={async (v) => {
+                      const updated = { ...detailLead, stage: v, sub_stage: "" };
+                      setDetailLead(updated);
+                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "" } as any);
+                      logActivity(detailLead.id, "updated", `Stage: ${v}`);
+                      toast.success("Stage updated");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Sub Stage dropdown — live save */}
+                <div className="grid gap-1">
+                  <p className="text-muted-foreground">Sub Stage</p>
+                  <Select
+                    value={detailLead.sub_stage || "none"}
+                    onValueChange={async (v) => {
+                      const val = v === "none" ? "" : v;
+                      setDetailLead({ ...detailLead, sub_stage: val });
+                      await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
+                      logActivity(detailLead.id, "updated", `Sub Stage: ${val}`);
+                      toast.success("Sub Stage updated");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">-- None --</SelectItem>
+                      {getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div><p className="text-muted-foreground">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
                 <div><p className="text-muted-foreground">Status</p><Badge variant={statusColors[detailLead.status]}>{formatStageLabel(detailLead.status)}</Badge></div>
                 <div><p className="text-muted-foreground">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
