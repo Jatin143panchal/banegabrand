@@ -33,13 +33,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 import {
-
-  Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
-
-  Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-
-  MessageCircle, Calendar, TrendingUp, BarChart3
-
+  Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
+  Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
+  MessageCircle, Calendar
 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,7 +52,7 @@ import * as XLSX from "xlsx";
 
 
 
-// ── Stages config ─────────────────────────────────────────────────────────────
+// ── Stages config ──────────────────────────────────────────────────────────
 
 const DEFAULT_LEAD_STAGE = "ringing";
 
@@ -206,7 +202,7 @@ function getStageConfig(stage: string | null | undefined) {
 
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 
 
 
@@ -334,7 +330,7 @@ function ScoreBadge({ score }: { score: number }) {
 
 
 
-// ── Stage Pill ────────────────────────────────────────────────────────────────
+// ── Stage Pill ──────────────────────────────────────────────────────────
 
 function StagePill({ stage, subStage }: { stage: string | null; subStage: string | null }) {
 
@@ -606,7 +602,7 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
 
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 
 
 
@@ -782,7 +778,7 @@ export default function Leads() {
 
     const matchSearch =
 
-      l.name.toLowerCase().includes(search.toLowerCase()) ||
+      (l.name || "").toLowerCase().includes(search.toLowerCase()) ||
 
       (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
 
@@ -970,7 +966,10 @@ export default function Leads() {
 
           toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value");
 
-      } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
+      } catch (err) {
+        console.error("File parse error:", err);
+        toast.error("Failed to parse file. Please upload a valid Excel or CSV file.");
+      }
 
     };
 
@@ -1006,7 +1005,10 @@ export default function Leads() {
 
         success++;
 
-      } catch { }
+      } catch (err) {
+        console.error("Lead import error:", err);
+        // Continue with next lead instead of silent failure
+      }
 
     }
 
@@ -2456,7 +2458,7 @@ export default function Leads() {
 
                   <Button size="sm" variant="outline" asChild>
 
-                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank"
+                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer"
 
                       onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}>
 
@@ -2657,7 +2659,3 @@ export default function Leads() {
   );
 
 }
-
-Done
-
-You are out of free messages
