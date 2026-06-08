@@ -35,6 +35,9 @@ import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import AllUsers from "./pages/AllUsers";
 import { RoleGuard } from "@/components/RoleGuard";
+import ExpoLeads from "./pages/ExpoLeads";
+import WorkshopLeads from "./pages/WorkshopLeads";
+import Projects from "./pages/Projects";
 
 const queryClient = new QueryClient();
 
