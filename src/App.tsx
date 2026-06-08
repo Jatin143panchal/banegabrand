@@ -69,6 +69,9 @@ function ProtectedRoutes() {
         <Route path="/activities" element={<Activities />} />
         <Route path="/holidays" element={<Holidays />} />
         <Route path="/helpdesk" element={<Helpdesk />} />
+        <Route path="/expo-leads" element={<ExpoLeads />} />
+        <Route path="/workshop-leads" element={<WorkshopLeads />} />
+        <Route path="/projects" element={<Projects />} />
         <Route path="/attendance" element={<Attendance />} />
         <Route path="/marketing" element={<Marketing />} />
         <Route path="/quotations" element={<Quotations />} />
