@@ -20,6 +20,9 @@ import {
   CalendarRange,
   Phone,
   UserCircle,
+    Tent,
+  GraduationCap,
+  Briefcase,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -54,6 +57,9 @@ const mainItems = [
   { title: "Daily Reports", url: "/daily-reports", icon: ClipboardCheck },
   { title: "Weekly Reports", url: "/weekly-reports", icon: CalendarRange },
   { title: "DigiLocker", url: "/digilocker", icon: ShieldCheck },
+   { title: "Expo Leads", url: "/expo-leads", icon: Tent },
+  { title: "Workshop Leads", url: "/workshop-leads", icon: GraduationCap },
+  { title: "Projects", url: "/projects", icon: Briefcase },
   { title: "Holidays", url: "/holidays", icon: CalendarDays },
   { title: "Reports", url: "/reports", icon: BarChart3 },
 ];
