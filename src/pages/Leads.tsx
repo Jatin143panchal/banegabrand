@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,9 @@ import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
-  Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar, TrendingUp, BarChart3
+  Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
+  Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
+  MessageCircle, Calendar
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -27,54 +27,68 @@ import { isToday, subDays, format } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
-// ── Stages config ─────────────────────────────────────────────────────────────
+// ── Stages config ──────────────────────────────────────────────────────────
+
 const DEFAULT_LEAD_STAGE = "ringing";
 
 const LEAD_STAGES = [
-  { value: "ringing",   label: "Ringing",   color: "#f97316", bg: "#fff7ed", icon: "📞" },
-  { value: "callback",  label: "Callback",  color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
-  { value: "dp",        label: "DP",        color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
-  { value: "vms",       label: "VMS",       color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
-  { value: "pg",        label: "PG",        color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
+  { value: "ringing", label: "Ringing", color: "#f97316", bg: "#fff7ed", icon: "📞" },
+  { value: "callback", label: "Callback", color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
+  { value: "dp", label: "DP", color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
+  { value: "vms", label: "VMS", color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
+  { value: "pg", label: "PG", color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
   { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
+  { value: "not_interested", label: "Not Interested", color: "#6b7280", bg: "#f9fafb", icon: "🚫" },
+  { value: "lost", label: "Lost", color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
 
+// Removed duplicate converted/meeting_booked/business_generated from LEAD_STATUSES
 const LEAD_STATUSES = [
-  { value: "Ringing",            label: "Ringing"           },
-  { value: "Callback",           label: "Callback"          },
-  { value: "DP",                 label: "DP"                },
-  { value: "VMS",                label: "VMS"               },
-  { value: "PG",                 label: "PG"                },
-  { value: "Converted",          label: "Converted"         },
-  { value: "Meeting Booked",     label: "Meeting Booked"    },
-  { value: "Business Generated", label: "Business Generated"},
+  { value: "ringing", label: "Ringing" },
+  { value: "callback", label: "Callback" },
+  { value: "dp", label: "DP" },
+  { value: "vms", label: "VMS" },
+  { value: "pg", label: "PG" },
+  { value: "converted", label: "Converted" },
+  { value: "not_interested", label: "Not Interested" },
+  { value: "lost", label: "Lost" },
 ];
 
 const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
-  ringing:  [
+  ringing: [
     { value: "ringing_1st", label: "1st Ring" },
     { value: "ringing_2nd", label: "2nd Ring" },
     { value: "ringing_3rd", label: "3rd Ring" },
   ],
   callback: [
     { value: "callback_scheduled", label: "Callback Scheduled" },
-    { value: "callback_done",      label: "Callback Done"      },
+    { value: "callback_done", label: "Callback Done" },
   ],
-  dp:       [
-    { value: "dp_sent",     label: "DP Sent"     },
+  dp: [
+    { value: "dp_sent", label: "DP Sent" },
     { value: "dp_reviewed", label: "DP Reviewed" },
   ],
-  vms:      [
-    { value: "vms_left",    label: "VMS Left"    },
+  vms: [
+    { value: "vms_left", label: "VMS Left" },
     { value: "vms_replied", label: "VMS Replied" },
   ],
-  pg:       [
+  pg: [
     { value: "pg_initiated", label: "PG Initiated" },
     { value: "pg_confirmed", label: "PG Confirmed" },
   ],
-  converted:[
-    { value: "meeting_booked",      label: "Meeting Booked"      },
-    { value: "business_generated",  label: "Business Generated"  },
+  converted: [
+    { value: "meeting_booked", label: "Meeting Booked" },
+    { value: "business_generated", label: "Business Generated" },
+  ],
+  lost: [
+    { value: "lost_budget", label: "Budget Constraint" },
+    { value: "lost_timing", label: "Bad Timing" },
+    { value: "lost_other", label: "Other Reason" },
+  ],
+  not_interested: [
+    { value: "ni_price", label: "Price Issue" },
+    { value: "ni_timing", label: "Bad Timing" },
+    { value: "ni_other", label: "Other Reason" },
   ],
 };
 
@@ -84,7 +98,7 @@ function getSubStagesForStage(stage: string | null | undefined) {
 
 function formatStageLabel(value: string | null | undefined): string {
   if (!value) return "-";
-  for (const s of LEAD_STAGES)  if (s.value === value) return s.label;
+  for (const s of LEAD_STAGES) if (s.value === value) return s.label;
   for (const arr of Object.values(SUB_STAGES)) for (const s of arr) if (s.value === value) return s.label;
   for (const s of LEAD_STATUSES) if (s.value === value) return s.label;
   return value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -93,7 +107,8 @@ function formatStageLabel(value: string | null | undefined): string {
 function getStageConfig(stage: string | null | undefined) {
   return LEAD_STAGES.find(s => s.value === stage) || null;
 }
-// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────
 
 interface DbLead {
   id: string; name: string; email: string | null; phone: string | null; company: string | null;
@@ -104,36 +119,48 @@ interface DbLead {
   assign_date?: string | null;
 }
 
-const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
-const BUDGETS    = ["₹5l+", "₹50k - ₹1l", "₹1l - ₹3l", "₹3l - ₹5l", "Below ₹50k"];
+interface Profile {
+  user_id: string;
+  display_name: string | null;
+}
 
-const formatCurrency = (val: number) => `₹${(val / 100000).toFixed(1)}L`;
+const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
+const BUDGETS = ["₹5l+", "₹50k - ₹1l", "₹1l - ₹3l", "₹3l - ₹5l", "Below ₹50k"];
+
+const formatCurrency = (val: number | null) => `₹${((val || 0) / 100000).toFixed(1)}L`;
 
 function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 }
 
 const AVATAR_COLORS = [
-  "#3b82f6","#8b5cf6","#ec4899","#f97316","#10b981","#06b6d4","#f59e0b","#ef4444",
+  "#3b82f6", "#8b5cf6", "#ec4899", "#f97316", "#10b981", "#06b6d4", "#f59e0b", "#ef4444",
 ];
+
 function avatarColor(name: string) {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  if (!name) return AVATAR_COLORS[0];
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
   return AVATAR_COLORS[h];
 }
 
 function getLeadScore(lead: DbLead): number {
   let score = 0;
-  if (lead.name)    score += 10;
-  if (lead.email)   score += 15;
-  if (lead.phone)   score += 15;
+  if (lead.name) score += 10;
+  if (lead.email) score += 15;
+  if (lead.phone) score += 15;
   if (lead.company) score += 10;
-  if (lead.source)  score += 10;
+  if (lead.source) score += 10;
   if ((lead.value || 0) > 0) score += 15;
-  if      (lead.status === "converted")  score += 30;
-  else if (lead.status === "qualified")  score += 25;
-  else if (lead.status === "answered")   score += 20;
-  else if (lead.status === "contacted")  score += 15;
-  else if (lead.status === "new")        score += 5;
+  const stage = lead.stage || lead.status || "";
+  if (stage === "converted") score += 30;
+  else if (stage === "pg") score += 25;
+  else if (stage === "dp") score += 20;
+  else if (stage === "callback") score += 15;
+  else if (stage === "vms") score += 12;
+  else if (stage === "ringing") score += 5;
+  else if (stage === "not_interested") score += 0;
+  else if (stage === "lost") score += 0;
   if (lead.sub_stage === "meeting_booked" || lead.sub_stage === "business_generated") score += 10;
   return Math.min(score, 100);
 }
@@ -153,7 +180,7 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-// ── Stage Pill ────────────────────────────────────────────────────────────────
+// ── Stage Pill ──────────────────────────────────────────────────────────
 function StagePill({ stage, subStage }: { stage: string | null; subStage: string | null }) {
   const cfg = getStageConfig(stage);
   if (!cfg) return <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>;
@@ -164,7 +191,7 @@ function StagePill({ stage, subStage }: { stage: string | null; subStage: string
         fontSize: 11, fontWeight: 600, color: cfg.color, background: cfg.bg,
         border: `1px solid ${cfg.color}30`,
       }}>
-        {cfg.label}
+        {cfg.icon} {cfg.label}
       </span>
       {subStage && (
         <span style={{ fontSize: 10, color: "#64748b" }}>{formatStageLabel(subStage)}</span>
@@ -208,25 +235,25 @@ function EmployeeCard({ name, count, onClick, active }: {
 // ── Employee Lead Count Modal ─────────────────────────────────────────────────
 interface EmployeeLeadCountModalProps {
   leads: DbLead[];
-  profiles: { user_id: string; display_name: string | null }[];
+  profiles: Profile[];
   open: boolean;
   onClose: () => void;
   onFilterByEmployee: (userId: string) => void;
 }
 
 function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmployee }: EmployeeLeadCountModalProps) {
-  const employeeStats = profiles.map(p => {
+  const employeeStats = useMemo(() => profiles.map(p => {
     const empLeads = leads.filter(l => l.assigned_to === p.user_id);
     const stageBreakdown = LEAD_STAGES.map(s => ({
       ...s, count: empLeads.filter(l => l.stage === s.value).length,
     }));
     return { ...p, total: empLeads.length, converted: empLeads.filter(l => l.stage === "converted").length, stageBreakdown };
-  }).sort((a, b) => b.total - a.total);
+  }).sort((a, b) => b.total - a.total), [leads, profiles]);
 
   const unassigned = leads.filter(l => !l.assigned_to).length;
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={() => onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -289,7 +316,30 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
     </Dialog>
   );
 }
-// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────
+
+interface LeadFormData {
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  source: string;
+  value: string;
+  lead_type: string;
+  address: string;
+  cx_comment: string;
+  budget: string;
+  stage: string;
+  sub_stage: string;
+  remark: string;
+}
+
+const emptyForm: LeadFormData = {
+  name: "", email: "", phone: "", company: "", source: "Website", value: "",
+  lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
+  budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
+};
 
 export default function Leads() {
   const { user } = useAuth();
@@ -302,36 +352,46 @@ export default function Leads() {
   const updateLead = useCrmUpdate<Record<string, unknown>>("leads");
   const deleteLead = useCrmDelete("leads");
 
-  const [search, setSearch]                 = useState("");
-  const [filterStatus, setFilterStatus]     = useState("all");
-  const [filterStage, setFilterStage]       = useState("all");
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStage, setFilterStage] = useState("all");
   const [filterAssignment, setFilterAssignment] = useState("all");
   const [filterEmployee, setFilterEmployee] = useState("all");
   const [filterLeadType, setFilterLeadType] = useState("all");
-  const [filterBudget, setFilterBudget]     = useState("all");
-  const [dateFrom, setDateFrom]             = useState("");
-  const [dateTo, setDateTo]                 = useState("");
-  const [dialogOpen, setDialogOpen]         = useState(false);
-  const [uploadOpen, setUploadOpen]         = useState(false);
-  const [detailLead, setDetailLead]         = useState<DbLead | null>(null);
-  const [editLead, setEditLead]             = useState<DbLead | null>(null);
-  const [filterPreset, setFilterPreset]     = useState("all");
-  const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set());
-  const [bulkAssignTo, setBulkAssignTo]     = useState("");
-  const [empModalOpen, setEmpModalOpen]     = useState(false);
+  const [filterBudget, setFilterBudget] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [detailLead, setDetailLead] = useState<DbLead | null>(null);
+  const [editLead, setEditLead] = useState<DbLead | null>(null);
+  const [filterPreset, setFilterPreset] = useState("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAssignTo, setBulkAssignTo] = useState("");
+  const [empModalOpen, setEmpModalOpen] = useState(false);
   const bulkAssign = useBulkAssignLeads();
-  const [uploadPreview, setUploadPreview]   = useState<any[]>([]);
-  const [uploading, setUploading]           = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<any[]>([]);
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const emptyForm = {
-    name: "", email: "", phone: "", company: "", source: "Website", value: "",
-    lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
-    budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
-  };
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<LeadFormData>(emptyForm);
 
-  // ── assign lead (inline dropdown) ──
+  // ── Auto-refresh every 30 seconds ──
+  useEffect(() => {
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [queryClient]);
+
+  // ── Helper: invalidate all lead queries (instant refresh) ──
+  const refreshLeads = () => {
+    queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+    queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
+  };
+
+  // ── assign lead (inline dropdown) — refreshes immediately ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       const assign_date = new Date().toISOString();
@@ -342,8 +402,7 @@ export default function Leads() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
+      refreshLeads();
       toast.success("Lead assigned successfully");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -351,7 +410,7 @@ export default function Leads() {
 
   const getProfileName = (userId: string | null) => {
     if (!userId) return "Unassigned";
-    const p = (profiles as { user_id: string; display_name: string | null }[]).find(p => p.user_id === userId);
+    const p = profiles.find(p => p.user_id === userId);
     return p?.display_name || "Unknown";
   };
 
@@ -360,36 +419,40 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   };
 
-  // ── filtering ──
-  const filtered = leads.filter(l => {
-    const matchSearch =
-      l.name.toLowerCase().includes(search.toLowerCase()) ||
-      (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
-      (l.phone || "").includes(search) ||
-      (l.email || "").toLowerCase().includes(search.toLowerCase());
-    const matchStatus     = filterStatus === "all"     || l.status === filterStatus;
-    const matchStage      = filterStage === "all"      || l.stage === filterStage;
-    const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
-    const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
-    const matchAssignment =
-      filterAssignment === "all" ||
-      (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
-      (filterAssignment === "unassigned" && !l.assigned_to);
-    const matchEmployee =
-      filterEmployee === "all" ||
-      (filterEmployee === "unassigned" && !l.assigned_to) ||
-      l.assigned_to === filterEmployee;
-    const matchPreset =
-      filterPreset === "all" ||
-      (filterPreset === "today"    && isToday(new Date(l.created_at))) ||
-      (filterPreset === "fresh"    && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
-      (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
-    const createdAt = new Date(l.created_at);
-    const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
-    const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
-    return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
-           matchAssignment && matchEmployee && matchPreset && matchDateFrom && matchDateTo;
-  });
+  // ── filtering with useMemo for performance ──
+  const filtered = useMemo(() => {
+    return leads.filter(l => {
+      const matchSearch =
+        (l.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
+        (l.phone || "").includes(search) ||
+        (l.email || "").toLowerCase().includes(search.toLowerCase());
+      const matchStatus = filterStatus === "all" || l.status === filterStatus;
+      const matchStage = filterStage === "all" || l.stage === filterStage;
+      const matchLeadType = filterLeadType === "all" || l.lead_type === filterLeadType;
+      const matchBudget = filterBudget === "all" || l.budget === filterBudget;
+      const matchAssignment =
+        filterAssignment === "all" ||
+        (filterAssignment === "mine" && l.assigned_to === user?.id) ||
+        (filterAssignment === "unassigned" && !l.assigned_to);
+      const matchEmployee =
+        filterEmployee === "all" ||
+        (filterEmployee === "unassigned" && !l.assigned_to) ||
+        l.assigned_to === filterEmployee;
+      const matchPreset =
+        filterPreset === "all" ||
+        (filterPreset === "today" && isToday(new Date(l.created_at))) ||
+        (filterPreset === "fresh" && (l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
+        (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date()) ||
+        (filterPreset === "not_interested" && l.stage === "not_interested");
+      const createdAt = new Date(l.created_at);
+      const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
+      const matchDateTo = !dateTo || createdAt <= new Date(dateTo + "T23:59:59");
+      return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
+        matchAssignment && matchEmployee && matchPreset && matchDateFrom && matchDateTo;
+    });
+  }, [leads, search, filterStatus, filterStage, filterLeadType, filterBudget, 
+      filterAssignment, filterEmployee, filterPreset, dateFrom, dateTo, user?.id]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -403,25 +466,41 @@ export default function Leads() {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     try {
       const assign_date = new Date().toISOString();
-      // Update assign_date for all bulk assigned leads
       await supabase.from("leads")
         .update({ assigned_to: bulkAssignTo, assign_date })
         .in("id", Array.from(selectedIds));
-      const count = await bulkAssign.mutateAsync({ leadIds: Array.from(selectedIds), assignedTo: bulkAssignTo });
-      toast.success(`${count} leads assigned successfully`);
+      await bulkAssign.mutateAsync({ leadIds: Array.from(selectedIds), assignedTo: bulkAssignTo });
+      refreshLeads();
+      toast.success(`${selectedIds.size} leads assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
-    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Assign failed"); }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Assign failed");
+    }
   };
 
   const handleAdd = async () => {
-    if (!form.name || !form.email) { toast.error("Name and Email are required"); return; }
+    if (!form.name || !form.email) {
+      toast.error("Name and Email are required");
+      return;
+    }
     await insertLead.mutateAsync({
-      name: form.name, email: form.email, phone: form.phone, company: form.company,
-      source: form.source, value: Number(form.value) || 0, status: "new" as any,
-      lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
-      budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
+      name: form.name,
+      email: form.email,
+      phone: form.phone || null,
+      company: form.company || null,
+      source: form.source,
+      value: Number(form.value) || 0,
+      status: form.stage,
+      lead_type: form.lead_type,
+      address: form.address || null,
+      cx_comment: form.cx_comment || null,
+      budget: form.budget,
+      stage: form.stage,
+      sub_stage: form.sub_stage || null,
+      remark: form.remark || null,
     } as any);
+    refreshLeads();
     setForm(emptyForm);
     setDialogOpen(false);
     toast.success("Lead added successfully");
@@ -438,24 +517,27 @@ export default function Leads() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
         const mapped = jsonData.map((row: any) => ({
-          name:       row.Name || row.name || row["Full Name"] || row["Lead Name"] || "",
-          email:      row.Email || row.email || row["Email Address"] || "",
-          phone:      String(row.Number || row.Phone || row.phone || row["Mobile"] || row["Phone Number"] || ""),
-          company:    row.Company || row.company || row["Company Name"] || row["Organization"] || "",
-          source:     row.Source || row.source || row["Lead Source"] || "Excel Import",
-          value:      Number(row.Value || row.value || row["Deal Value"] || 0),
-          lead_type:  row["Lead type"] || row["Lead Type"] || row.lead_type || "",
-          address:    row.Address || row.address || "",
+          name: row.Name || row.name || row["Full Name"] || row["Lead Name"] || "",
+          email: row.Email || row.email || row["Email Address"] || "",
+          phone: String(row.Number || row.Phone || row.phone || row["Mobile"] || row["Phone Number"] || ""),
+          company: row.Company || row.company || row["Company Name"] || row["Organization"] || "",
+          source: row.Source || row.source || row["Lead Source"] || "Excel Import",
+          value: Number(row.Value || row.value || row["Deal Value"] || 0),
+          lead_type: row["Lead type"] || row["Lead Type"] || row.lead_type || "",
+          address: row.Address || row.address || "",
           cx_comment: row["CX Comment"] || row.cx_comment || row.Comment || "",
-          budget:     row.Budget || row.budget || "",
-          stage:      row.Stage || row.stage || "",
-          sub_stage:  row["Sub Stage"] || row.sub_stage || "",
-          remark:     row.Remark || row.remark || row.Remarks || "",
+          budget: row.Budget || row.budget || "",
+          stage: row.Stage || row.stage || DEFAULT_LEAD_STAGE,
+          sub_stage: row["Sub Stage"] || row.sub_stage || "",
+          remark: row.Remark || row.remark || row.Remarks || "",
         })).filter((r: any) => r.name);
         setUploadPreview(mapped);
         if (mapped.length === 0)
           toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value");
-      } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
+      } catch (err) {
+        console.error("File parse error:", err);
+        toast.error("Failed to parse file. Please upload a valid Excel or CSV file.");
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -467,32 +549,56 @@ export default function Leads() {
     for (const lead of uploadPreview) {
       try {
         await insertLead.mutateAsync({
-          name: lead.name, email: lead.email, phone: lead.phone, company: lead.company,
-          source: lead.source, value: lead.value, status: "new" as any,
-          lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-          budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage, remark: lead.remark,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone || null,
+          company: lead.company || null,
+          source: lead.source,
+          value: lead.value,
+          status: lead.stage,
+          lead_type: lead.lead_type || null,
+          address: lead.address || null,
+          cx_comment: lead.cx_comment || null,
+          budget: lead.budget || null,
+          stage: lead.stage,
+          sub_stage: lead.sub_stage || null,
+          remark: lead.remark || null,
         } as any);
         success++;
-      } catch { }
+      } catch (err) {
+        console.error("Lead import error:", err);
+      }
     }
     setUploading(false);
     setUploadPreview([]);
     setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
+    refreshLeads();
     toast.success(`${success} leads imported successfully!`);
   };
 
   const handleUpdate = async () => {
     if (!editLead) return;
     await updateLead.mutateAsync({
-      id: editLead.id, name: editLead.name, email: editLead.email, phone: editLead.phone,
-      company: editLead.company, source: editLead.source, value: editLead.value,
-      status: editLead.status as any, business_status: editLead.business_status,
-      lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
-      budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage,
+      id: editLead.id,
+      name: editLead.name,
+      email: editLead.email,
+      phone: editLead.phone,
+      company: editLead.company,
+      source: editLead.source,
+      value: editLead.value,
+      status: editLead.stage as any,
+      business_status: editLead.business_status,
+      lead_type: editLead.lead_type,
+      address: editLead.address,
+      cx_comment: editLead.cx_comment,
+      budget: editLead.budget,
+      stage: editLead.stage,
+      sub_stage: editLead.sub_stage,
       remark: editLead.remark,
     } as any);
-    logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
+    logActivity(editLead.id, "updated", `Stage: ${editLead.stage}`);
+    refreshLeads();
     setEditLead(null);
     toast.success("Lead updated");
   };
@@ -500,16 +606,27 @@ export default function Leads() {
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this lead?")) return;
     await deleteLead.mutateAsync(id);
+    refreshLeads();
     setDetailLead(null);
     toast.success("Lead deleted");
   };
 
   const handleExport = () => {
     const exportData = leads.map(l => ({
-      Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
-      "Lead type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
-      Budget: l.budget, Stage: l.stage, "Sub Stage": l.sub_stage, Remark: l.remark,
-      Source: l.source, Status: l.status, Value: l.value,
+      Name: l.name,
+      Email: l.email,
+      Number: l.phone,
+      Company: l.company,
+      "Lead type": l.lead_type,
+      Address: l.address,
+      "CX Comment": l.cx_comment,
+      Budget: l.budget,
+      Stage: l.stage,
+      "Sub Stage": l.sub_stage,
+      Remark: l.remark,
+      Source: l.source,
+      Status: l.status,
+      Value: l.value,
       "Business Status": l.business_status,
       "Assigned To": getProfileName(l.assigned_to),
       "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
@@ -523,11 +640,24 @@ export default function Leads() {
   };
 
   const clearFilters = () => {
-    setSearch(""); setFilterStatus("all"); setFilterStage("all");
-    setFilterAssignment("all"); setFilterEmployee("all");
-    setFilterLeadType("all"); setFilterBudget("all");
-    setDateFrom(""); setDateTo(""); setFilterPreset("all");
+    setSearch("");
+    setFilterStatus("all");
+    setFilterStage("all");
+    setFilterAssignment("all");
+    setFilterEmployee("all");
+    setFilterLeadType("all");
+    setFilterBudget("all");
+    setDateFrom("");
+    setDateTo("");
+    setFilterPreset("all");
   };
+
+  // Computed stats with useMemo
+  const stats = useMemo(() => ({
+    totalValue: leads.reduce((s, l) => s + (l.value || 0), 0),
+    convertedCount: leads.filter(l => l.stage === "converted").length,
+    notInterestedCount: leads.filter(l => l.stage === "not_interested").length,
+  }), [leads]);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -535,11 +665,7 @@ export default function Leads() {
     </div>
   );
 
-  const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
-
-  // ── Stats ──
-  const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
-  const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
+  const typedProfiles = profiles as Profile[];
 
   return (
     <div className="space-y-5">
@@ -611,16 +737,16 @@ export default function Leads() {
               <DialogHeader><DialogTitle>Add New Lead</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4 sm:grid-cols-2">
                 {[
-                  { label: "Name *",    key: "name"    },
-                  { label: "Email *",   key: "email"   },
-                  { label: "Number",    key: "phone"   },
-                  { label: "Company",   key: "company" },
-                  { label: "Address",   key: "address" },
-                  { label: "Value (₹)", key: "value"   },
+                  { label: "Name *", key: "name" },
+                  { label: "Email *", key: "email" },
+                  { label: "Number", key: "phone" },
+                  { label: "Company", key: "company" },
+                  { label: "Address", key: "address" },
+                  { label: "Value (₹)", key: "value" },
                 ].map(f => (
                   <div key={f.key} className="grid gap-2">
                     <Label>{f.label}</Label>
-                    <Input value={(form as any)[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
+                    <Input value={form[f.key as keyof LeadFormData] as string} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
                   </div>
                 ))}
                 <div className="grid gap-2">
@@ -641,7 +767,7 @@ export default function Leads() {
                   <Label>Brand Stage</Label>
                   <Select value={form.stage} onValueChange={v => setForm({ ...form, stage: v, sub_stage: "" })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="grid gap-2">
@@ -659,7 +785,7 @@ export default function Leads() {
                   <Select value={form.source} onValueChange={v => setForm({ ...form, source: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["Website","Referral","LinkedIn","Cold Call","Trade Show","Excel Import","WhatsApp","Facebook Ads","Google Ads"].map(s =>
+                      {["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s =>
                         <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -683,8 +809,12 @@ export default function Leads() {
 
       {/* ── Top Cards: Total + Employees ── */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {/* Total leads card */}
-        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
+        {/* Total leads card — clickable to reset filters */}
+        <Card
+          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+          onClick={clearFilters}
+          className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
+        >
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
@@ -696,7 +826,31 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to reset filters</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Not Interested quick stat */}
+        <Card
+          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+          onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
+          className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
+        >
+          <CardContent className="p-4">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, background: "#f9fafb",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 24,
+              }}>
+                🚫
+              </div>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Not Interested</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to filter</p>
               </div>
             </div>
           </CardContent>
@@ -762,8 +916,8 @@ export default function Leads() {
         </CardContent>
       </Card>
 
-      {/* ── Filters ── */}
-      <Card className="sticky top-0 z-20 shadow-md">
+      {/* ── Filters (sticky) ── */}
+      <Card className="sticky top-0 z-30 shadow-md bg-white">
         <CardHeader className="pb-3">
           {/* Row 1: Search + dropdowns */}
           <div className="flex flex-wrap gap-2">
@@ -819,12 +973,13 @@ export default function Leads() {
             </div>
             <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
             <Select value={filterPreset} onValueChange={setFilterPreset}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Time</SelectItem>
                 <SelectItem value="today">Today's Leads</SelectItem>
                 <SelectItem value="fresh">Fresh Leads</SelectItem>
                 <SelectItem value="followup">Follow-up Due</SelectItem>
+                <SelectItem value="not_interested">🚫 Not Interested</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -906,8 +1061,16 @@ export default function Leads() {
                     const score = getLeadScore(lead);
                     const assignee = getProfileName(lead.assigned_to);
                     const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
+                    const isNotInterested = lead.stage === "not_interested";
                     return (
-                      <TableRow key={lead.id} style={{ verticalAlign: "middle" }}>
+                      <TableRow
+                        key={lead.id}
+                        style={{
+                          verticalAlign: "middle",
+                          opacity: isNotInterested ? 0.65 : 1,
+                          background: isNotInterested ? "#f9fafb" : undefined,
+                        }}
+                      >
                         {canAssign && (
                           <TableCell>
                             <Checkbox
@@ -917,7 +1080,15 @@ export default function Leads() {
                           </TableCell>
                         )}
                         <TableCell>
-                          <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                            {isNotInterested && (
+                              <span style={{
+                                fontSize: 10, padding: "1px 6px", borderRadius: 8,
+                                background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb",
+                              }}>NI</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
                         <TableCell>
@@ -954,7 +1125,10 @@ export default function Leads() {
                             </div>
                           ) : (
                             canAssign ? (
-                              <Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
+                              <Select
+                                value=""
+                                onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}
+                              >
                                 <SelectTrigger className="w-32 h-7 text-xs">
                                   <SelectValue placeholder="Assign..." />
                                 </SelectTrigger>
@@ -1072,14 +1246,15 @@ export default function Leads() {
                     onValueChange={async (v) => {
                       const updated = { ...detailLead, stage: v, sub_stage: "" };
                       setDetailLead(updated);
-                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "" } as any);
+                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "", status: v } as any);
                       logActivity(detailLead.id, "updated", `Stage: ${v}`);
+                      refreshLeads();
                       toast.success("Stage updated");
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1094,6 +1269,7 @@ export default function Leads() {
                       setDetailLead({ ...detailLead, sub_stage: val });
                       await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
                       logActivity(detailLead.id, "updated", `Sub Stage: ${val}`);
+                      refreshLeads();
                       toast.success("Sub Stage updated");
                     }}
                   >
@@ -1112,7 +1288,7 @@ export default function Leads() {
                     background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", fontWeight: 600,
                   }}>{formatStageLabel(detailLead.status)}</span>
                 </div>
-                <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value)}</p></div>
                 <div><p className="text-muted-foreground text-xs">Business Status</p><p className="font-medium">{detailLead.business_status || "Active"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Assigned To</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
                 <div><p className="text-muted-foreground text-xs">Assign Date</p>
@@ -1144,7 +1320,7 @@ export default function Leads() {
                 )}
                 {detailLead.phone && (
                   <Button size="sm" variant="outline" asChild>
-                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank"
+                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer"
                       onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}>
                       <MessageCircle className="mr-1 h-3 w-3" />WhatsApp
                     </a>
@@ -1164,9 +1340,9 @@ export default function Leads() {
           {editLead && (
             <div className="grid gap-4 py-4 sm:grid-cols-2">
               {[
-                { label: "Name",    key: "name"    },
-                { label: "Email",   key: "email"   },
-                { label: "Number",  key: "phone"   },
+                { label: "Name", key: "name" },
+                { label: "Email", key: "email" },
+                { label: "Number", key: "phone" },
                 { label: "Company", key: "company" },
                 { label: "Address", key: "address" },
               ].map(f => (
@@ -1197,7 +1373,7 @@ export default function Leads() {
                 <Label>Brand Stage</Label>
                 <Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}>
                   <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
@@ -1211,17 +1387,10 @@ export default function Leads() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
                 <Label>Business Status</Label>
                 <Select value={editLead.business_status || "active"} onValueChange={v => setEditLead({ ...editLead, business_status: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{["active","no-go","done"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  <SelectContent>{["active", "no-go", "done"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
@@ -1229,7 +1398,7 @@ export default function Leads() {
                 <Select value={editLead.source || "Website"} onValueChange={v => setEditLead({ ...editLead, source: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["Website","Referral","LinkedIn","Cold Call","Trade Show","Excel Import","WhatsApp","Facebook Ads","Google Ads"].map(s =>
+                    {["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s =>
                       <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
