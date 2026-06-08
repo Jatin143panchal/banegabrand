@@ -18,7 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar, Filter, UserCircle, TrendingUp, Target, Award
+  MessageCircle, Calendar, Filter, UserCircle
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -668,7 +668,7 @@ export default function Leads() {
   return (
     <div className="space-y-5">
       {/* Sticky Header Wrapper - Everything here stays frozen */}
-      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 pt-3 pb-2 space-y-3 border-b shadow-lg">
+      <div className="sticky top-0 z-50 bg-white pt-3 pb-2 space-y-3 border-b shadow-lg">
         
         {/* Header Section */}
         <div className="px-4">
@@ -824,26 +824,25 @@ export default function Leads() {
         </div>
 
         {/* Top Cards: Total + Employees - WITH COUNTING NUMBERS */}
-        <div className="px-4">
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div className="px-4 overflow-x-auto">
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             {/* Total leads card */}
             <Card
-              style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 140, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={clearFilters}
               className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
             >
-              <CardContent className="p-4">
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{
-                    width: 48, height: 48, borderRadius: 12, background: "#eff6ff",
+                    width: 40, height: 40, borderRadius: 10, background: "#eff6ff",
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>
-                    <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
+                    <Users style={{ color: "#3b82f6", width: 20, height: 20 }} />
                   </div>
                   <div>
-                    <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
-                    <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
-                    <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to reset filters</p>
+                    <p style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
+                    <p style={{ fontSize: 11, color: "#64748b" }}>Total Leads</p>
                   </div>
                 </div>
               </CardContent>
@@ -851,18 +850,15 @@ export default function Leads() {
 
             {/* Ringing Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "ringing" ? "all" : "ringing")}
-              className="hover:shadow-md hover:ring-2 hover:ring-orange-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-orange-200 ${filterStage === "ringing" ? "ring-2 ring-orange-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#fff7ed",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>📞</div>
+                  <span style={{ fontSize: 24 }}>📞</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.ringingCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.ringingCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>Ringing</p>
                   </div>
                 </div>
@@ -871,18 +867,15 @@ export default function Leads() {
 
             {/* Callback Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "callback" ? "all" : "callback")}
-              className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-blue-200 ${filterStage === "callback" ? "ring-2 ring-blue-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#eff6ff",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>🔔</div>
+                  <span style={{ fontSize: 24 }}>🔔</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.callbackCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.callbackCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>Callback</p>
                   </div>
                 </div>
@@ -891,18 +884,15 @@ export default function Leads() {
 
             {/* DP Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "dp" ? "all" : "dp")}
-              className="hover:shadow-md hover:ring-2 hover:ring-purple-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-purple-200 ${filterStage === "dp" ? "ring-2 ring-purple-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#f5f3ff",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>📋</div>
+                  <span style={{ fontSize: 24 }}>📋</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#8b5cf6" }}>{stats.dpCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#8b5cf6" }}>{stats.dpCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>DP</p>
                   </div>
                 </div>
@@ -911,18 +901,15 @@ export default function Leads() {
 
             {/* VMS Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "vms" ? "all" : "vms")}
-              className="hover:shadow-md hover:ring-2 hover:ring-cyan-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-cyan-200 ${filterStage === "vms" ? "ring-2 ring-cyan-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#ecfeff",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>🎙</div>
+                  <span style={{ fontSize: 24 }}>🎙</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#06b6d4" }}>{stats.vmsCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#06b6d4" }}>{stats.vmsCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>VMS</p>
                   </div>
                 </div>
@@ -931,18 +918,15 @@ export default function Leads() {
 
             {/* PG Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "pg" ? "all" : "pg")}
-              className="hover:shadow-md hover:ring-2 hover:ring-pink-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-pink-200 ${filterStage === "pg" ? "ring-2 ring-pink-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#fdf2f8",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>👥</div>
+                  <span style={{ fontSize: 24 }}>👥</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#ec4899" }}>{stats.pgCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#ec4899" }}>{stats.pgCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>PG</p>
                   </div>
                 </div>
@@ -951,18 +935,15 @@ export default function Leads() {
 
             {/* Converted Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "converted" ? "all" : "converted")}
-              className="hover:shadow-md hover:ring-2 hover:ring-green-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-green-200 ${filterStage === "converted" ? "ring-2 ring-green-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#ecfdf5",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>✅</div>
+                  <span style={{ fontSize: 24 }}>✅</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#10b981" }}>{stats.convertedTotal}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#10b981" }}>{stats.convertedTotal}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>Converted</p>
                   </div>
                 </div>
@@ -971,18 +952,15 @@ export default function Leads() {
 
             {/* Not Interested Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
-              className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-gray-200 ${filterStage === "not_interested" ? "ring-2 ring-gray-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#f9fafb",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>🚫</div>
+                  <span style={{ fontSize: 24 }}>🚫</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>Not Int.</p>
                   </div>
                 </div>
@@ -991,58 +969,56 @@ export default function Leads() {
 
             {/* Lost Count Card */}
             <Card
-              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={() => setFilterStage(filterStage === "lost" ? "all" : "lost")}
-              className="hover:shadow-md hover:ring-2 hover:ring-red-200"
+              className={`hover:shadow-md hover:ring-2 hover:ring-red-200 ${filterStage === "lost" ? "ring-2 ring-red-500" : ""}`}
             >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, background: "#fef2f2",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
-                  }}>❌</div>
+                  <span style={{ fontSize: 24 }}>❌</span>
                   <div>
-                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.lostCount}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.lostCount}</p>
                     <p style={{ fontSize: 10, color: "#64748b" }}>Lost</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-
-            {/* Employees panel */}
-            {canAssign && typedProfiles.length > 0 && (
-              <Card style={{ flex: 1, minWidth: 300 }}>
-                <CardContent className="p-4">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <div>
-                      <p style={{ fontWeight: 600, fontSize: 14 }}>Leads by Employee</p>
-                      <p style={{ fontSize: 11, color: "#94a3b8" }}>See how many leads are assigned to each employee.</p>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setEmpModalOpen(true)}>View All</Button>
-                  </div>
-                  <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
-                    {typedProfiles.slice(0, 5).map(p => (
-                      <EmployeeCard
-                        key={p.user_id}
-                        name={p.display_name || "Unknown"}
-                        count={leads.filter(l => l.assigned_to === p.user_id).length}
-                        active={filterEmployee === p.user_id}
-                        onClick={() => setFilterEmployee(filterEmployee === p.user_id ? "all" : p.user_id)}
-                      />
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
 
+        {/* Employees panel */}
+        {canAssign && typedProfiles.length > 0 && (
+          <div className="px-4">
+            <Card>
+              <CardContent className="p-3">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div>
+                    <p style={{ fontWeight: 600, fontSize: 13 }}>Leads by Employee</p>
+                    <p style={{ fontSize: 10, color: "#94a3b8" }}>Click on employee to filter</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setEmpModalOpen(true)}>View All</Button>
+                </div>
+                <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+                  {typedProfiles.slice(0, 6).map(p => (
+                    <EmployeeCard
+                      key={p.user_id}
+                      name={p.display_name || "Unknown"}
+                      count={leads.filter(l => l.assigned_to === p.user_id).length}
+                      active={filterEmployee === p.user_id}
+                      onClick={() => setFilterEmployee(filterEmployee === p.user_id ? "all" : p.user_id)}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Filters Section - FULLY STICKY */}
-        <div className="px-4 sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="px-4">
           <Card className="shadow-md bg-white border">
             <CardHeader className="pb-2 pt-2">
               <div className="flex flex-wrap gap-2 items-center">
-                {/* Search */}
                 <div className="relative" style={{ flex: "1 1 200px", minWidth: 160 }}>
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -1053,11 +1029,8 @@ export default function Leads() {
                   />
                 </div>
                 
-                {/* Assigned To Filter */}
                 <Select value={filterAssignment} onValueChange={setFilterAssignment}>
-                  <SelectTrigger className="w-36 h-9">
-                    <SelectValue placeholder="All Employees" />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Employees" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Employees</SelectItem>
                     <SelectItem value="mine">Assigned to Me</SelectItem>
@@ -1065,58 +1038,33 @@ export default function Leads() {
                   </SelectContent>
                 </Select>
                 
-                {/* Lead Type Filter */}
                 <Select value={filterLeadType} onValueChange={setFilterLeadType}>
-                  <SelectTrigger className="w-36 h-9">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Types" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     {LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 
-                {/* Budget Filter */}
                 <Select value={filterBudget} onValueChange={setFilterBudget}>
-                  <SelectTrigger className="w-32 h-9">
-                    <SelectValue placeholder="All Budgets" />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-32 h-9"><SelectValue placeholder="All Budgets" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Budgets</SelectItem>
                     {BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 
-                {/* Date Range */}
                 <div className="flex items-center gap-2 bg-muted/30 rounded-md px-2 py-1">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={e => setDateFrom(e.target.value)}
-                    className="w-36 h-9 text-sm"
-                    placeholder="From Date"
-                  />
+                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-36 h-9 text-sm" />
                   <span className="text-muted-foreground text-xs">to</span>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={e => setDateTo(e.target.value)}
-                    className="w-36 h-9 text-sm"
-                    placeholder="To Date"
-                  />
+                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-36 h-9 text-sm" />
                 </div>
                 
-                {/* Clear Button */}
-                <Button variant="outline" size="sm" onClick={clearFilters} className="h-9">
-                  Clear
-                </Button>
+                <Button variant="outline" size="sm" onClick={clearFilters} className="h-9">Clear</Button>
                 
-                {/* Quick Filter */}
                 <Select value={filterPreset} onValueChange={setFilterPreset}>
-                  <SelectTrigger className="w-36 h-9">
-                    <SelectValue placeholder="All Time" />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Time" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Time</SelectItem>
                     <SelectItem value="today">Today's Leads</SelectItem>
@@ -1127,7 +1075,6 @@ export default function Leads() {
                 </Select>
               </div>
 
-              {/* Bulk assign bar */}
               {canAssign && selectedIds.size > 0 && (
                 <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
                   <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
@@ -1150,7 +1097,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* Leads Table Section - This scrolls */}
+      {/* Leads Table Section - WITH S.NO. */}
       <div className="px-4">
         <Card>
           <CardContent className="pt-6">
@@ -1170,6 +1117,7 @@ export default function Leads() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12 text-center">S.No.</TableHead>
                       {canAssign && (
                         <TableHead className="w-10">
                           <Checkbox
@@ -1200,11 +1148,12 @@ export default function Leads() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map(lead => {
+                    {filtered.map((lead, index) => {
                       const score = getLeadScore(lead);
                       const assignee = getProfileName(lead.assigned_to);
                       const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
                       const isNotInterested = lead.stage === "not_interested";
+                      const serialNo = index + 1;
                       return (
                         <TableRow
                           key={lead.id}
@@ -1214,6 +1163,9 @@ export default function Leads() {
                             background: isNotInterested ? "#f9fafb" : undefined,
                           }}
                         >
+                          <TableCell className="text-center text-muted-foreground font-medium">
+                            {serialNo}
+                          </TableCell>
                           {canAssign && (
                             <TableCell>
                               <Checkbox
