@@ -18,7 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar, Filter, UserCircle
+  MessageCircle, Calendar, Filter, UserCircle, TrendingUp, Target, Award
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -644,6 +644,13 @@ export default function Leads() {
     totalValue: leads.reduce((s, l) => s + (l.value || 0), 0),
     convertedCount: leads.filter(l => l.stage === "converted").length,
     notInterestedCount: leads.filter(l => l.stage === "not_interested").length,
+    ringingCount: leads.filter(l => l.stage === "ringing").length,
+    callbackCount: leads.filter(l => l.stage === "callback").length,
+    dpCount: leads.filter(l => l.stage === "dp").length,
+    vmsCount: leads.filter(l => l.stage === "vms").length,
+    pgCount: leads.filter(l => l.stage === "pg").length,
+    convertedTotal: leads.filter(l => l.stage === "converted").length,
+    lostCount: leads.filter(l => l.stage === "lost").length,
   }), [leads]);
 
   const currentEmployeeName = filterEmployee !== "all" && filterEmployee !== "unassigned" 
@@ -661,7 +668,7 @@ export default function Leads() {
   return (
     <div className="space-y-5">
       {/* Sticky Header Wrapper - Everything here stays frozen */}
-      <div className="sticky top-0 z-40 bg-background pt-3 pb-2 space-y-3 border-b shadow-lg">
+      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 pt-3 pb-2 space-y-3 border-b shadow-lg">
         
         {/* Header Section */}
         <div className="px-4">
@@ -816,9 +823,10 @@ export default function Leads() {
           </div>
         </div>
 
-        {/* Top Cards: Total + Employees */}
+        {/* Top Cards: Total + Employees - WITH COUNTING NUMBERS */}
         <div className="px-4">
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {/* Total leads card */}
             <Card
               style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
               onClick={clearFilters}
@@ -841,29 +849,167 @@ export default function Leads() {
               </CardContent>
             </Card>
 
+            {/* Ringing Count Card */}
             <Card
-              style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
-              onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
-              className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "ringing" ? "all" : "ringing")}
+              className="hover:shadow-md hover:ring-2 hover:ring-orange-200"
             >
-              <CardContent className="p-4">
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{
-                    width: 48, height: 48, borderRadius: 12, background: "#f9fafb",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 24,
-                  }}>
-                    🚫
-                  </div>
+                    width: 40, height: 40, borderRadius: 10, background: "#fff7ed",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>📞</div>
                   <div>
-                    <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
-                    <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Not Interested</p>
-                    <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to filter</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.ringingCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Ringing</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
+            {/* Callback Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "callback" ? "all" : "callback")}
+              className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#eff6ff",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>🔔</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.callbackCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Callback</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* DP Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "dp" ? "all" : "dp")}
+              className="hover:shadow-md hover:ring-2 hover:ring-purple-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#f5f3ff",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>📋</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#8b5cf6" }}>{stats.dpCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>DP</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* VMS Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "vms" ? "all" : "vms")}
+              className="hover:shadow-md hover:ring-2 hover:ring-cyan-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#ecfeff",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>🎙</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#06b6d4" }}>{stats.vmsCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>VMS</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* PG Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "pg" ? "all" : "pg")}
+              className="hover:shadow-md hover:ring-2 hover:ring-pink-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#fdf2f8",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>👥</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#ec4899" }}>{stats.pgCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>PG</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Converted Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "converted" ? "all" : "converted")}
+              className="hover:shadow-md hover:ring-2 hover:ring-green-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#ecfdf5",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>✅</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#10b981" }}>{stats.convertedTotal}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Converted</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Not Interested Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
+              className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#f9fafb",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>🚫</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Not Int.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Lost Count Card */}
+            <Card
+              style={{ minWidth: 140, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "lost" ? "all" : "lost")}
+              className="hover:shadow-md hover:ring-2 hover:ring-red-200"
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#fef2f2",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>❌</div>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.lostCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Lost</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Employees panel */}
             {canAssign && typedProfiles.length > 0 && (
               <Card style={{ flex: 1, minWidth: 300 }}>
                 <CardContent className="p-4">
@@ -891,44 +1037,9 @@ export default function Leads() {
           </div>
         </div>
 
-        {/* Stage Stats Bar */}
-        <div className="px-4">
-          <Card>
-            <CardContent className="p-4">
-              <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#374151" }}>Stages</p>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {LEAD_STAGES.map(s => {
-                  const count = leads.filter(l => l.stage === s.value).length;
-                  const active = filterStage === s.value;
-                  return (
-                    <button
-                      key={s.value}
-                      onClick={() => setFilterStage(active ? "all" : s.value)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        padding: "8px 16px", borderRadius: 10, cursor: "pointer",
-                        border: `2px solid ${active ? s.color : "#e2e8f0"}`,
-                        background: active ? s.bg : "white",
-                        transition: "all 0.15s", fontWeight: 500,
-                      }}
-                    >
-                      <span style={{ fontSize: 16 }}>{s.icon}</span>
-                      <span style={{ fontSize: 13, color: active ? s.color : "#374151" }}>{s.label}</span>
-                      <span style={{
-                        fontSize: 13, fontWeight: 700, color: "white",
-                        background: s.color, borderRadius: 8, padding: "1px 8px", marginLeft: 2,
-                      }}>{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters Section - THIS WILL BE FROZEN */}
-        <div className="px-4">
-          <Card className="shadow-md bg-white border-0">
+        {/* Filters Section - FULLY STICKY */}
+        <div className="px-4 sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <Card className="shadow-md bg-white border">
             <CardHeader className="pb-2 pt-2">
               <div className="flex flex-wrap gap-2 items-center">
                 {/* Search */}
