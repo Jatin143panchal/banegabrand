@@ -64,19 +64,21 @@ const DEFAULT_LEAD_STAGE = "ringing";
 
 const LEAD_STAGES = [
 
-  { value: "ringing",   label: "Ringing",   color: "#f97316", bg: "#fff7ed", icon: "📞" },
+  { value: "ringing",        label: "Ringing",        color: "#f97316", bg: "#fff7ed", icon: "📞" },
 
-  { value: "callback",  label: "Callback",  color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
+  { value: "callback",       label: "Callback",       color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
 
-  { value: "dp",        label: "DP",        color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
+  { value: "dp",             label: "DP",             color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
 
-  { value: "vms",       label: "VMS",       color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
+  { value: "vms",            label: "VMS",            color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
 
-  { value: "pg",        label: "PG",        color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
+  { value: "pg",             label: "PG",             color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
 
-  { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
+  { value: "converted",      label: "Converted",      color: "#10b981", bg: "#ecfdf5", icon: "✅" },
 
-  { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
+  { value: "not_interested", label: "Not Interested", color: "#6b7280", bg: "#f9fafb", icon: "🚫" },
+
+  { value: "lost",           label: "Lost",           color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 
 ];
 
@@ -84,21 +86,25 @@ const LEAD_STAGES = [
 
 const LEAD_STATUSES = [
 
-  { value: "Ringing",            label: "Ringing"           },
+  { value: "ringing",        label: "Ringing"        },
 
-  { value: "Callback",           label: "Callback"          },
+  { value: "callback",       label: "Callback"       },
 
-  { value: "DP",                 label: "DP"                },
+  { value: "dp",             label: "DP"             },
 
-  { value: "VMS",                label: "VMS"               },
+  { value: "vms",            label: "VMS"            },
 
-  { value: "PG",                 label: "PG"                },
+  { value: "pg",             label: "PG"             },
 
-  { value: "Converted",          label: "Converted"         },
+  { value: "converted",      label: "Converted"      },
 
-  { value: "Meeting Booked",     label: "Meeting Booked"    },
+  { value: "not_interested", label: "Not Interested" },
 
-  { value: "Business Generated", label: "Business Generated"},
+  { value: "lost",           label: "Lost"           },
+
+  { value: "meeting_booked",     label: "Meeting Booked"     },
+
+  { value: "business_generated", label: "Business Generated" },
 
 ];
 
@@ -150,9 +156,19 @@ const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
 
   converted:[
 
-    { value: "meeting_booked",      label: "Meeting Booked"      },
+    { value: "meeting_booked",     label: "Meeting Booked"     },
 
-    { value: "business_generated",  label: "Business Generated"  },
+    { value: "business_generated", label: "Business Generated" },
+
+  ],
+
+  not_interested: [
+
+    { value: "ni_price",   label: "Price Issue"    },
+
+    { value: "ni_timing",  label: "Bad Timing"     },
+
+    { value: "ni_other",   label: "Other Reason"   },
 
   ],
 
@@ -262,15 +278,23 @@ function getLeadScore(lead: DbLead): number {
 
   if ((lead.value || 0) > 0) score += 15;
 
-  if      (lead.status === "converted")  score += 30;
+  const stage = lead.stage || lead.status || "";
 
-  else if (lead.status === "qualified")  score += 25;
+  if      (stage === "converted")      score += 30;
 
-  else if (lead.status === "answered")   score += 20;
+  else if (stage === "pg")             score += 25;
 
-  else if (lead.status === "contacted")  score += 15;
+  else if (stage === "dp")             score += 20;
 
-  else if (lead.status === "new")        score += 5;
+  else if (stage === "callback")       score += 15;
+
+  else if (stage === "vms")            score += 12;
+
+  else if (stage === "ringing")        score += 5;
+
+  else if (stage === "not_interested") score += 0;
+
+  else if (stage === "lost")           score += 0;
 
   if (lead.sub_stage === "meeting_booked" || lead.sub_stage === "business_generated") score += 10;
 
@@ -332,7 +356,7 @@ function StagePill({ stage, subStage }: { stage: string | null; subStage: string
 
       }}>
 
-        {cfg.label}
+        {cfg.icon} {cfg.label}
 
       </span>
 
@@ -796,9 +820,11 @@ export default function Leads() {
 
       (filterPreset === "today"    && isToday(new Date(l.created_at))) ||
 
-      (filterPreset === "fresh"    && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
+      (filterPreset === "fresh"    && (l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
 
-      (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
+      (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date()) ||
+
+      (filterPreset === "not_interested" && l.stage === "not_interested");
 
     const createdAt = new Date(l.created_at);
 
@@ -846,7 +872,7 @@ export default function Leads() {
 
       const count = await bulkAssign.mutateAsync({ leadIds: Array.from(selectedIds), assignedTo: bulkAssignTo });
 
-      refreshLeads(); // instant refresh after bulk assign
+      refreshLeads();
 
       toast.success(`${count} leads assigned successfully`);
 
@@ -868,7 +894,7 @@ export default function Leads() {
 
       name: form.name, email: form.email, phone: form.phone, company: form.company,
 
-      source: form.source, value: Number(form.value) || 0, status: "new" as any,
+      source: form.source, value: Number(form.value) || 0, status: form.stage as any,
 
       lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
 
@@ -930,7 +956,7 @@ export default function Leads() {
 
           budget:     row.Budget || row.budget || "",
 
-          stage:      row.Stage || row.stage || "",
+          stage:      row.Stage || row.stage || DEFAULT_LEAD_STAGE,
 
           sub_stage:  row["Sub Stage"] || row.sub_stage || "",
 
@@ -970,7 +996,7 @@ export default function Leads() {
 
           name: lead.name, email: lead.email, phone: lead.phone, company: lead.company,
 
-          source: lead.source, value: lead.value, status: "new" as any,
+          source: lead.source, value: lead.value, status: lead.stage as any,
 
           lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
 
@@ -1010,7 +1036,7 @@ export default function Leads() {
 
       company: editLead.company, source: editLead.source, value: editLead.value,
 
-      status: editLead.status as any, business_status: editLead.business_status,
+      status: editLead.stage as any, business_status: editLead.business_status,
 
       lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
 
@@ -1020,7 +1046,7 @@ export default function Leads() {
 
     } as any);
 
-    logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
+    logActivity(editLead.id, "updated", `Stage: ${editLead.stage}`);
 
     refreshLeads();
 
@@ -1118,7 +1144,9 @@ export default function Leads() {
 
   const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
 
-  const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
+  const convertedCount = leads.filter(l => l.stage === "converted").length;
+
+  const notInterestedCount = leads.filter(l => l.stage === "not_interested").length;
 
 
 
@@ -1322,7 +1350,7 @@ export default function Leads() {
 
                     <SelectTrigger><SelectValue /></SelectTrigger>
 
-                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
 
                   </Select>
 
@@ -1441,6 +1469,54 @@ export default function Leads() {
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
 
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to reset filters</p>
+
+              </div>
+
+            </div>
+
+          </CardContent>
+
+        </Card>
+
+
+
+        {/* Not Interested quick stat */}
+
+        <Card
+
+          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+
+          onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
+
+          className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
+
+        >
+
+          <CardContent className="p-4">
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+
+              <div style={{
+
+                width: 48, height: 48, borderRadius: 12, background: "#f9fafb",
+
+                display: "flex", alignItems: "center", justifyContent: "center",
+
+                fontSize: 24,
+
+              }}>
+
+                🚫
+
+              </div>
+
+              <div>
+
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{notInterestedCount}</p>
+
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Not Interested</p>
+
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to filter</p>
 
               </div>
 
@@ -1686,7 +1762,7 @@ export default function Leads() {
 
             <Select value={filterPreset} onValueChange={setFilterPreset}>
 
-              <SelectTrigger className="w-36"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
 
               <SelectContent>
 
@@ -1697,6 +1773,8 @@ export default function Leads() {
                 <SelectItem value="fresh">Fresh Leads</SelectItem>
 
                 <SelectItem value="followup">Follow-up Due</SelectItem>
+
+                <SelectItem value="not_interested">🚫 Not Interested</SelectItem>
 
               </SelectContent>
 
@@ -1860,9 +1938,25 @@ export default function Leads() {
 
                     const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
 
+                    const isNotInterested = lead.stage === "not_interested";
+
                     return (
 
-                      <TableRow key={lead.id} style={{ verticalAlign: "middle" }}>
+                      <TableRow
+
+                        key={lead.id}
+
+                        style={{
+
+                          verticalAlign: "middle",
+
+                          opacity: isNotInterested ? 0.65 : 1,
+
+                          background: isNotInterested ? "#f9fafb" : undefined,
+
+                        }}
+
+                      >
 
                         {canAssign && (
 
@@ -1882,7 +1976,23 @@ export default function Leads() {
 
                         <TableCell>
 
-                          <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+
+                            <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+
+                            {isNotInterested && (
+
+                              <span style={{
+
+                                fontSize: 10, padding: "1px 6px", borderRadius: 8,
+
+                                background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb",
+
+                              }}>NI</span>
+
+                            )}
+
+                          </div>
 
                         </TableCell>
 
@@ -2198,7 +2308,7 @@ export default function Leads() {
 
                       setDetailLead(updated);
 
-                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "" } as any);
+                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "", status: v } as any);
 
                       logActivity(detailLead.id, "updated", `Stage: ${v}`);
 
@@ -2214,7 +2324,7 @@ export default function Leads() {
 
                     <SelectContent>
 
-                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
 
                     </SelectContent>
 
@@ -2452,7 +2562,7 @@ export default function Leads() {
 
                   <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
 
-                  <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
 
                 </Select>
 
@@ -2473,20 +2583,6 @@ export default function Leads() {
                     {getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
 
                   </SelectContent>
-
-                </Select>
-
-              </div>
-
-              <div className="grid gap-2">
-
-                <Label>Status</Label>
-
-                <Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}>
-
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-
-                  <SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
 
                 </Select>
 
@@ -2561,3 +2657,7 @@ export default function Leads() {
   );
 
 }
+
+Done
+
+You are out of free messages
