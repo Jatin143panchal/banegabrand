@@ -646,7 +646,6 @@ export default function Leads() {
     notInterestedCount: leads.filter(l => l.stage === "not_interested").length,
   }), [leads]);
 
-  // Get current employee name for display
   const currentEmployeeName = filterEmployee !== "all" && filterEmployee !== "unassigned" 
     ? getProfileName(filterEmployee) 
     : null;
@@ -661,8 +660,9 @@ export default function Leads() {
 
   return (
     <div className="space-y-5">
-      {/* Sticky Header Wrapper */}
-      <div className="sticky top-0 z-40 bg-background pt-2 pb-2 space-y-4 border-b shadow-sm">
+      {/* Sticky Header Wrapper - Everything here stays frozen */}
+      <div className="sticky top-0 z-40 bg-background pt-3 pb-2 space-y-3 border-b shadow-lg">
+        
         {/* Header Section */}
         <div className="px-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -926,73 +926,97 @@ export default function Leads() {
           </Card>
         </div>
 
-        {/* Filters Section */}
+        {/* Filters Section - THIS WILL BE FROZEN */}
         <div className="px-4">
-          <Card className="shadow-md bg-white">
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap gap-2">
+          <Card className="shadow-md bg-white border-0">
+            <CardHeader className="pb-2 pt-2">
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Search */}
                 <div className="relative" style={{ flex: "1 1 200px", minWidth: 160 }}>
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search leads..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    className="pl-9"
+                    className="pl-9 h-9"
                   />
                 </div>
+                
+                {/* Assigned To Filter */}
                 <Select value={filterAssignment} onValueChange={setFilterAssignment}>
-                  <SelectTrigger className="w-40"><SelectValue placeholder="Assigned To" /></SelectTrigger>
+                  <SelectTrigger className="w-36 h-9">
+                    <SelectValue placeholder="All Employees" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Employees</SelectItem>
                     <SelectItem value="mine">Assigned to Me</SelectItem>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
                   </SelectContent>
                 </Select>
+                
+                {/* Lead Type Filter */}
                 <Select value={filterLeadType} onValueChange={setFilterLeadType}>
-                  <SelectTrigger className="w-40"><SelectValue placeholder="Lead Type" /></SelectTrigger>
+                  <SelectTrigger className="w-36 h-9">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     {LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                
+                {/* Budget Filter */}
                 <Select value={filterBudget} onValueChange={setFilterBudget}>
-                  <SelectTrigger className="w-36"><SelectValue placeholder="Budget" /></SelectTrigger>
+                  <SelectTrigger className="w-32 h-9">
+                    <SelectValue placeholder="All Budgets" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Budgets</SelectItem>
                     {BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Calendar style={{ width: 16, height: 16, color: "#94a3b8" }} />
+                
+                {/* Date Range */}
+                <div className="flex items-center gap-2 bg-muted/30 rounded-md px-2 py-1">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
                   <Input
                     type="date"
                     value={dateFrom}
                     onChange={e => setDateFrom(e.target.value)}
-                    style={{ width: 140 }}
-                    className="text-sm"
+                    className="w-36 h-9 text-sm"
+                    placeholder="From Date"
                   />
-                  <span style={{ color: "#94a3b8", fontSize: 12 }}>to</span>
+                  <span className="text-muted-foreground text-xs">to</span>
                   <Input
                     type="date"
                     value={dateTo}
                     onChange={e => setDateTo(e.target.value)}
-                    style={{ width: 140 }}
-                    className="text-sm"
+                    className="w-36 h-9 text-sm"
+                    placeholder="To Date"
                   />
                 </div>
-                <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
+                
+                {/* Clear Button */}
+                <Button variant="outline" size="sm" onClick={clearFilters} className="h-9">
+                  Clear
+                </Button>
+                
+                {/* Quick Filter */}
                 <Select value={filterPreset} onValueChange={setFilterPreset}>
-                  <SelectTrigger className="w-40"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
+                  <SelectTrigger className="w-36 h-9">
+                    <SelectValue placeholder="All Time" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Time</SelectItem>
                     <SelectItem value="today">Today's Leads</SelectItem>
-                    <SelectItem value="fresh">Fresh Leads</SelectItem>
+                    <SelectItem value="fresh">Fresh Leads (3 days)</SelectItem>
                     <SelectItem value="followup">Follow-up Due</SelectItem>
                     <SelectItem value="not_interested">🚫 Not Interested</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
+              {/* Bulk assign bar */}
               {canAssign && selectedIds.size > 0 && (
                 <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
                   <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
@@ -1015,7 +1039,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* Leads Table Section */}
+      {/* Leads Table Section - This scrolls */}
       <div className="px-4">
         <Card>
           <CardContent className="pt-6">
@@ -1024,11 +1048,6 @@ export default function Leads() {
                 Total Leads: <span style={{ color: "#3b82f6" }}>{filtered.length}</span>
                 {filtered.length !== leads.length && <span style={{ color: "#94a3b8", fontWeight: 400 }}> (filtered from {leads.length})</span>}
               </p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Button variant="outline" size="sm" onClick={handleExport}>
-                  <Download className="mr-2 h-3 w-3" />Export Excel
-                </Button>
-              </div>
             </div>
 
             {filtered.length === 0 ? (
@@ -1199,7 +1218,7 @@ export default function Leads() {
 
             {filtered.length > 0 && (
               <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>
-                Showing 1 to {Math.min(filtered.length, 50)} of {filtered.length} leads
+                Showing {filtered.length} of {leads.length} leads
               </p>
             )}
           </CardContent>
