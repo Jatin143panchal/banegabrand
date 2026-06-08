@@ -18,7 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar
+  MessageCircle, Calendar, Filter, UserCircle
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -42,7 +42,6 @@ const LEAD_STAGES = [
   { value: "lost", label: "Lost", color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
 
-// Removed duplicate converted/meeting_booked/business_generated from LEAD_STATUSES
 const LEAD_STATUSES = [
   { value: "ringing", label: "Ringing" },
   { value: "callback", label: "Callback" },
@@ -107,8 +106,6 @@ function formatStageLabel(value: string | null | undefined): string {
 function getStageConfig(stage: string | null | undefined) {
   return LEAD_STAGES.find(s => s.value === stage) || null;
 }
-
-// ─────────────────────────────────────────────────────────────────
 
 interface DbLead {
   id: string; name: string; email: string | null; phone: string | null; company: string | null;
@@ -180,7 +177,6 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-// ── Stage Pill ──────────────────────────────────────────────────────────
 function StagePill({ stage, subStage }: { stage: string | null; subStage: string | null }) {
   const cfg = getStageConfig(stage);
   if (!cfg) return <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>;
@@ -200,7 +196,6 @@ function StagePill({ stage, subStage }: { stage: string | null; subStage: string
   );
 }
 
-// ── Employee Card in header ───────────────────────────────────────────────────
 function EmployeeCard({ name, count, onClick, active }: {
   name: string; count: number; onClick: () => void; active: boolean;
 }) {
@@ -232,7 +227,6 @@ function EmployeeCard({ name, count, onClick, active }: {
   );
 }
 
-// ── Employee Lead Count Modal ─────────────────────────────────────────────────
 interface EmployeeLeadCountModalProps {
   leads: DbLead[];
   profiles: Profile[];
@@ -317,8 +311,6 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-
 interface LeadFormData {
   name: string;
   email: string;
@@ -376,7 +368,6 @@ export default function Leads() {
 
   const [form, setForm] = useState<LeadFormData>(emptyForm);
 
-  // ── Auto-refresh every 30 seconds ──
   useEffect(() => {
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
@@ -385,13 +376,11 @@ export default function Leads() {
     return () => clearInterval(interval);
   }, [queryClient]);
 
-  // ── Helper: invalidate all lead queries (instant refresh) ──
   const refreshLeads = () => {
     queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
     queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
   };
 
-  // ── assign lead (inline dropdown) — refreshes immediately ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       const assign_date = new Date().toISOString();
@@ -419,7 +408,6 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   };
 
-  // ── filtering with useMemo for performance ──
   const filtered = useMemo(() => {
     return leads.filter(l => {
       const matchSearch =
@@ -652,12 +640,16 @@ export default function Leads() {
     setFilterPreset("all");
   };
 
-  // Computed stats with useMemo
   const stats = useMemo(() => ({
     totalValue: leads.reduce((s, l) => s + (l.value || 0), 0),
     convertedCount: leads.filter(l => l.stage === "converted").length,
     notInterestedCount: leads.filter(l => l.stage === "not_interested").length,
   }), [leads]);
+
+  // Get current employee name for display
+  const currentEmployeeName = filterEmployee !== "all" && filterEmployee !== "unassigned" 
+    ? getProfileName(filterEmployee) 
+    : null;
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -669,531 +661,552 @@ export default function Leads() {
 
   return (
     <div className="space-y-5">
-
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
-          <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" />Export Excel
-          </Button>
-          <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader><DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" />Import Leads from Excel/CSV</DialogTitle></DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                  <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
-                  <p className="text-xs text-muted-foreground mb-3">Columns: Name, Email, Phone, Company, Source, Value</p>
-                  <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
+      {/* Sticky Header Wrapper */}
+      <div className="sticky top-0 z-40 bg-background pt-2 pb-2 space-y-4 border-b shadow-sm">
+        {/* Header Section */}
+        <div className="px-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
+              <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
+              {currentEmployeeName && (
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="secondary" className="gap-1">
+                    <UserCircle className="h-3 w-3" />
+                    Filtering: {currentEmployeeName}
+                    <button
+                      onClick={() => setFilterEmployee("all")}
+                      className="ml-1 hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
                 </div>
-                {uploadPreview.length > 0 && (
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="mr-2 h-4 w-4" />Export Excel
+              </Button>
+              <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader><DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" />Import Leads from Excel/CSV</DialogTitle></DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                      <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
+                      <p className="text-xs text-muted-foreground mb-3">Columns: Name, Email, Phone, Company, Source, Value</p>
+                      <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
+                    </div>
+                    {uploadPreview.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium">{uploadPreview.length} leads found</p>
+                          <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
+                        </div>
+                        <div className="max-h-60 overflow-auto rounded border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead></TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {uploadPreview.slice(0, 10).map((r, i) => (
+                                <TableRow key={i}>
+                                  <TableCell className="text-sm">{r.name}</TableCell>
+                                  <TableCell className="text-sm">{r.email}</TableCell>
+                                  <TableCell className="text-sm">{r.phone}</TableCell>
+                                  <TableCell className="text-sm">{r.company}</TableCell>
+                                  <TableCell className="text-sm">{r.source}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                          {uploadPreview.length > 10 && <p className="text-xs text-muted-foreground text-center py-2">...and {uploadPreview.length - 10} more</p>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
+                      {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm"><Plus className="mr-2 h-4 w-4" />+ Add Lead</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader><DialogTitle>Add New Lead</DialogTitle></DialogHeader>
+                  <div className="grid gap-4 py-4 sm:grid-cols-2">
+                    {[
+                      { label: "Name *", key: "name" },
+                      { label: "Email *", key: "email" },
+                      { label: "Number", key: "phone" },
+                      { label: "Company", key: "company" },
+                      { label: "Address", key: "address" },
+                      { label: "Value (₹)", key: "value" },
+                    ].map(f => (
+                      <div key={f.key} className="grid gap-2">
+                        <Label>{f.label}</Label>
+                        <Input value={form[f.key as keyof LeadFormData] as string} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
+                      </div>
+                    ))}
+                    <div className="grid gap-2">
+                      <Label>Lead Type</Label>
+                      <Select value={form.lead_type} onValueChange={v => setForm({ ...form, lead_type: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Budget</Label>
+                      <Select value={form.budget} onValueChange={v => setForm({ ...form, budget: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Brand Stage</Label>
+                      <Select value={form.stage} onValueChange={v => setForm({ ...form, stage: v, sub_stage: "" })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Sub Stage</Label>
+                      <Select value={form.sub_stage || "none"} onValueChange={v => setForm({ ...form, sub_stage: v === "none" ? "" : v })}>
+                        <SelectTrigger><SelectValue placeholder="Select sub stage" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">-- None --</SelectItem>
+                          {getSubStagesForStage(form.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Source</Label>
+                      <Select value={form.source} onValueChange={v => setForm({ ...form, source: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s =>
+                            <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label>CX Comment</Label>
+                      <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
+                    </div>
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label>Remark</Label>
+                      <Textarea value={form.remark} onChange={e => setForm({ ...form, remark: e.target.value })} placeholder="Additional remarks..." />
+                    </div>
+                    <Button onClick={handleAdd} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
+                      {insertLead.isPending ? "Adding..." : "Add Lead"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Cards: Total + Employees */}
+        <div className="px-4">
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <Card
+              style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={clearFilters}
+              className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
+            >
+              <CardContent className="p-4">
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{
+                    width: 48, height: 48, borderRadius: 12, background: "#eff6ff",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
+                  </div>
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium">{uploadPreview.length} leads found</p>
-                      <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
-                    </div>
-                    <div className="max-h-60 overflow-auto rounded border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead></TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {uploadPreview.slice(0, 10).map((r, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="text-sm">{r.name}</TableCell>
-                              <TableCell className="text-sm">{r.email}</TableCell>
-                              <TableCell className="text-sm">{r.phone}</TableCell>
-                              <TableCell className="text-sm">{r.company}</TableCell>
-                              <TableCell className="text-sm">{r.source}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                      {uploadPreview.length > 10 && <p className="text-xs text-muted-foreground text-center py-2">...and {uploadPreview.length - 10} more</p>}
-                    </div>
+                    <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
+                    <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
+                    <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to reset filters</p>
                   </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                </div>
+              </CardContent>
+            </Card>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm"><Plus className="mr-2 h-4 w-4" />+ Add Lead</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Add New Lead</DialogTitle></DialogHeader>
-              <div className="grid gap-4 py-4 sm:grid-cols-2">
-                {[
-                  { label: "Name *", key: "name" },
-                  { label: "Email *", key: "email" },
-                  { label: "Number", key: "phone" },
-                  { label: "Company", key: "company" },
-                  { label: "Address", key: "address" },
-                  { label: "Value (₹)", key: "value" },
-                ].map(f => (
-                  <div key={f.key} className="grid gap-2">
-                    <Label>{f.label}</Label>
-                    <Input value={form[f.key as keyof LeadFormData] as string} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
+            <Card
+              style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
+              className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
+            >
+              <CardContent className="p-4">
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{
+                    width: 48, height: 48, borderRadius: 12, background: "#f9fafb",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 24,
+                  }}>
+                    🚫
                   </div>
-                ))}
-                <div className="grid gap-2">
-                  <Label>Lead Type</Label>
-                  <Select value={form.lead_type} onValueChange={v => setForm({ ...form, lead_type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <div>
+                    <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
+                    <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Not Interested</p>
+                    <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to filter</p>
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label>Budget</Label>
-                  <Select value={form.budget} onValueChange={v => setForm({ ...form, budget: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Brand Stage</Label>
-                  <Select value={form.stage} onValueChange={v => setForm({ ...form, stage: v, sub_stage: "" })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Sub Stage</Label>
-                  <Select value={form.sub_stage || "none"} onValueChange={v => setForm({ ...form, sub_stage: v === "none" ? "" : v })}>
-                    <SelectTrigger><SelectValue placeholder="Select sub stage" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">-- None --</SelectItem>
-                      {getSubStagesForStage(form.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Source</Label>
-                  <Select value={form.source} onValueChange={v => setForm({ ...form, source: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s =>
-                        <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label>CX Comment</Label>
-                  <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label>Remark</Label>
-                  <Textarea value={form.remark} onChange={e => setForm({ ...form, remark: e.target.value })} placeholder="Additional remarks..." />
-                </div>
-                <Button onClick={handleAdd} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
-                  {insertLead.isPending ? "Adding..." : "Add Lead"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </CardContent>
+            </Card>
+
+            {canAssign && typedProfiles.length > 0 && (
+              <Card style={{ flex: 1, minWidth: 300 }}>
+                <CardContent className="p-4">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div>
+                      <p style={{ fontWeight: 600, fontSize: 14 }}>Leads by Employee</p>
+                      <p style={{ fontSize: 11, color: "#94a3b8" }}>See how many leads are assigned to each employee.</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setEmpModalOpen(true)}>View All</Button>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+                    {typedProfiles.slice(0, 5).map(p => (
+                      <EmployeeCard
+                        key={p.user_id}
+                        name={p.display_name || "Unknown"}
+                        count={leads.filter(l => l.assigned_to === p.user_id).length}
+                        active={filterEmployee === p.user_id}
+                        onClick={() => setFilterEmployee(filterEmployee === p.user_id ? "all" : p.user_id)}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* ── Top Cards: Total + Employees ── */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {/* Total leads card — clickable to reset filters */}
-        <Card
-          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
-          onClick={clearFilters}
-          className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
-        >
-          <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#eff6ff",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to reset filters</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Not Interested quick stat */}
-        <Card
-          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer", transition: "box-shadow 0.15s" }}
-          onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
-          className="hover:shadow-md hover:ring-2 hover:ring-gray-200"
-        >
-          <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#f9fafb",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 24,
-              }}>
-                🚫
-              </div>
-              <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Not Interested</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to filter</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Employees panel */}
-        {canAssign && typedProfiles.length > 0 && (
-          <Card style={{ flex: 1, minWidth: 300 }}>
+        {/* Stage Stats Bar */}
+        <div className="px-4">
+          <Card>
             <CardContent className="p-4">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div>
-                  <p style={{ fontWeight: 600, fontSize: 14 }}>Leads by Employee</p>
-                  <p style={{ fontSize: 11, color: "#94a3b8" }}>See how many leads are assigned to each employee.</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setEmpModalOpen(true)}>View All</Button>
-              </div>
-              <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
-                {typedProfiles.slice(0, 5).map(p => (
-                  <EmployeeCard
-                    key={p.user_id}
-                    name={p.display_name || "Unknown"}
-                    count={leads.filter(l => l.assigned_to === p.user_id).length}
-                    active={filterEmployee === p.user_id}
-                    onClick={() => setFilterEmployee(filterEmployee === p.user_id ? "all" : p.user_id)}
-                  />
-                ))}
+              <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#374151" }}>Stages</p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {LEAD_STAGES.map(s => {
+                  const count = leads.filter(l => l.stage === s.value).length;
+                  const active = filterStage === s.value;
+                  return (
+                    <button
+                      key={s.value}
+                      onClick={() => setFilterStage(active ? "all" : s.value)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 16px", borderRadius: 10, cursor: "pointer",
+                        border: `2px solid ${active ? s.color : "#e2e8f0"}`,
+                        background: active ? s.bg : "white",
+                        transition: "all 0.15s", fontWeight: 500,
+                      }}
+                    >
+                      <span style={{ fontSize: 16 }}>{s.icon}</span>
+                      <span style={{ fontSize: 13, color: active ? s.color : "#374151" }}>{s.label}</span>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700, color: "white",
+                        background: s.color, borderRadius: 8, padding: "1px 8px", marginLeft: 2,
+                      }}>{count}</span>
+                    </button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
+
+        {/* Filters Section */}
+        <div className="px-4">
+          <Card className="shadow-md bg-white">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap gap-2">
+                <div className="relative" style={{ flex: "1 1 200px", minWidth: 160 }}>
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search leads..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={filterAssignment} onValueChange={setFilterAssignment}>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="Assigned To" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Employees</SelectItem>
+                    <SelectItem value="mine">Assigned to Me</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterLeadType} onValueChange={setFilterLeadType}>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="Lead Type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    {LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={filterBudget} onValueChange={setFilterBudget}>
+                  <SelectTrigger className="w-36"><SelectValue placeholder="Budget" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Budgets</SelectItem>
+                    {BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Calendar style={{ width: 16, height: 16, color: "#94a3b8" }} />
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={e => setDateFrom(e.target.value)}
+                    style={{ width: 140 }}
+                    className="text-sm"
+                  />
+                  <span style={{ color: "#94a3b8", fontSize: 12 }}>to</span>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={e => setDateTo(e.target.value)}
+                    style={{ width: 140 }}
+                    className="text-sm"
+                  />
+                </div>
+                <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
+                <Select value={filterPreset} onValueChange={setFilterPreset}>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Time</SelectItem>
+                    <SelectItem value="today">Today's Leads</SelectItem>
+                    <SelectItem value="fresh">Fresh Leads</SelectItem>
+                    <SelectItem value="followup">Follow-up Due</SelectItem>
+                    <SelectItem value="not_interested">🚫 Not Interested</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {canAssign && selectedIds.size > 0 && (
+                <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
+                  <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
+                  <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
+                    <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Assign to..." /></SelectTrigger>
+                    <SelectContent>
+                      {typedProfiles.map(p => (
+                        <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" onClick={handleBulkAssign} disabled={bulkAssign.isPending}>
+                    <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+                </div>
+              )}
+            </CardHeader>
+          </Card>
+        </div>
       </div>
 
-      {/* ── Stage Stats Bar ── */}
-      <Card>
-        <CardContent className="p-4">
-          <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#374151" }}>Stages</p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {LEAD_STAGES.map(s => {
-              const count = leads.filter(l => l.stage === s.value).length;
-              const active = filterStage === s.value;
-              return (
-                <button
-                  key={s.value}
-                  onClick={() => setFilterStage(active ? "all" : s.value)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    padding: "8px 16px", borderRadius: 10, cursor: "pointer",
-                    border: `2px solid ${active ? s.color : "#e2e8f0"}`,
-                    background: active ? s.bg : "white",
-                    transition: "all 0.15s", fontWeight: 500,
-                  }}
-                >
-                  <span style={{ fontSize: 16 }}>{s.icon}</span>
-                  <span style={{ fontSize: 13, color: active ? s.color : "#374151" }}>{s.label}</span>
-                  <span style={{
-                    fontSize: 13, fontWeight: 700, color: "white",
-                    background: s.color, borderRadius: 8, padding: "1px 8px", marginLeft: 2,
-                  }}>{count}</span>
-                </button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Filters (sticky) ── */}
-      <Card className="sticky top-0 z-30 shadow-md bg-white">
-        <CardHeader className="pb-3">
-          {/* Row 1: Search + dropdowns */}
-          <div className="flex flex-wrap gap-2">
-            <div className="relative" style={{ flex: "1 1 200px", minWidth: 160 }}>
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search leads..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-9"
-              />
+      {/* Leads Table Section */}
+      <div className="px-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+                Total Leads: <span style={{ color: "#3b82f6" }}>{filtered.length}</span>
+                {filtered.length !== leads.length && <span style={{ color: "#94a3b8", fontWeight: 400 }}> (filtered from {leads.length})</span>}
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button variant="outline" size="sm" onClick={handleExport}>
+                  <Download className="mr-2 h-3 w-3" />Export Excel
+                </Button>
+              </div>
             </div>
-            <Select value={filterAssignment} onValueChange={setFilterAssignment}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Assigned To" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                <SelectItem value="mine">Assigned to Me</SelectItem>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterLeadType} onValueChange={setFilterLeadType}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Lead Type" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterBudget} onValueChange={setFilterBudget}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Budget" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Budgets</SelectItem>
-                {BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {/* Date Range */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Calendar style={{ width: 16, height: 16, color: "#94a3b8" }} />
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
-                style={{ width: 140 }}
-                className="text-sm"
-              />
-              <span style={{ color: "#94a3b8", fontSize: 12 }}>to</span>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
-                style={{ width: 140 }}
-                className="text-sm"
-              />
-            </div>
-            <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
-            <Select value={filterPreset} onValueChange={setFilterPreset}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Time</SelectItem>
-                <SelectItem value="today">Today's Leads</SelectItem>
-                <SelectItem value="fresh">Fresh Leads</SelectItem>
-                <SelectItem value="followup">Follow-up Due</SelectItem>
-                <SelectItem value="not_interested">🚫 Not Interested</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
 
-          {/* Bulk assign bar */}
-          {canAssign && selectedIds.size > 0 && (
-            <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
-              <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
-              <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
-                <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Assign to..." /></SelectTrigger>
-                <SelectContent>
-                  {typedProfiles.map(p => (
-                    <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" onClick={handleBulkAssign} disabled={bulkAssign.isPending}>
-                <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
-            </div>
-          )}
-        </CardHeader>
-
-        <CardContent>
-          {/* Totals + export row */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
-              Total Leads: <span style={{ color: "#3b82f6" }}>{filtered.length}</span>
-              {filtered.length !== leads.length && <span style={{ color: "#94a3b8", fontWeight: 400 }}> (filtered from {leads.length})</span>}
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="outline" size="sm" onClick={handleExport}>
-                <Download className="mr-2 h-3 w-3" />Export Excel
-              </Button>
-            </div>
-          </div>
-
-          {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-12">
-              No leads found. Add your first lead or import from Excel!
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {canAssign && (
-                      <TableHead className="w-10">
-                        <Checkbox
-                          checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))}
-                          onCheckedChange={() => {
-                            const all = filtered.every(l => selectedIds.has(l.id));
-                            setSelectedIds(prev => {
-                              const next = new Set(prev);
-                              filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id));
-                              return next;
-                            });
+            {filtered.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">
+                No leads found. Add your first lead or import from Excel!
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {canAssign && (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))}
+                            onCheckedChange={() => {
+                              const all = filtered.every(l => selectedIds.has(l.id));
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id));
+                                return next;
+                              });
+                            }}
+                          />
+                        </TableHead>
+                      )}
+                      <TableHead>Lead Name</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead className="hidden lg:table-cell">Email</TableHead>
+                      <TableHead>Stage / Sub Stage</TableHead>
+                      <TableHead>Assigned To</TableHead>
+                      <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
+                      <TableHead className="hidden lg:table-cell">Budget</TableHead>
+                      <TableHead>Lead Score</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead className="hidden xl:table-cell">Assign Date</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map(lead => {
+                      const score = getLeadScore(lead);
+                      const assignee = getProfileName(lead.assigned_to);
+                      const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
+                      const isNotInterested = lead.stage === "not_interested";
+                      return (
+                        <TableRow
+                          key={lead.id}
+                          style={{
+                            verticalAlign: "middle",
+                            opacity: isNotInterested ? 0.65 : 1,
+                            background: isNotInterested ? "#f9fafb" : undefined,
                           }}
-                        />
-                      </TableHead>
-                    )}
-                    <TableHead>Lead Name</TableHead>
-                    <TableHead>Company</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead className="hidden lg:table-cell">Email</TableHead>
-                    <TableHead>Stage / Sub Stage</TableHead>
-                    <TableHead>Assigned To</TableHead>
-                    <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
-                    <TableHead className="hidden lg:table-cell">Budget</TableHead>
-                    <TableHead>Lead Score</TableHead>
-                    <TableHead>Created At</TableHead>
-                    <TableHead className="hidden xl:table-cell">Assign Date</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map(lead => {
-                    const score = getLeadScore(lead);
-                    const assignee = getProfileName(lead.assigned_to);
-                    const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
-                    const isNotInterested = lead.stage === "not_interested";
-                    return (
-                      <TableRow
-                        key={lead.id}
-                        style={{
-                          verticalAlign: "middle",
-                          opacity: isNotInterested ? 0.65 : 1,
-                          background: isNotInterested ? "#f9fafb" : undefined,
-                        }}
-                      >
-                        {canAssign && (
-                          <TableCell>
-                            <Checkbox
-                              checked={selectedIds.has(lead.id)}
-                              onCheckedChange={() => toggleSelect(lead.id)}
-                            />
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
-                            {isNotInterested && (
-                              <span style={{
-                                fontSize: 10, padding: "1px 6px", borderRadius: 8,
-                                background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb",
-                              }}>NI</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
-                        <TableCell>
-                          {lead.phone
-                            ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a>
-                            : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell">
-                          {lead.email
-                            ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a>
-                            : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}
-                        </TableCell>
-                        <TableCell>
-                          <StagePill stage={lead.stage} subStage={lead.sub_stage} />
-                        </TableCell>
-                        <TableCell>
-                          {lead.assigned_to ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <div style={{
-                                width: 28, height: 28, borderRadius: "50%", background: assigneeColor,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0,
-                              }}>
-                                {getInitials(assignee)}
-                              </div>
-                              <div>
-                                <span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>
-                                {lead.assign_date && (
-                                  <p style={{ fontSize: 10, color: "#94a3b8" }}>
-                                    {format(new Date(lead.assign_date), "dd MMM yyyy")}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            canAssign ? (
-                              <Select
-                                value=""
-                                onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}
-                              >
-                                <SelectTrigger className="w-32 h-7 text-xs">
-                                  <SelectValue placeholder="Assign..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {typedProfiles.map(p => (
-                                    <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>
-                            )
+                        >
+                          {canAssign && (
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedIds.has(lead.id)}
+                                onCheckedChange={() => toggleSelect(lead.id)}
+                              />
+                            </TableCell>
                           )}
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell">
-                          {lead.lead_type ? (
-                            <span style={{
-                              fontSize: 11, padding: "2px 8px", borderRadius: 8,
-                              background: "#f1f5f9", color: "#475569", fontWeight: 500,
-                            }}>{lead.lead_type}</span>
-                          ) : "-"}
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>
-                          {lead.budget || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <ScoreBadge score={score} />
-                        </TableCell>
-                        <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
-                          {format(new Date(lead.created_at), "dd MMM yyyy")}
-                        </TableCell>
-                        <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
-                          {lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}
-                        </TableCell>
-                        <TableCell>
-                          <div style={{ display: "flex", gap: 2 }}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View">
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit">
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                          <TableCell>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                              {isNotInterested && (
+                                <span style={{
+                                  fontSize: 10, padding: "1px 6px", borderRadius: 8,
+                                  background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb",
+                                }}>NI</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
+                          <TableCell>
+                            {lead.phone
+                              ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a>
+                              : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            {lead.email
+                              ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a>
+                              : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}
+                          </TableCell>
+                          <TableCell>
+                            <StagePill stage={lead.stage} subStage={lead.sub_stage} />
+                          </TableCell>
+                          <TableCell>
+                            {lead.assigned_to ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{
+                                  width: 28, height: 28, borderRadius: "50%", background: assigneeColor,
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0,
+                                }}>
+                                  {getInitials(assignee)}
+                                </div>
+                                <div>
+                                  <span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>
+                                  {lead.assign_date && (
+                                    <p style={{ fontSize: 10, color: "#94a3b8" }}>
+                                      {format(new Date(lead.assign_date), "dd MMM yyyy")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              canAssign ? (
+                                <Select
+                                  value=""
+                                  onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}
+                                >
+                                  <SelectTrigger className="w-32 h-7 text-xs">
+                                    <SelectValue placeholder="Assign..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {typedProfiles.map(p => (
+                                      <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>
+                              )
+                            )}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            {lead.lead_type ? (
+                              <span style={{
+                                fontSize: 11, padding: "2px 8px", borderRadius: 8,
+                                background: "#f1f5f9", color: "#475569", fontWeight: 500,
+                              }}>{lead.lead_type}</span>
+                            ) : "-"}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>
+                            {lead.budget || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <ScoreBadge score={score} />
+                          </TableCell>
+                          <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                            {format(new Date(lead.created_at), "dd MMM yyyy")}
+                          </TableCell>
+                          <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                            {lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <div style={{ display: "flex", gap: 2 }}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit">
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
 
-          {/* Pagination hint */}
-          {filtered.length > 0 && (
-            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>
-              Showing 1 to {Math.min(filtered.length, 50)} of {filtered.length} leads
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            {filtered.length > 0 && (
+              <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>
+                Showing 1 to {Math.min(filtered.length, 50)} of {filtered.length} leads
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* ── Employee Modal ── */}
+      {/* Employee Modal */}
       <EmployeeLeadCountModal
         leads={leads}
         profiles={typedProfiles}
@@ -1205,7 +1218,7 @@ export default function Leads() {
         }}
       />
 
-      {/* ── Lead Detail Dialog ── */}
+      {/* Lead Detail Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>
@@ -1238,7 +1251,6 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
 
-                {/* Brand Stage — live save */}
                 <div className="grid gap-1">
                   <p className="text-muted-foreground text-xs">Brand Stage</p>
                   <Select
@@ -1259,7 +1271,6 @@ export default function Leads() {
                   </Select>
                 </div>
 
-                {/* Sub Stage — live save */}
                 <div className="grid gap-1">
                   <p className="text-muted-foreground text-xs">Sub Stage</p>
                   <Select
@@ -1333,7 +1344,7 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Edit Lead Dialog ── */}
+      {/* Edit Lead Dialog */}
       <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
