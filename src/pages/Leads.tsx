@@ -15,7 +15,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye, Star, Download, X, UserCheck, CheckSquare } from "lucide-react";
+import { Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye, Star, Download, X, UserCheck, CheckSquare, Users } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
 import { useBulkAssignLeads } from "@/hooks/useLeadComments";
@@ -35,16 +35,16 @@ const LEAD_STAGES = [
   { value: "converted", label: "Converted" },
 ];
 
+// ✅ "new" status hata diya — sirf real pipeline statuses
 const LEAD_STATUSES = [
-  { value: "new",          label: "New"          },
-  { value: "Ringing",    label: "Ringing"    },
-  { value: "Callback",     label: "Callback"     },
-  { value: "DP", label: "DP" },
-  { value: "VMS", label: "VMS" },
-  { value: "PG", label: "PG" },
-  { value: "Converted",    label: "Converted"    },
-  { value: "Meeting Booked",         label: "Meeting Booked"         },
-  { value: "Business Generated",         label: "Business Generated"         },
+  { value: "Ringing",          label: "Ringing"          },
+  { value: "Callback",         label: "Callback"         },
+  { value: "DP",               label: "DP"               },
+  { value: "VMS",              label: "VMS"              },
+  { value: "PG",               label: "PG"               },
+  { value: "Converted",        label: "Converted"        },
+  { value: "Meeting Booked",   label: "Meeting Booked"   },
+  { value: "Business Generated", label: "Business Generated" },
 ];
 
 const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
@@ -108,6 +108,95 @@ function getScoreColor(score: number) {
   return "text-destructive";
 }
 
+// ── Employee Lead Count Modal ─────────────────────────────────────────────────
+interface EmployeeLeadCountModalProps {
+  leads: DbLead[];
+  profiles: { user_id: string; display_name: string | null }[];
+  open: boolean;
+  onClose: () => void;
+  onFilterByEmployee: (userId: string) => void;
+}
+
+function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmployee }: EmployeeLeadCountModalProps) {
+  const employeeStats = profiles.map(p => {
+    const empLeads = leads.filter(l => l.assigned_to === p.user_id);
+    const stageBreakdown = LEAD_STAGES.map(s => ({
+      ...s,
+      count: empLeads.filter(l => l.stage === s.value).length,
+    }));
+    return {
+      ...p,
+      total: empLeads.length,
+      converted: empLeads.filter(l => l.stage === "converted").length,
+      stageBreakdown,
+    };
+  }).sort((a, b) => b.total - a.total);
+
+  const unassigned = leads.filter(l => !l.assigned_to).length;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" /> Employee Lead Distribution
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {/* Unassigned row */}
+          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+            <div>
+              <p className="font-medium text-muted-foreground">Unassigned</p>
+              <p className="text-xs text-muted-foreground">Not assigned to anyone</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="text-base px-3 py-1">{unassigned}</Badge>
+            </div>
+          </div>
+
+          {employeeStats.map(emp => (
+            <div key={emp.user_id} className="p-3 rounded-lg border hover:bg-muted/20 transition-colors">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="font-semibold">{emp.display_name || "Unknown"}</p>
+                  <p className="text-xs text-muted-foreground">{emp.converted} converted out of {emp.total}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="default" className="text-base px-3 py-1">{emp.total}</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { onFilterByEmployee(emp.user_id); onClose(); }}
+                    disabled={emp.total === 0}
+                  >
+                    View
+                  </Button>
+                </div>
+              </div>
+              {emp.total > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {emp.stageBreakdown.filter(s => s.count > 0).map(s => (
+                    <Badge key={s.value} variant="secondary" className="text-xs">
+                      {s.label}: {s.count}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {emp.total > 0 && (
+                <Progress
+                  value={emp.total > 0 ? (emp.converted / emp.total) * 100 : 0}
+                  className="h-1 mt-2"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Leads() {
   const { user } = useAuth();
   const canAssign = useCanAssignTasks();
@@ -122,6 +211,7 @@ export default function Leads() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
   const [filterAssignment, setFilterAssignment] = useState("all");
+  const [filterEmployee, setFilterEmployee] = useState("all"); // ✅ new: employee filter
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [detailLead, setDetailLead] = useState<DbLead | null>(null);
@@ -129,6 +219,7 @@ export default function Leads() {
   const [filterPreset, setFilterPreset] = useState("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAssignTo, setBulkAssignTo] = useState("");
+  const [empModalOpen, setEmpModalOpen] = useState(false); // ✅ new: employee modal
   const bulkAssign = useBulkAssignLeads();
   const [uploadPreview, setUploadPreview] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -167,12 +258,17 @@ export default function Leads() {
       filterAssignment === "all" ||
       (filterAssignment === "mine" && l.assigned_to === user?.id) ||
       (filterAssignment === "unassigned" && !l.assigned_to);
+    // ✅ Employee filter
+    const matchEmployee =
+      filterEmployee === "all" ||
+      (filterEmployee === "unassigned" && !l.assigned_to) ||
+      l.assigned_to === filterEmployee;
     const matchPreset =
       filterPreset === "all" ||
       (filterPreset === "today" && isToday(new Date(l.created_at))) ||
       (filterPreset === "fresh" && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
       (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
-    return matchSearch && matchStatus && matchStage && matchAssignment && matchPreset;
+    return matchSearch && matchStatus && matchStage && matchAssignment && matchEmployee && matchPreset;
   });
 
   const toggleSelect = (id: string) => {
@@ -279,6 +375,13 @@ export default function Leads() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div><h1 className="text-2xl font-bold tracking-tight">Leads</h1><p className="text-muted-foreground">Manage your sales leads</p></div>
         <div className="flex gap-2 flex-wrap">
+          {/* ✅ Employee Lead Count Button */}
+          {canAssign && (
+            <Button variant="outline" onClick={() => setEmpModalOpen(true)}>
+              <Users className="mr-2 h-4 w-4" />Employee Leads
+            </Button>
+          )}
+
           <Button variant="outline" onClick={handleExport}><Download className="mr-2 h-4 w-4" />Export</Button>
 
           {/* Import Dialog */}
@@ -393,8 +496,8 @@ export default function Leads() {
         <Card><CardContent className="p-4"><p className="text-2xl font-bold">{formatCurrency(leads.reduce((s, l) => s + (l.value || 0), 0))}</p><p className="text-xs text-muted-foreground">Total Value</p></CardContent></Card>
       </div>
 
-      {/* Filters */}
-      <Card>
+      {/* ✅ Sticky Filters Section */}
+      <Card className="sticky top-0 z-20 shadow-md">
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
@@ -416,6 +519,7 @@ export default function Leads() {
                 <SelectItem value="unassigned">Unassigned</SelectItem>
               </SelectContent>
             </Select>
+            {/* ✅ Status filter — "new" removed */}
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-44"><Filter className="mr-2 h-4 w-4" /><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -433,6 +537,41 @@ export default function Leads() {
               </SelectContent>
             </Select>
           </div>
+
+          {/* ✅ Employee Filter Row — visible to admins */}
+          {canAssign && (
+            <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t">
+              <span className="text-xs text-muted-foreground self-center font-medium">Filter by Employee:</span>
+              <Badge
+                variant={filterEmployee === "all" ? "default" : "outline"}
+                className="cursor-pointer hover:bg-primary/10 transition-colors"
+                onClick={() => setFilterEmployee("all")}
+              >
+                All ({leads.length})
+              </Badge>
+              <Badge
+                variant={filterEmployee === "unassigned" ? "default" : "outline"}
+                className="cursor-pointer hover:bg-primary/10 transition-colors"
+                onClick={() => setFilterEmployee("unassigned")}
+              >
+                Unassigned ({leads.filter(l => !l.assigned_to).length})
+              </Badge>
+              {(profiles as { user_id: string; display_name: string | null }[]).map(p => {
+                const count = leads.filter(l => l.assigned_to === p.user_id).length;
+                return (
+                  <Badge
+                    key={p.user_id}
+                    variant={filterEmployee === p.user_id ? "default" : "outline"}
+                    className="cursor-pointer hover:bg-primary/10 transition-colors"
+                    onClick={() => setFilterEmployee(filterEmployee === p.user_id ? "all" : p.user_id)}
+                  >
+                    {p.display_name || "Unknown"} ({count})
+                  </Badge>
+                );
+              })}
+            </div>
+          )}
+
           {canAssign && selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
               <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
@@ -527,6 +666,18 @@ export default function Leads() {
           )}
         </CardContent>
       </Card>
+
+      {/* ✅ Employee Lead Count Modal */}
+      <EmployeeLeadCountModal
+        leads={leads}
+        profiles={profiles as { user_id: string; display_name: string | null }[]}
+        open={empModalOpen}
+        onClose={() => setEmpModalOpen(false)}
+        onFilterByEmployee={(userId) => {
+          setFilterEmployee(userId);
+          setFilterAssignment("all");
+        }}
+      />
 
       {/* Lead Detail Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
