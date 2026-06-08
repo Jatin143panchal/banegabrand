@@ -46,6 +46,8 @@ const mainItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Lead Dashboard", url: "/leads/dashboard", icon: Phone },
   { title: "Leads", url: "/leads", icon: UserPlus },
+    { title: "Expo Leads", url: "/expo-leads", icon: Tent },
+  { title: "Workshop Leads", url: "/workshop-leads", icon: GraduationCap },
   { title: "Contacts", url: "/contacts", icon: Users },
   { title: "Deals", url: "/deals", icon: Handshake },
   { title: "Activities", url: "/activities", icon: CalendarCheck },
@@ -57,8 +59,7 @@ const mainItems = [
   { title: "Daily Reports", url: "/daily-reports", icon: ClipboardCheck },
   { title: "Weekly Reports", url: "/weekly-reports", icon: CalendarRange },
   { title: "DigiLocker", url: "/digilocker", icon: ShieldCheck },
-   { title: "Expo Leads", url: "/expo-leads", icon: Tent },
-  { title: "Workshop Leads", url: "/workshop-leads", icon: GraduationCap },
+ 
   { title: "Projects", url: "/projects", icon: Briefcase },
   { title: "Holidays", url: "/holidays", icon: CalendarDays },
   { title: "Reports", url: "/reports", icon: BarChart3 },
