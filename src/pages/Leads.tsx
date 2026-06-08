@@ -158,6 +158,16 @@ const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
 
   ],
 
+  lost: [
+
+    { value: "lost_budget",   label: "Budget Constraint" },
+
+    { value: "lost_timing",   label: "Bad Timing"       },
+
+    { value: "lost_other",    label: "Other Reason"     },
+
+  ],
+
   not_interested: [
 
     { value: "ni_price",   label: "Price Issue"    },
@@ -250,7 +260,10 @@ const AVATAR_COLORS = [
 
 function avatarColor(name: string) {
 
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  if (!name) return AVATAR_COLORS[0];
+
+  let h = 0; 
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
 
   return AVATAR_COLORS[h];
 
@@ -476,7 +489,7 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
 
   return (
 
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={() => onClose()}>
 
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
 
