@@ -364,7 +364,6 @@ export default function Leads() {
   const bulkAssign = useBulkAssignLeads();
   const [uploadPreview, setUploadPreview] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [importProgress, setImportProgress] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState<LeadFormData>(emptyForm);
@@ -376,23 +375,6 @@ export default function Leads() {
     }, 30000);
     return () => clearInterval(interval);
   }, [queryClient]);
-
-  // Real-time subscription for auto-refresh
-  useEffect(() => {
-    const channel = supabase
-      .channel('leads-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'leads' }, 
-        () => {
-          console.log('Lead changed, refreshing...');
-          refreshLeads();
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
 
   const refreshLeads = () => {
     queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
@@ -486,15 +468,13 @@ export default function Leads() {
   };
 
   const handleAdd = async () => {
-    if (!form.name) {
-      toast.error("Name is required");
+    if (!form.name || !form.email) {
+      toast.error("Name and Email are required");
       return;
     }
-    const finalEmail = form.email || `lead_${Date.now()}@import.com`;
-    
     await insertLead.mutateAsync({
       name: form.name,
-      email: finalEmail,
+      email: form.email,
       phone: form.phone || null,
       company: form.company || null,
       source: form.source,
@@ -514,16 +494,9 @@ export default function Leads() {
     toast.success("Lead added successfully");
   };
 
-  // ========== FIXED EXCEL IMPORT ==========
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) {
-      toast.error("Please select a file");
-      return;
-    }
-    
-    console.log("File selected:", file.name);
-    
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
@@ -531,107 +504,65 @@ export default function Leads() {
         const workbook = XLSX.read(data, { type: "binary" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
-        
-        console.log("Rows found:", jsonData.length);
-        
-        if (jsonData.length === 0) {
-          toast.error("Excel file is empty");
-          return;
-        }
-        
-        console.log("Column names:", Object.keys(jsonData[0]));
-        
-        const mapped = jsonData.map((row: any, idx: number) => {
-          // Get the first column as name if Name column doesn't exist
-          let name = row.Name || row.name || row["Full Name"] || row["Lead Name"];
-          if (!name && Object.keys(row).length > 0) {
-            const firstKey = Object.keys(row)[0];
-            name = row[firstKey];
-          }
-          
-          return {
-            name: name ? String(name).trim() : `Lead ${idx + 1}`,
-            email: row.Email || row.email || row["Email Address"] || `temp_${Date.now()}_${idx}@import.com`,
-            phone: String(row.Phone || row.phone || row.Mobile || row.Number || ""),
-            company: row.Company || row.company || "",
-            source: row.Source || row.source || "Excel Import",
-            value: Number(row.Value || row.value || 0),
-            lead_type: row["Lead Type"] || row.lead_type || "",
-            address: row.Address || row.address || "",
-            cx_comment: row["CX Comment"] || row.cx_comment || "",
-            budget: row.Budget || row.budget || "",
-            stage: row.Stage || row.stage || DEFAULT_LEAD_STAGE,
-            sub_stage: row["Sub Stage"] || row.sub_stage || "",
-            remark: row.Remark || row.remark || "",
-          };
-        });
-        
-        console.log("Mapped leads:", mapped.length);
+        const mapped = jsonData.map((row: any) => ({
+          name: row.Name || row.name || row["Full Name"] || row["Lead Name"] || "",
+          email: row.Email || row.email || row["Email Address"] || "",
+          phone: String(row.Number || row.Phone || row.phone || row["Mobile"] || row["Phone Number"] || ""),
+          company: row.Company || row.company || row["Company Name"] || row["Organization"] || "",
+          source: row.Source || row.source || row["Lead Source"] || "Excel Import",
+          value: Number(row.Value || row.value || row["Deal Value"] || 0),
+          lead_type: row["Lead type"] || row["Lead Type"] || row.lead_type || "",
+          address: row.Address || row.address || "",
+          cx_comment: row["CX Comment"] || row.cx_comment || row.Comment || "",
+          budget: row.Budget || row.budget || "",
+          stage: row.Stage || row.stage || DEFAULT_LEAD_STAGE,
+          sub_stage: row["Sub Stage"] || row.sub_stage || "",
+          remark: row.Remark || row.remark || row.Remarks || "",
+        })).filter((r: any) => r.name);
         setUploadPreview(mapped);
-        toast.success(`${mapped.length} leads loaded. Click Import to save.`);
-        
+        if (mapped.length === 0)
+          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value");
       } catch (err) {
-        console.error("Parse error:", err);
-        toast.error("Failed to parse file");
+        console.error("File parse error:", err);
+        toast.error("Failed to parse file. Please upload a valid Excel or CSV file.");
       }
     };
     reader.readAsBinaryString(file);
   };
 
   const handleBulkImport = async () => {
-    if (uploadPreview.length === 0) {
-      toast.error("No leads to import");
-      return;
-    }
-    
+    if (uploadPreview.length === 0) return;
     setUploading(true);
     let success = 0;
-    let failed = 0;
-    
-    for (let i = 0; i < uploadPreview.length; i++) {
-      const lead = uploadPreview[i];
+    for (const lead of uploadPreview) {
       try {
-        if (!lead.name) {
-          failed++;
-          continue;
-        }
-        
         await insertLead.mutateAsync({
           name: lead.name,
-          email: lead.email || `auto_${Date.now()}_${i}@import.com`,
+          email: lead.email,
           phone: lead.phone || null,
           company: lead.company || null,
-          source: lead.source || "Excel Import",
-          value: lead.value || 0,
-          status: lead.stage || DEFAULT_LEAD_STAGE,
+          source: lead.source,
+          value: lead.value,
+          status: lead.stage,
           lead_type: lead.lead_type || null,
           address: lead.address || null,
           cx_comment: lead.cx_comment || null,
           budget: lead.budget || null,
-          stage: lead.stage || DEFAULT_LEAD_STAGE,
+          stage: lead.stage,
           sub_stage: lead.sub_stage || null,
           remark: lead.remark || null,
         } as any);
         success++;
-        setImportProgress(Math.round(((i + 1) / uploadPreview.length) * 100));
       } catch (err) {
-        console.error("Import error:", err);
-        failed++;
+        console.error("Lead import error:", err);
       }
     }
-    
     setUploading(false);
     setUploadPreview([]);
     setUploadOpen(false);
-    setImportProgress(0);
     if (fileRef.current) fileRef.current.value = "";
     refreshLeads();
-    
-    if (failed > 0) {
-      toast.warning(`${success} imported, ${failed} failed`);
-    } else {
-      toast.success(`${success} leads imported successfully!`);
-    }
+    toast.success(`${success} leads imported successfully!`);
   };
 
   const handleUpdate = async () => {
@@ -736,8 +667,10 @@ export default function Leads() {
 
   return (
     <div className="space-y-5">
+      {/* Sticky Header Wrapper - Everything here stays frozen */}
       <div className="sticky top-0 z-50 bg-white pt-3 pb-2 space-y-3 border-b shadow-lg">
         
+        {/* Header Section */}
         <div className="px-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
@@ -748,7 +681,10 @@ export default function Leads() {
                   <Badge variant="secondary" className="gap-1">
                     <UserCircle className="h-3 w-3" />
                     Filtering: {currentEmployeeName}
-                    <button onClick={() => setFilterEmployee("all")} className="ml-1 hover:text-destructive">
+                    <button
+                      onClick={() => setFilterEmployee("all")}
+                      className="ml-1 hover:text-destructive"
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   </Badge>
@@ -759,48 +695,29 @@ export default function Leads() {
               <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="mr-2 h-4 w-4" />Export Excel
               </Button>
-              
               <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl">
-                  <DialogHeader><DialogTitle>Import Leads from Excel/CSV</DialogTitle></DialogHeader>
+                  <DialogHeader><DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" />Import Leads from Excel/CSV</DialogTitle></DialogHeader>
                   <div className="space-y-4 py-4">
                     <div className="border-2 border-dashed rounded-lg p-6 text-center">
                       <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                       <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
-                      <p className="text-xs text-muted-foreground mb-3">Supports columns: Name, Email, Phone, Company, Stage, etc.</p>
+                      <p className="text-xs text-muted-foreground mb-3">Columns: Name, Email, Phone, Company, Source, Value</p>
                       <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                     </div>
-                    
-                    {uploading && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span>Importing...</span>
-                          <span>{importProgress}%</span>
-                        </div>
-                        <Progress value={importProgress} className="h-2" />
-                      </div>
-                    )}
-                    
-                    {uploadPreview.length > 0 && !uploading && (
+                    {uploadPreview.length > 0 && (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-medium">{uploadPreview.length} leads ready</p>
-                          <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}>
-                            <X className="h-4 w-4" />
-                          </Button>
+                          <p className="text-sm font-medium">{uploadPreview.length} leads found</p>
+                          <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
                         </div>
                         <div className="max-h-60 overflow-auto rounded border">
                           <Table>
                             <TableHeader>
-                              <TableRow>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>Phone</TableHead>
-                                <TableHead>Company</TableHead>
-                              </TableRow>
+                              <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead></TableRow>
                             </TableHeader>
                             <TableBody>
                               {uploadPreview.slice(0, 10).map((r, i) => (
@@ -809,10 +726,12 @@ export default function Leads() {
                                   <TableCell className="text-sm">{r.email}</TableCell>
                                   <TableCell className="text-sm">{r.phone}</TableCell>
                                   <TableCell className="text-sm">{r.company}</TableCell>
+                                  <TableCell className="text-sm">{r.source}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
                           </Table>
+                          {uploadPreview.length > 10 && <p className="text-xs text-muted-foreground text-center py-2">...and {uploadPreview.length - 10} more</p>}
                         </div>
                       </div>
                     )}
@@ -834,7 +753,7 @@ export default function Leads() {
                   <div className="grid gap-4 py-4 sm:grid-cols-2">
                     {[
                       { label: "Name *", key: "name" },
-                      { label: "Email", key: "email" },
+                      { label: "Email *", key: "email" },
                       { label: "Number", key: "phone" },
                       { label: "Company", key: "company" },
                       { label: "Address", key: "address" },
@@ -904,23 +823,166 @@ export default function Leads() {
           </div>
         </div>
 
-        {/* Stats Cards */}
+        {/* Top Cards: Total + Employees - WITH COUNTING NUMBERS */}
         <div className="px-4 overflow-x-auto">
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <Card style={{ minWidth: 140, cursor: "pointer" }} onClick={clearFilters} className="hover:shadow-md">
+            {/* Total leads card */}
+            <Card
+              style={{ minWidth: 140, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={clearFilters}
+              className="hover:shadow-md hover:ring-2 hover:ring-blue-200"
+            >
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10, background: "#eff6ff",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
                     <Users style={{ color: "#3b82f6", width: 20, height: 20 }} />
                   </div>
                   <div>
-                    <p style={{ fontSize: 24, fontWeight: 700 }}>{leads.length}</p>
+                    <p style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
                     <p style={{ fontSize: 11, color: "#64748b" }}>Total Leads</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-            {/* Other stat cards remain same - keeping code short */}
+
+            {/* Ringing Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "ringing" ? "all" : "ringing")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-orange-200 ${filterStage === "ringing" ? "ring-2 ring-orange-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>📞</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.ringingCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Ringing</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Callback Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "callback" ? "all" : "callback")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-blue-200 ${filterStage === "callback" ? "ring-2 ring-blue-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>🔔</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.callbackCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Callback</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* DP Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "dp" ? "all" : "dp")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-purple-200 ${filterStage === "dp" ? "ring-2 ring-purple-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>📋</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#8b5cf6" }}>{stats.dpCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>DP</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* VMS Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "vms" ? "all" : "vms")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-cyan-200 ${filterStage === "vms" ? "ring-2 ring-cyan-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>🎙</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#06b6d4" }}>{stats.vmsCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>VMS</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* PG Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "pg" ? "all" : "pg")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-pink-200 ${filterStage === "pg" ? "ring-2 ring-pink-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>👥</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#ec4899" }}>{stats.pgCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>PG</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Converted Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "converted" ? "all" : "converted")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-green-200 ${filterStage === "converted" ? "ring-2 ring-green-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>✅</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#10b981" }}>{stats.convertedTotal}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Converted</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Not Interested Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "not_interested" ? "all" : "not_interested")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-gray-200 ${filterStage === "not_interested" ? "ring-2 ring-gray-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>🚫</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#6b7280" }}>{stats.notInterestedCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Not Int.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Lost Count Card */}
+            <Card
+              style={{ minWidth: 100, cursor: "pointer", transition: "box-shadow 0.15s" }}
+              onClick={() => setFilterStage(filterStage === "lost" ? "all" : "lost")}
+              className={`hover:shadow-md hover:ring-2 hover:ring-red-200 ${filterStage === "lost" ? "ring-2 ring-red-500" : ""}`}
+            >
+              <CardContent className="p-3">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 24 }}>❌</span>
+                  <div>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.lostCount}</p>
+                    <p style={{ fontSize: 10, color: "#64748b" }}>Lost</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
 
@@ -952,15 +1014,21 @@ export default function Leads() {
           </div>
         )}
 
-        {/* Filters */}
+        {/* Filters Section - FULLY STICKY */}
         <div className="px-4">
-          <Card>
+          <Card className="shadow-md bg-white border">
             <CardHeader className="pb-2 pt-2">
               <div className="flex flex-wrap gap-2 items-center">
-                <div className="relative flex-1 min-w-[160px]">
+                <div className="relative" style={{ flex: "1 1 200px", minWidth: 160 }}>
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Search leads..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-9" />
+                  <Input
+                    placeholder="Search leads..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="pl-9 h-9"
+                  />
                 </div>
+                
                 <Select value={filterAssignment} onValueChange={setFilterAssignment}>
                   <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Employees" /></SelectTrigger>
                   <SelectContent>
@@ -969,6 +1037,7 @@ export default function Leads() {
                     <SelectItem value="unassigned">Unassigned</SelectItem>
                   </SelectContent>
                 </Select>
+                
                 <Select value={filterLeadType} onValueChange={setFilterLeadType}>
                   <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Types" /></SelectTrigger>
                   <SelectContent>
@@ -976,6 +1045,7 @@ export default function Leads() {
                     {LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                
                 <Select value={filterBudget} onValueChange={setFilterBudget}>
                   <SelectTrigger className="w-32 h-9"><SelectValue placeholder="All Budgets" /></SelectTrigger>
                   <SelectContent>
@@ -983,13 +1053,16 @@ export default function Leads() {
                     {BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                
                 <div className="flex items-center gap-2 bg-muted/30 rounded-md px-2 py-1">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-36 h-9 text-sm" />
                   <span className="text-muted-foreground text-xs">to</span>
                   <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-36 h-9 text-sm" />
                 </div>
+                
                 <Button variant="outline" size="sm" onClick={clearFilters} className="h-9">Clear</Button>
+                
                 <Select value={filterPreset} onValueChange={setFilterPreset}>
                   <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All Time" /></SelectTrigger>
                   <SelectContent>
@@ -1004,7 +1077,7 @@ export default function Leads() {
 
               {canAssign && selectedIds.size > 0 && (
                 <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
-                  <Badge><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
+                  <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
                   <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
                     <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Assign to..." /></SelectTrigger>
                     <SelectContent>
@@ -1024,89 +1097,328 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* Leads Table */}
+      {/* Leads Table Section - WITH S.NO. */}
       <div className="px-4">
         <Card>
           <CardContent className="pt-6">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+                Total Leads: <span style={{ color: "#3b82f6" }}>{filtered.length}</span>
+                {filtered.length !== leads.length && <span style={{ color: "#94a3b8", fontWeight: 400 }}> (filtered from {leads.length})</span>}
+              </p>
+            </div>
+
             {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-12">No leads found. Add your first lead or import from Excel!</p>
+              <p className="text-sm text-muted-foreground text-center py-12">
+                No leads found. Add your first lead or import from Excel!
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12 text-center">S.No.</TableHead>
-                      {canAssign && <TableHead className="w-10"><Checkbox /></TableHead>}
+                      {canAssign && (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))}
+                            onCheckedChange={() => {
+                              const all = filtered.every(l => selectedIds.has(l.id));
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id));
+                                return next;
+                              });
+                            }}
+                          />
+                        </TableHead>
+                      )}
                       <TableHead>Lead Name</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead className="hidden lg:table-cell">Email</TableHead>
-                      <TableHead>Stage</TableHead>
+                      <TableHead>Stage / Sub Stage</TableHead>
                       <TableHead>Assigned To</TableHead>
                       <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
                       <TableHead className="hidden lg:table-cell">Budget</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Created</TableHead>
+                      <TableHead>Lead Score</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead className="hidden xl:table-cell">Assign Date</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map((lead, index) => (
-                      <TableRow key={lead.id}>
-                        <TableCell className="text-center">{index + 1}</TableCell>
-                        {canAssign && <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>}
-                        <TableCell className="font-medium">{lead.name}</TableCell>
-                        <TableCell>{lead.company || "-"}</TableCell>
-                        <TableCell>{lead.phone || "-"}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.email || "-"}</TableCell>
-                        <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
-                        <TableCell>{getProfileName(lead.assigned_to)}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.lead_type || "-"}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.budget || "-"}</TableCell>
-                        <TableCell><ScoreBadge score={getLeadScore(lead)} /></TableCell>
-                        <TableCell className="whitespace-nowrap">{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)}><Eye className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)}><Edit className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {filtered.map((lead, index) => {
+                      const score = getLeadScore(lead);
+                      const assignee = getProfileName(lead.assigned_to);
+                      const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
+                      const isNotInterested = lead.stage === "not_interested";
+                      const serialNo = index + 1;
+                      return (
+                        <TableRow
+                          key={lead.id}
+                          style={{
+                            verticalAlign: "middle",
+                            opacity: isNotInterested ? 0.65 : 1,
+                            background: isNotInterested ? "#f9fafb" : undefined,
+                          }}
+                        >
+                          <TableCell className="text-center text-muted-foreground font-medium">
+                            {serialNo}
+                          </TableCell>
+                          {canAssign && (
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedIds.has(lead.id)}
+                                onCheckedChange={() => toggleSelect(lead.id)}
+                              />
+                            </TableCell>
+                          )}
+                          <TableCell>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                              {isNotInterested && (
+                                <span style={{
+                                  fontSize: 10, padding: "1px 6px", borderRadius: 8,
+                                  background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb",
+                                }}>NI</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
+                          <TableCell>
+                            {lead.phone
+                              ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a>
+                              : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            {lead.email
+                              ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a>
+                              : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}
+                          </TableCell>
+                          <TableCell>
+                            <StagePill stage={lead.stage} subStage={lead.sub_stage} />
+                          </TableCell>
+                          <TableCell>
+                            {lead.assigned_to ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{
+                                  width: 28, height: 28, borderRadius: "50%", background: assigneeColor,
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0,
+                                }}>
+                                  {getInitials(assignee)}
+                                </div>
+                                <div>
+                                  <span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>
+                                  {lead.assign_date && (
+                                    <p style={{ fontSize: 10, color: "#94a3b8" }}>
+                                      {format(new Date(lead.assign_date), "dd MMM yyyy")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              canAssign ? (
+                                <Select
+                                  value=""
+                                  onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}
+                                >
+                                  <SelectTrigger className="w-32 h-7 text-xs">
+                                    <SelectValue placeholder="Assign..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {typedProfiles.map(p => (
+                                      <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>
+                              )
+                            )}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            {lead.lead_type ? (
+                              <span style={{
+                                fontSize: 11, padding: "2px 8px", borderRadius: 8,
+                                background: "#f1f5f9", color: "#475569", fontWeight: 500,
+                              }}>{lead.lead_type}</span>
+                            ) : "-"}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>
+                            {lead.budget || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <ScoreBadge score={score} />
+                          </TableCell>
+                          <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                            {format(new Date(lead.created_at), "dd MMM yyyy")}
+                          </TableCell>
+                          <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                            {lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <div style={{ display: "flex", gap: 2 }}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit">
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
+            )}
+
+            {filtered.length > 0 && (
+              <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>
+                Showing {filtered.length} of {leads.length} leads
+              </p>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Modals */}
-      <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
-      
+      {/* Employee Modal */}
+      <EmployeeLeadCountModal
+        leads={leads}
+        profiles={typedProfiles}
+        open={empModalOpen}
+        onClose={() => setEmpModalOpen(false)}
+        onFilterByEmployee={(userId) => {
+          setFilterEmployee(userId);
+          setFilterAssignment("all");
+        }}
+      />
+
       {/* Lead Detail Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>
           {detailLead && (
             <div className="space-y-4 py-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">{getInitials(detailLead.name)}</div>
-                  <div><h3 className="font-bold">{detailLead.name}</h3>{detailLead.company && <p className="text-xs text-muted-foreground">{detailLead.company}</p>}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: "50%",
+                    background: avatarColor(detailLead.name),
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "white", fontWeight: 700, fontSize: 16,
+                  }}>
+                    {getInitials(detailLead.name)}
+                  </div>
+                  <div>
+                    <h3 style={{ fontWeight: 700, fontSize: 16, margin: 0 }}>{detailLead.name}</h3>
+                    {detailLead.company && <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>{detailLead.company}</p>}
+                  </div>
                 </div>
                 <ScoreBadge score={getLeadScore(detailLead)} />
               </div>
+              <Progress value={getLeadScore(detailLead)} className="h-2" />
+
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-muted-foreground text-xs">Email</p><p>{detailLead.email || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Phone</p><p>{detailLead.phone || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Address</p><p>{detailLead.address || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Lead Type</p><p>{detailLead.lead_type || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Budget</p><p>{detailLead.budget || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Source</p><p>{detailLead.source || "-"}</p></div>
-                <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p>{detailLead.cx_comment || "-"}</p></div>
-                <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p>{detailLead.remark || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Email</p><p className="font-medium break-all">{detailLead.email || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium">{detailLead.phone || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Company</p><p className="font-medium">{detailLead.company || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
+
+                <div className="grid gap-1">
+                  <p className="text-muted-foreground text-xs">Brand Stage</p>
+                  <Select
+                    value={detailLead.stage || "ringing"}
+                    onValueChange={async (v) => {
+                      const updated = { ...detailLead, stage: v, sub_stage: "" };
+                      setDetailLead(updated);
+                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "", status: v } as any);
+                      logActivity(detailLead.id, "updated", `Stage: ${v}`);
+                      refreshLeads();
+                      toast.success("Stage updated");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-1">
+                  <p className="text-muted-foreground text-xs">Sub Stage</p>
+                  <Select
+                    value={detailLead.sub_stage || "none"}
+                    onValueChange={async (v) => {
+                      const val = v === "none" ? "" : v;
+                      setDetailLead({ ...detailLead, sub_stage: val });
+                      await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
+                      logActivity(detailLead.id, "updated", `Sub Stage: ${val}`);
+                      refreshLeads();
+                      toast.success("Sub Stage updated");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">-- None --</SelectItem>
+                      {getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Status</p>
+                  <span style={{
+                    fontSize: 11, padding: "2px 10px", borderRadius: 10,
+                    background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", fontWeight: 600,
+                  }}>{formatStageLabel(detailLead.status)}</span>
+                </div>
+                <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Business Status</p><p className="font-medium">{detailLead.business_status || "Active"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Assigned To</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Assign Date</p>
+                  <p className="font-medium">
+                    {detailLead.assign_date ? format(new Date(detailLead.assign_date), "dd MMM yyyy") : "-"}
+                  </p>
+                </div>
+                <div><p className="text-muted-foreground text-xs">Created At</p>
+                  <p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p>
+                </div>
+                <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
+                <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                {detailLead.phone && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`tel:${detailLead.phone}`} onClick={() => logActivity(detailLead.id, "called", detailLead.phone || undefined)}>
+                      <Phone className="mr-1 h-3 w-3" />Call
+                    </a>
+                  </Button>
+                )}
+                {detailLead.email && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`mailto:${detailLead.email}`} onClick={() => logActivity(detailLead.id, "emailed", detailLead.email || undefined)}>
+                      <Mail className="mr-1 h-3 w-3" />Email
+                    </a>
+                  </Button>
+                )}
+                {detailLead.phone && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer"
+                      onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}>
+                      <MessageCircle className="mr-1 h-3 w-3" />WhatsApp
+                    </a>
+                  </Button>
+                )}
               </div>
               <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
             </div>
@@ -1114,18 +1426,87 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
+      {/* Edit Lead Dialog */}
       <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
           {editLead && (
             <div className="grid gap-4 py-4 sm:grid-cols-2">
-              <div className="grid gap-2"><Label>Name</Label><Input value={editLead.name} onChange={e => setEditLead({ ...editLead, name: e.target.value })} /></div>
-              <div className="grid gap-2"><Label>Email</Label><Input value={editLead.email || ""} onChange={e => setEditLead({ ...editLead, email: e.target.value })} /></div>
-              <div className="grid gap-2"><Label>Phone</Label><Input value={editLead.phone || ""} onChange={e => setEditLead({ ...editLead, phone: e.target.value })} /></div>
-              <div className="grid gap-2"><Label>Company</Label><Input value={editLead.company || ""} onChange={e => setEditLead({ ...editLead, company: e.target.value })} /></div>
-              <div className="grid gap-2 sm:col-span-2"><Label>CX Comment</Label><Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} /></div>
-              <Button onClick={handleUpdate} className="sm:col-span-2">Save Changes</Button>
+              {[
+                { label: "Name", key: "name" },
+                { label: "Email", key: "email" },
+                { label: "Number", key: "phone" },
+                { label: "Company", key: "company" },
+                { label: "Address", key: "address" },
+              ].map(f => (
+                <div key={f.key} className="grid gap-2">
+                  <Label>{f.label}</Label>
+                  <Input value={(editLead as any)[f.key] || ""} onChange={e => setEditLead({ ...editLead, [f.key]: e.target.value } as DbLead)} />
+                </div>
+              ))}
+              <div className="grid gap-2">
+                <Label>Value (₹)</Label>
+                <Input type="number" value={editLead.value || 0} onChange={e => setEditLead({ ...editLead, value: Number(e.target.value) })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Lead Type</Label>
+                <Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Budget</Label>
+                <Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Brand Stage</Label>
+                <Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Sub Stage</Label>
+                <Select value={editLead.sub_stage || "none"} onValueChange={v => setEditLead({ ...editLead, sub_stage: v === "none" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">-- None --</SelectItem>
+                    {getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Business Status</Label>
+                <Select value={editLead.business_status || "active"} onValueChange={v => setEditLead({ ...editLead, business_status: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{["active", "no-go", "done"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Source</Label>
+                <Select value={editLead.source || "Website"} onValueChange={v => setEditLead({ ...editLead, source: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s =>
+                      <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <Label>CX Comment</Label>
+                <Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <Label>Remark</Label>
+                <Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} />
+              </div>
+              <Button onClick={handleUpdate} disabled={updateLead.isPending} className="sm:col-span-2">
+                {updateLead.isPending ? "Saving..." : "Save Changes"}
+              </Button>
             </div>
           )}
         </DialogContent>
