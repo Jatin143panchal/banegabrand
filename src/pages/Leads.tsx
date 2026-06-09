@@ -355,6 +355,21 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   };
 
+  // ── Live update for stage/sub-stage from detail view ──
+  const handleUpdateStageFromDetail = async (id: string, stage: string, subStage: string) => {
+    try {
+      await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
+      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      // Update the local detailLead state to reflect changes immediately
+      if (detailLead && detailLead.id === id) {
+        setDetailLead({ ...detailLead, stage, sub_stage: subStage });
+      }
+      toast.success("Stage updated");
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
   const openLeadDetail = (lead: DbLead) => {
     setDetailLead(lead);
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
@@ -917,7 +932,12 @@ export default function Leads() {
                           </TableCell>
                         )}
                         <TableCell>
-                          <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details">
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
                         <TableCell>
@@ -1072,9 +1092,8 @@ export default function Leads() {
                     onValueChange={async (v) => {
                       const updated = { ...detailLead, stage: v, sub_stage: "" };
                       setDetailLead(updated);
-                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "" } as any);
+                      await handleUpdateStageFromDetail(detailLead.id, v, "");
                       logActivity(detailLead.id, "updated", `Stage: ${v}`);
-                      toast.success("Stage updated");
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -1092,9 +1111,8 @@ export default function Leads() {
                     onValueChange={async (v) => {
                       const val = v === "none" ? "" : v;
                       setDetailLead({ ...detailLead, sub_stage: val });
-                      await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
+                      await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val);
                       logActivity(detailLead.id, "updated", `Sub Stage: ${val}`);
-                      toast.success("Sub Stage updated");
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
