@@ -1100,7 +1100,6 @@ export default function Leads() {
                       <TableHead className="w-12 text-center">S.No.</TableHead>
                       {canAssign && <TableHead className="w-10"><Checkbox /></TableHead>}
                       <TableHead>Lead Name</TableHead>
-                      <TableHead>Company</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead className="hidden lg:table-cell">Email</TableHead>
                       <TableHead>Stage</TableHead>
@@ -1119,7 +1118,6 @@ export default function Leads() {
                         <TableCell className="text-center">{index + 1}</TableCell>
                         {canAssign && <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>}
                         <TableCell className="font-medium">{lead.name}</TableCell>
-                        <TableCell>{lead.company || "-"}</TableCell>
                         <TableCell>{lead.phone || "-"}</TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.email || "-"}</TableCell>
                         <TableCell><StagePill stage={lead.stage} subStage={null} /></TableCell>
