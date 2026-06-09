@@ -672,7 +672,6 @@ export default function Leads() {
     const exportData = leads.map((lead, index) => ({
       "S.No.": index + 1,
       "Lead Name": lead.name || "",
-      "Company": lead.company || "",
       "Phone": lead.phone || "",
       "Email": lead.email || "",
       "Stage": formatStageLabel(lead.stage || lead.status || ""),
@@ -686,7 +685,7 @@ export default function Leads() {
     
     const ws = XLSX.utils.json_to_sheet(exportData);
     ws['!cols'] = [
-      { wch: 8 }, { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 30 },
+      { wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 30 },
       { wch: 15 }, { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 8 }, { wch: 15 }
     ];
     
@@ -770,7 +769,7 @@ export default function Leads() {
                     <div className="border-2 border-dashed rounded-lg p-6 text-center">
                       <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                       <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
-                      <p className="text-xs text-muted-foreground mb-3">Supports columns: Name, Email, Phone, Company, Stage, etc.</p>
+                      <p className="text-xs text-muted-foreground mb-3">Required: Name column | Optional: Email, Phone, Stage, etc.</p>
                       <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                     </div>
                     
@@ -799,7 +798,6 @@ export default function Leads() {
                                 <TableHead>Name</TableHead>
                                 <TableHead>Email</TableHead>
                                 <TableHead>Phone</TableHead>
-                                <TableHead>Company</TableHead>
                                 <TableHead>Stage</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -809,7 +807,6 @@ export default function Leads() {
                                   <TableCell className="text-sm">{r.name}</TableCell>
                                   <TableCell className="text-sm">{r.email}</TableCell>
                                   <TableCell className="text-sm">{r.phone}</TableCell>
-                                  <TableCell className="text-sm">{r.company}</TableCell>
                                   <TableCell className="text-sm">{r.stage}</TableCell>
                                 </TableRow>
                               ))}
@@ -1086,7 +1083,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* Leads Table */}
+      {/* Leads Table - Actions after Lead Name */}
       <div className="px-4">
         <Card>
           <CardContent className="pt-6">
@@ -1100,6 +1097,7 @@ export default function Leads() {
                       <TableHead className="w-12 text-center">S.No.</TableHead>
                       {canAssign && <TableHead className="w-10"><Checkbox /></TableHead>}
                       <TableHead>Lead Name</TableHead>
+                      <TableHead className="w-24 text-center">Actions</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead className="hidden lg:table-cell">Email</TableHead>
                       <TableHead>Stage</TableHead>
@@ -1109,7 +1107,6 @@ export default function Leads() {
                       <TableHead className="hidden lg:table-cell">Budget</TableHead>
                       <TableHead>Score</TableHead>
                       <TableHead>Created</TableHead>
-                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1118,17 +1115,8 @@ export default function Leads() {
                         <TableCell className="text-center">{index + 1}</TableCell>
                         {canAssign && <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>}
                         <TableCell className="font-medium">{lead.name}</TableCell>
-                        <TableCell>{lead.phone || "-"}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.email || "-"}</TableCell>
-                        <TableCell><StagePill stage={lead.stage} subStage={null} /></TableCell>
-                        <TableCell><span className="text-xs text-muted-foreground">{formatStageLabel(lead.sub_stage)}</span></TableCell>
-                        <TableCell>{getProfileName(lead.assigned_to)}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.lead_type || "-"}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.budget || "-"}</TableCell>
-                        <TableCell><ScoreBadge score={getLeadScore(lead)} /></TableCell>
-                        <TableCell className="whitespace-nowrap">{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
+                        <TableCell className="text-center">
+                          <div className="flex gap-1 justify-center">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View Details">
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
@@ -1140,6 +1128,15 @@ export default function Leads() {
                             </Button>
                           </div>
                         </TableCell>
+                        <TableCell>{lead.phone || "-"}</TableCell>
+                        <TableCell className="hidden lg:table-cell">{lead.email || "-"}</TableCell>
+                        <TableCell><StagePill stage={lead.stage} subStage={null} /></TableCell>
+                        <TableCell><span className="text-xs text-muted-foreground">{formatStageLabel(lead.sub_stage)}</span></TableCell>
+                        <TableCell>{getProfileName(lead.assigned_to)}</TableCell>
+                        <TableCell className="hidden lg:table-cell">{lead.lead_type || "-"}</TableCell>
+                        <TableCell className="hidden lg:table-cell">{lead.budget || "-"}</TableCell>
+                        <TableCell><ScoreBadge score={getLeadScore(lead)} /></TableCell>
+                        <TableCell className="whitespace-nowrap">{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
