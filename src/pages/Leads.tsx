@@ -542,33 +542,35 @@ export default function Leads() {
         }
         
         const mapped = jsonData.map((row: any, idx: number) => {
-          // Try multiple column name variations
-          const name = row.Name || row.name || row["Full Name"] || row["Lead Name"] || Object.values(row)[0] || `Lead ${idx + 1}`;
+          // Map columns exactly as per Excel
+          const name = row.Name || row.name || row["Lead Name"] || Object.values(row)[0] || `Lead ${idx + 1}`;
           const email = row.Email || row.email || row["Email Address"] || `temp_${Date.now()}_${idx}@import.com`;
-          const phone = String(row.Phone || row.phone || row.Mobile || row.Number || "");
-          const company = row.Company || row.company || row["Company Name"] || "";
+          const phone = String(row.Number || row.Phone || row.phone || row.Mobile || "");
+          const company = row.Company || row.company || "";
           const source = row.Source || row.source || "Excel Import";
           const value = Number(row.Value || row.value || 0);
-          const lead_type = row["Lead Type"] || row["Lead type"] || "";
+          const lead_type = row["Lead type"] || row["Lead Type"] || "";
           const address = row.Address || row.address || "";
           const cx_comment = row["CX Comment"] || row.cx_comment || "";
           const budget = row.Budget || row.budget || "";
-          const stage = row.Stage || row.stage || DEFAULT_LEAD_STAGE;
+          let stage = row.Stage || row.stage || DEFAULT_LEAD_STAGE;
+          // Convert "New" to "ringing"
+          if (stage === "New" || stage === "new") stage = "ringing";
           const sub_stage = row["Sub Stage"] || row.sub_stage || "";
           const remark = row.Remark || row.remark || "";
           
           return {
             name: String(name).trim(),
             email: String(email).trim(),
-            phone: String(phone).trim(),
+            phone: String(phone).replace(/[^0-9]/g, ''),
             company: String(company).trim(),
             source: String(source),
             value: isNaN(value) ? 0 : value,
             lead_type: String(lead_type),
             address: String(address),
-            cx_comment: String(cx_comment),
+            cx_comment: String(cx_comment).replace(/_/g, ' '),
             budget: String(budget),
-            stage: stage || DEFAULT_LEAD_STAGE,
+            stage: stage,
             sub_stage: String(sub_stage),
             remark: String(remark),
           };
@@ -677,32 +679,45 @@ export default function Leads() {
     toast.success("Lead deleted");
   };
 
+  // ========== FIXED EXPORT ==========
   const handleExport = () => {
-    const exportData = leads.map(l => ({
-      Name: l.name,
-      Email: l.email,
-      Number: l.phone,
-      Company: l.company,
-      "Lead type": l.lead_type,
-      Address: l.address,
-      "CX Comment": l.cx_comment,
-      Budget: l.budget,
-      Stage: l.stage,
-      "Sub Stage": l.sub_stage,
-      Remark: l.remark,
-      Source: l.source,
-      Status: l.status,
-      Value: l.value,
-      "Business Status": l.business_status,
-      "Assigned To": getProfileName(l.assigned_to),
-      "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
-      "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
+    const exportData = leads.map((lead, index) => ({
+      "S.No.": index + 1,
+      "Lead Name": lead.name || "",
+      "Company": lead.company || "",
+      "Phone": lead.phone || "",
+      "Email": lead.email || "",
+      "Stage": formatStageLabel(lead.stage || lead.status || ""),
+      "Sub Stage": formatStageLabel(lead.sub_stage || ""),
+      "Assigned To": getProfileName(lead.assigned_to),
+      "Lead Type": lead.lead_type || "",
+      "Budget": lead.budget || "",
+      "Score": getLeadScore(lead),
+      "Created": format(new Date(lead.created_at), "dd MMM yyyy"),
     }));
+    
     const ws = XLSX.utils.json_to_sheet(exportData);
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 8 },   // S.No.
+      { wch: 25 },  // Lead Name
+      { wch: 20 },  // Company
+      { wch: 15 },  // Phone
+      { wch: 30 },  // Email
+      { wch: 15 },  // Stage
+      { wch: 18 },  // Sub Stage
+      { wch: 20 },  // Assigned To
+      { wch: 15 },  // Lead Type
+      { wch: 12 },  // Budget
+      { wch: 8 },   // Score
+      { wch: 15 },  // Created
+    ];
+    
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Leads");
-    XLSX.writeFile(wb, "leads_export.xlsx");
-    toast.success("Leads exported!");
+    XLSX.writeFile(wb, `leads_export_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+    toast.success(`${leads.length} leads exported successfully!`);
   };
 
   const clearFilters = () => {
@@ -811,6 +826,7 @@ export default function Leads() {
                                 <TableHead>Email</TableHead>
                                 <TableHead>Phone</TableHead>
                                 <TableHead>Company</TableHead>
+                                <TableHead>Stage</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -820,6 +836,7 @@ export default function Leads() {
                                   <TableCell className="text-sm">{r.email}</TableCell>
                                   <TableCell className="text-sm">{r.phone}</TableCell>
                                   <TableCell className="text-sm">{r.company}</TableCell>
+                                  <TableCell className="text-sm">{r.stage}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -1140,6 +1157,7 @@ export default function Leads() {
                       <TableHead>Phone</TableHead>
                       <TableHead className="hidden lg:table-cell">Email</TableHead>
                       <TableHead>Stage</TableHead>
+                      <TableHead>Sub Stage</TableHead>
                       <TableHead>Assigned To</TableHead>
                       <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
                       <TableHead className="hidden lg:table-cell">Budget</TableHead>
@@ -1157,7 +1175,8 @@ export default function Leads() {
                         <TableCell>{lead.company || "-"}</TableCell>
                         <TableCell>{lead.phone || "-"}</TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.email || "-"}</TableCell>
-                        <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
+                        <TableCell><StagePill stage={lead.stage} subStage={null} /></TableCell>
+                        <TableCell><span className="text-xs text-muted-foreground">{formatStageLabel(lead.sub_stage)}</span></TableCell>
                         <TableCell>{getProfileName(lead.assigned_to)}</TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.lead_type || "-"}</TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.budget || "-"}</TableCell>
@@ -1165,9 +1184,15 @@ export default function Leads() {
                         <TableCell className="whitespace-nowrap">{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)}><Eye className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)}><Edit className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View Details">
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit">
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1183,7 +1208,7 @@ export default function Leads() {
       {/* Modals */}
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
       
-      {/* Lead Detail Dialog */}
+      {/* Lead Detail Dialog - Eyes Section */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>
@@ -1191,24 +1216,129 @@ export default function Leads() {
             <div className="space-y-4 py-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">{getInitials(detailLead.name)}</div>
-                  <div><h3 className="font-bold">{detailLead.name}</h3>{detailLead.company && <p className="text-xs text-muted-foreground">{detailLead.company}</p>}</div>
+                  <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg">{getInitials(detailLead.name)}</div>
+                  <div>
+                    <h3 className="font-bold text-lg">{detailLead.name}</h3>
+                    {detailLead.company && <p className="text-sm text-muted-foreground">{detailLead.company}</p>}
+                  </div>
                 </div>
                 <ScoreBadge score={getLeadScore(detailLead)} />
               </div>
+              
+              <Progress value={getLeadScore(detailLead)} className="h-2" />
+              
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-muted-foreground text-xs">Email</p><p>{detailLead.email || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Phone</p><p>{detailLead.phone || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Company</p><p>{detailLead.company || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Address</p><p>{detailLead.address || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Lead Type</p><p>{detailLead.lead_type || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Budget</p><p>{detailLead.budget || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Source</p><p>{detailLead.source || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Status</p><p>{detailLead.status || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Value</p><p>{formatCurrency(detailLead.value)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Assigned To</p><p>{getProfileName(detailLead.assigned_to)}</p></div>
-                <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p>{detailLead.cx_comment || "-"}</p></div>
-                <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p>{detailLead.remark || "-"}</p></div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Email</p>
+                  <p className="font-medium break-all">{detailLead.email || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Phone</p>
+                  <p className="font-medium">{detailLead.phone || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Company</p>
+                  <p className="font-medium">{detailLead.company || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Address</p>
+                  <p className="font-medium">{detailLead.address || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Lead Type</p>
+                  <p className="font-medium">{detailLead.lead_type || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Budget</p>
+                  <p className="font-medium">{detailLead.budget || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Brand Stage</p>
+                  <Select
+                    value={detailLead.stage || "ringing"}
+                    onValueChange={async (v) => {
+                      const updated = { ...detailLead, stage: v, sub_stage: "" };
+                      setDetailLead(updated);
+                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "", status: v } as any);
+                      logActivity(detailLead.id, "updated", `Stage: ${v}`);
+                      refreshLeads();
+                      toast.success("Stage updated");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Sub Stage</p>
+                  <Select
+                    value={detailLead.sub_stage || "none"}
+                    onValueChange={async (v) => {
+                      const val = v === "none" ? "" : v;
+                      setDetailLead({ ...detailLead, sub_stage: val });
+                      await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
+                      logActivity(detailLead.id, "updated", `Sub Stage: ${val}`);
+                      refreshLeads();
+                      toast.success("Sub Stage updated");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">-- None --</SelectItem>
+                      {getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Source</p>
+                  <p className="font-medium">{detailLead.source || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Value</p>
+                  <p className="font-medium">{formatCurrency(detailLead.value)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Assigned To</p>
+                  <p className="font-medium">{getProfileName(detailLead.assigned_to)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Created At</p>
+                  <p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-muted-foreground text-xs">CX Comment</p>
+                  <p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-muted-foreground text-xs">Remark</p>
+                  <p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                {detailLead.phone && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`tel:${detailLead.phone}`}>
+                      <Phone className="mr-1 h-3 w-3" />Call
+                    </a>
+                  </Button>
+                )}
+                {detailLead.email && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`mailto:${detailLead.email}`}>
+                      <Mail className="mr-1 h-3 w-3" />Email
+                    </a>
+                  </Button>
+                )}
+                {detailLead.phone && (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer">
+                      <MessageCircle className="mr-1 h-3 w-3" />WhatsApp
+                    </a>
+                  </Button>
+                )}
               </div>
               <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
             </div>
