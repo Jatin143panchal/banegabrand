@@ -369,7 +369,6 @@ export default function Leads() {
 
   const [form, setForm] = useState<LeadFormData>(emptyForm);
 
-  // Auto-refresh every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
@@ -378,14 +377,12 @@ export default function Leads() {
     return () => clearInterval(interval);
   }, [queryClient]);
 
-  // Real-time subscription for auto-refresh on assign/update
   useEffect(() => {
     const channel = supabase
       .channel('leads-changes')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'leads' }, 
         () => {
-          console.log('Lead changed, refreshing...');
           refreshLeads();
         }
       )
@@ -516,15 +513,12 @@ export default function Leads() {
     toast.success("Lead added successfully");
   };
 
-  // ========== FIXED EXCEL IMPORT ==========
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) {
       toast.error("Please select a file");
       return;
     }
-    
-    console.log("File selected:", file.name);
     
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -534,15 +528,12 @@ export default function Leads() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
         
-        console.log("Rows found:", jsonData.length);
-        
         if (jsonData.length === 0) {
           toast.error("Excel file is empty");
           return;
         }
         
         const mapped = jsonData.map((row: any, idx: number) => {
-          // Map columns exactly as per Excel
           const name = row.Name || row.name || row["Lead Name"] || Object.values(row)[0] || `Lead ${idx + 1}`;
           const email = row.Email || row.email || row["Email Address"] || `temp_${Date.now()}_${idx}@import.com`;
           const phone = String(row.Number || row.Phone || row.phone || row.Mobile || "");
@@ -554,7 +545,6 @@ export default function Leads() {
           const cx_comment = row["CX Comment"] || row.cx_comment || "";
           const budget = row.Budget || row.budget || "";
           let stage = row.Stage || row.stage || DEFAULT_LEAD_STAGE;
-          // Convert "New" to "ringing"
           if (stage === "New" || stage === "new") stage = "ringing";
           const sub_stage = row["Sub Stage"] || row.sub_stage || "";
           const remark = row.Remark || row.remark || "";
@@ -576,7 +566,6 @@ export default function Leads() {
           };
         });
         
-        console.log("Mapped leads:", mapped.length);
         setUploadPreview(mapped);
         toast.success(`${mapped.length} leads loaded. Click Import to save.`);
         
@@ -679,7 +668,6 @@ export default function Leads() {
     toast.success("Lead deleted");
   };
 
-  // ========== FIXED EXPORT ==========
   const handleExport = () => {
     const exportData = leads.map((lead, index) => ({
       "S.No.": index + 1,
@@ -697,21 +685,9 @@ export default function Leads() {
     }));
     
     const ws = XLSX.utils.json_to_sheet(exportData);
-    
-    // Set column widths
     ws['!cols'] = [
-      { wch: 8 },   // S.No.
-      { wch: 25 },  // Lead Name
-      { wch: 20 },  // Company
-      { wch: 15 },  // Phone
-      { wch: 30 },  // Email
-      { wch: 15 },  // Stage
-      { wch: 18 },  // Sub Stage
-      { wch: 20 },  // Assigned To
-      { wch: 15 },  // Lead Type
-      { wch: 12 },  // Budget
-      { wch: 8 },   // Score
-      { wch: 15 },  // Created
+      { wch: 8 }, { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 30 },
+      { wch: 15 }, { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 8 }, { wch: 15 }
     ];
     
     const wb = XLSX.utils.book_new();
@@ -760,10 +736,8 @@ export default function Leads() {
 
   return (
     <div className="space-y-5">
-      {/* Sticky Header Wrapper */}
       <div className="sticky top-0 z-50 bg-white pt-3 pb-2 space-y-3 border-b shadow-lg">
         
-        {/* Header Section */}
         <div className="px-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
@@ -952,10 +926,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>📞</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#f97316" }}>{stats.ringingCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>Ringing</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#f97316" }}>{stats.ringingCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>Ringing</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -963,10 +934,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>🔔</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#3b82f6" }}>{stats.callbackCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>Callback</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#3b82f6" }}>{stats.callbackCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>Callback</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -974,10 +942,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>📋</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#8b5cf6" }}>{stats.dpCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>DP</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#8b5cf6" }}>{stats.dpCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>DP</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -985,10 +950,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>🎙</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#06b6d4" }}>{stats.vmsCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>VMS</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#06b6d4" }}>{stats.vmsCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>VMS</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -996,10 +958,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>👥</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#ec4899" }}>{stats.pgCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>PG</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#ec4899" }}>{stats.pgCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>PG</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -1007,10 +966,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>✅</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#10b981" }}>{stats.convertedTotal}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>Converted</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#10b981" }}>{stats.convertedTotal}</p><p style={{ fontSize: 10, color: "#64748b" }}>Converted</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -1018,10 +974,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>🚫</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#6b7280" }}>{stats.notInterestedCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>Not Int.</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#6b7280" }}>{stats.notInterestedCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>Not Int.</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -1029,10 +982,7 @@ export default function Leads() {
               <CardContent className="p-3">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 24 }}>❌</span>
-                  <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}>{stats.lostCount}</p>
-                    <p style={{ fontSize: 10, color: "#64748b" }}>Lost</p>
-                  </div>
+                  <div><p style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}>{stats.lostCount}</p><p style={{ fontSize: 10, color: "#64748b" }}>Lost</p></div>
                 </div>
               </CardContent>
             </Card>
@@ -1045,10 +995,7 @@ export default function Leads() {
             <Card>
               <CardContent className="p-3">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div>
-                    <p style={{ fontWeight: 600, fontSize: 13 }}>Leads by Employee</p>
-                    <p style={{ fontSize: 10, color: "#94a3b8" }}>Click on employee to filter</p>
-                  </div>
+                  <div><p style={{ fontWeight: 600, fontSize: 13 }}>Leads by Employee</p><p style={{ fontSize: 10, color: "#94a3b8" }}>Click on employee to filter</p></div>
                   <Button variant="outline" size="sm" onClick={() => setEmpModalOpen(true)}>View All</Button>
                 </div>
                 <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
@@ -1205,10 +1152,10 @@ export default function Leads() {
         </Card>
       </div>
 
-      {/* Modals */}
+      {/* Employee Modal */}
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
       
-      {/* Lead Detail Dialog - Eyes Section */}
+      {/* Lead Detail Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>
@@ -1228,62 +1175,33 @@ export default function Leads() {
               <Progress value={getLeadScore(detailLead)} className="h-2" />
               
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground text-xs">Email</p>
-                  <p className="font-medium break-all">{detailLead.email || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Phone</p>
-                  <p className="font-medium">{detailLead.phone || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Company</p>
-                  <p className="font-medium">{detailLead.company || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Address</p>
-                  <p className="font-medium">{detailLead.address || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Lead Type</p>
-                  <p className="font-medium">{detailLead.lead_type || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Budget</p>
-                  <p className="font-medium">{detailLead.budget || "-"}</p>
-                </div>
+                <div><p className="text-muted-foreground text-xs">Email</p><p className="font-medium break-all">{detailLead.email || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium">{detailLead.phone || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Company</p><p className="font-medium">{detailLead.company || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
                 <div>
                   <p className="text-muted-foreground text-xs">Brand Stage</p>
-                  <Select
-                    value={detailLead.stage || "ringing"}
-                    onValueChange={async (v) => {
-                      const updated = { ...detailLead, stage: v, sub_stage: "" };
-                      setDetailLead(updated);
-                      await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "", status: v } as any);
-                      logActivity(detailLead.id, "updated", `Stage: ${v}`);
-                      refreshLeads();
-                      toast.success("Stage updated");
-                    }}
-                  >
+                  <Select value={detailLead.stage || "ringing"} onValueChange={async (v) => {
+                    await updateLead.mutateAsync({ id: detailLead.id, stage: v, sub_stage: "", status: v } as any);
+                    setDetailLead({ ...detailLead, stage: v, sub_stage: "" });
+                    refreshLeads();
+                    toast.success("Stage updated");
+                  }}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Sub Stage</p>
-                  <Select
-                    value={detailLead.sub_stage || "none"}
-                    onValueChange={async (v) => {
-                      const val = v === "none" ? "" : v;
-                      setDetailLead({ ...detailLead, sub_stage: val });
-                      await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
-                      logActivity(detailLead.id, "updated", `Sub Stage: ${val}`);
-                      refreshLeads();
-                      toast.success("Sub Stage updated");
-                    }}
-                  >
+                  <Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => {
+                    const val = v === "none" ? "" : v;
+                    await updateLead.mutateAsync({ id: detailLead.id, sub_stage: val } as any);
+                    setDetailLead({ ...detailLead, sub_stage: val });
+                    refreshLeads();
+                    toast.success("Sub Stage updated");
+                  }}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">-- None --</SelectItem>
@@ -1291,54 +1209,18 @@ export default function Leads() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Source</p>
-                  <p className="font-medium">{detailLead.source || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Value</p>
-                  <p className="font-medium">{formatCurrency(detailLead.value)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Assigned To</p>
-                  <p className="font-medium">{getProfileName(detailLead.assigned_to)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Created At</p>
-                  <p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-muted-foreground text-xs">CX Comment</p>
-                  <p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-muted-foreground text-xs">Remark</p>
-                  <p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p>
-                </div>
+                <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Assigned To</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Created At</p><p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p></div>
+                <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
+                <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
               </div>
 
               <div className="flex gap-2 pt-2">
-                {detailLead.phone && (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={`tel:${detailLead.phone}`}>
-                      <Phone className="mr-1 h-3 w-3" />Call
-                    </a>
-                  </Button>
-                )}
-                {detailLead.email && (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={`mailto:${detailLead.email}`}>
-                      <Mail className="mr-1 h-3 w-3" />Email
-                    </a>
-                  </Button>
-                )}
-                {detailLead.phone && (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer">
-                      <MessageCircle className="mr-1 h-3 w-3" />WhatsApp
-                    </a>
-                  </Button>
-                )}
+                {detailLead.phone && <Button size="sm" variant="outline" asChild><a href={`tel:${detailLead.phone}`}><Phone className="mr-1 h-3 w-3" />Call</a></Button>}
+                {detailLead.email && <Button size="sm" variant="outline" asChild><a href={`mailto:${detailLead.email}`}><Mail className="mr-1 h-3 w-3" />Email</a></Button>}
+                {detailLead.phone && <Button size="sm" variant="outline" asChild><a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank"><MessageCircle className="mr-1 h-3 w-3" />WhatsApp</a></Button>}
               </div>
               <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
             </div>
