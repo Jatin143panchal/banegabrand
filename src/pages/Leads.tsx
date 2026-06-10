@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,12 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar, TrendingUp, BarChart3
+  MessageCircle, Calendar, TrendingUp, BarChart3, AlarmClock, Flag, XCircle
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
 import { useBulkAssignLeads } from "@/hooks/useLeadComments";
-import { isToday, subDays, format } from "date-fns";
+import { isToday, subDays, format, parseISO, differenceInMinutes } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -37,6 +37,7 @@ const LEAD_STAGES = [
   { value: "vms",       label: "VMS",       color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
   { value: "pg",        label: "PG",        color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
   { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
+  { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
 
 const LEAD_STATUSES = [
@@ -46,6 +47,7 @@ const LEAD_STATUSES = [
   { value: "VMS",                label: "VMS"               },
   { value: "PG",                 label: "PG"                },
   { value: "Converted",          label: "Converted"         },
+  { value: "Lost",               label: "Lost"              },
   { value: "Meeting Booked",     label: "Meeting Booked"    },
   { value: "Business Generated", label: "Business Generated"},
 ];
@@ -76,6 +78,13 @@ const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
     { value: "meeting_booked",      label: "Meeting Booked"      },
     { value: "business_generated",  label: "Business Generated"  },
   ],
+  lost: [
+    { value: "not_interested",  label: "Not Interested" },
+    { value: "no_response",     label: "No Response" },
+    { value: "budget_issue",    label: "Budget Issue" },
+    { value: "competitor",      label: "Competitor" },
+    { value: "wrong_number",    label: "Wrong Number" },
+  ],
 };
 
 function getSubStagesForStage(stage: string | null | undefined) {
@@ -102,6 +111,8 @@ interface DbLead {
   lead_type: string | null; address: string | null; cx_comment: string | null;
   budget: string | null; stage: string | null; sub_stage: string | null; remark: string | null;
   assign_date?: string | null;
+  lost_reason?: string | null;
+  lost_date?: string | null;
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
@@ -134,6 +145,7 @@ function getLeadScore(lead: DbLead): number {
   else if (lead.status === "answered")   score += 20;
   else if (lead.status === "contacted")  score += 15;
   else if (lead.status === "new")        score += 5;
+  else if (lead.status === "lost")       score = 0;
   if (lead.sub_stage === "meeting_booked" || lead.sub_stage === "business_generated") score += 10;
   return Math.min(score, 100);
 }
@@ -289,8 +301,165 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
     </Dialog>
   );
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
+// ── Call Reminder Popup Component ─────────────────────────────────────────────
+function CallReminderPopup({ leads, onDismiss, onCallNow }: { 
+  leads: DbLead[]; 
+  onDismiss: (leadId: string) => void; 
+  onCallNow: (lead: DbLead) => void;
+}) {
+  const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
+  
+  if (leads.length === 0) return null;
+  
+  const currentLead = leads[currentLeadIndex];
+  
+  return (
+    <Dialog open={true} onOpenChange={() => onDismiss(currentLead.id)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlarmClock className="h-5 w-5 text-orange-500" />
+            Call Reminder
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          <div className="text-center mb-4">
+            <div className="text-4xl mb-2">🔔</div>
+            <p className="text-sm text-muted-foreground">Time to call!</p>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="p-3 bg-orange-50 rounded-lg">
+              <p className="font-semibold text-lg">{currentLead.name}</p>
+              <p className="text-sm text-muted-foreground">{currentLead.company || "No company"}</p>
+              {currentLead.phone && (
+                <p className="text-sm mt-2">
+                  <Phone className="inline h-3 w-3 mr-1" />
+                  {currentLead.phone}
+                </p>
+              )}
+              {currentLead.remark && (
+                <p className="text-xs mt-2 p-2 bg-white rounded">
+                  <span className="font-semibold">Note:</span> {currentLead.remark}
+                </p>
+              )}
+            </div>
+            
+            {leads.length > 1 && (
+              <p className="text-xs text-center text-muted-foreground">
+                {currentLeadIndex + 1} of {leads.length} calls pending
+              </p>
+            )}
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          {leads.length > 1 && currentLeadIndex < leads.length - 1 && (
+            <Button 
+              variant="outline" 
+              onClick={() => setCurrentLeadIndex(prev => prev + 1)}
+            >
+              Next
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => onDismiss(currentLead.id)}>
+            Remind Later
+          </Button>
+          <Button onClick={() => onCallNow(currentLead)}>
+            <Phone className="mr-2 h-4 w-4" />
+            Call Now
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Lost Lead Dialog ─────────────────────────────────────────────────────────
+function LostLeadDialog({ lead, open, onClose, onConfirm }: {
+  lead: DbLead | null;
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (leadId: string, reason: string) => void;
+}) {
+  const [lostReason, setLostReason] = useState("");
+  
+  useEffect(() => {
+    if (open) setLostReason("");
+  }, [open]);
+  
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <XCircle className="h-5 w-5" />
+            Mark Lead as Lost
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          <p className="text-sm mb-4">
+            Are you sure you want to mark <strong>{lead?.name}</strong> as lost?
+          </p>
+          <div className="space-y-2">
+            <Label>Lost Reason</Label>
+            <Select value={lostReason} onValueChange={setLostReason}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select reason..." />
+              </SelectTrigger>
+              <SelectContent>
+                {SUB_STAGES.lost.map(reason => (
+                  <SelectItem key={reason.value} value={reason.value}>
+                    {reason.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button 
+            variant="destructive" 
+            onClick={() => lostReason && onConfirm(lead!.id, lostReason)}
+            disabled={!lostReason}
+          >
+            Confirm Lost
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Excel Template Download ───────────────────────────────────────────────────
+function downloadExcelTemplate() {
+  const template = [
+    {
+      "Name": "John Doe",
+      "Email": "john@example.com",
+      "Phone": "9876543210",
+      "Company": "ABC Corp",
+      "Source": "Website",
+      "Value": 5000000,
+      "Lead Type": "Herbal & Ayurvedic",
+      "Address": "Mumbai, India",
+      "CX Comment": "Interested in products",
+      "Budget": "₹5l+",
+      "Stage": "ringing",
+      "Sub Stage": "ringing_1st",
+      "Remark": "Call after 2 PM"
+    }
+  ];
+  
+  const ws = XLSX.utils.json_to_sheet(template);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Lead Template");
+  XLSX.writeFile(wb, "lead_import_template.xlsx");
+  toast.success("Template downloaded! Fill it with your data and re-upload.");
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
   const canAssign = useCanAssignTasks();
@@ -323,6 +492,13 @@ export default function Leads() {
   const [uploadPreview, setUploadPreview]   = useState<any[]>([]);
   const [uploading, setUploading]           = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  
+  // Call reminder states
+  const [pendingReminders, setPendingReminders] = useState<DbLead[]>([]);
+  const [showReminder, setShowReminder] = useState(false);
+  
+  // Lost lead states
+  const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
@@ -330,6 +506,90 @@ export default function Leads() {
     budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
   };
   const [form, setForm] = useState(emptyForm);
+
+  // ── Check for reminders every minute ──
+  useEffect(() => {
+    const checkReminders = () => {
+      const now = new Date();
+      const upcomingCalls = leads.filter(lead => {
+        if (!lead.remark) return false;
+        // Look for time patterns in remark (e.g., "call at 2:30 PM", "2:30 PM call", "call after 2 PM")
+        const timeMatch = lead.remark.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+          const period = timeMatch[3].toUpperCase();
+          
+          if (period === "PM" && hours !== 12) hours += 12;
+          if (period === "AM" && hours === 12) hours = 0;
+          
+          const callTime = new Date(now);
+          callTime.setHours(hours, minutes, 0, 0);
+          
+          const diffMinutes = differenceInMinutes(callTime, now);
+          // Show reminder 10 minutes before or up to 5 minutes after scheduled time
+          if (diffMinutes >= -5 && diffMinutes <= 10 && lead.stage !== "lost") {
+            return true;
+          }
+        }
+        return false;
+      });
+      
+      // Filter out already shown reminders
+      const newReminders = upcomingCalls.filter(
+        lead => !pendingReminders.some(r => r.id === lead.id)
+      );
+      
+      if (newReminders.length > 0) {
+        setPendingReminders(prev => [...prev, ...newReminders]);
+        setShowReminder(true);
+      }
+    };
+    
+    checkReminders();
+    const interval = setInterval(checkReminders, 60000); // Check every minute
+    
+    return () => clearInterval(interval);
+  }, [leads, pendingReminders]);
+
+  const dismissReminder = (leadId: string) => {
+    setPendingReminders(prev => prev.filter(r => r.id !== leadId));
+    if (pendingReminders.length === 1) {
+      setShowReminder(false);
+    }
+  };
+
+  const handleCallNow = (lead: DbLead) => {
+    if (lead.phone) {
+      window.location.href = `tel:${lead.phone}`;
+      logActivity(lead.id, "called", `Called from reminder - ${lead.phone}`);
+    }
+    dismissReminder(lead.id);
+  };
+
+  const markLeadAsLost = async (leadId: string, reason: string) => {
+    try {
+      const lostDate = new Date().toISOString();
+      await supabase
+        .from("leads")
+        .update({ 
+          stage: "lost", 
+          status: "Lost",
+          lost_reason: reason,
+          lost_date: lostDate,
+          business_status: "no-go"
+        })
+        .eq("id", leadId);
+      
+      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
+      toast.success("Lead marked as lost");
+      setLostLeadDialog(null);
+      setDetailLead(null);
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
 
   // ── assign lead (inline dropdown) ──
   const assignLead = useMutation({
@@ -360,7 +620,6 @@ export default function Leads() {
     try {
       await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-      // Update the local detailLead state to reflect changes immediately
       if (detailLead && detailLead.id === id) {
         setDetailLead({ ...detailLead, stage, sub_stage: subStage });
       }
@@ -418,7 +677,6 @@ export default function Leads() {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     try {
       const assign_date = new Date().toISOString();
-      // Update assign_date for all bulk assigned leads
       await supabase.from("leads")
         .update({ assigned_to: bulkAssignTo, assign_date })
         .in("id", Array.from(selectedIds));
@@ -459,17 +717,17 @@ export default function Leads() {
           company:    row.Company || row.company || row["Company Name"] || row["Organization"] || "",
           source:     row.Source || row.source || row["Lead Source"] || "Excel Import",
           value:      Number(row.Value || row.value || row["Deal Value"] || 0),
-          lead_type:  row["Lead type"] || row["Lead Type"] || row.lead_type || "",
+          lead_type:  row["Lead Type"] || row["Lead type"] || row.lead_type || "",
           address:    row.Address || row.address || "",
           cx_comment: row["CX Comment"] || row.cx_comment || row.Comment || "",
           budget:     row.Budget || row.budget || "",
-          stage:      row.Stage || row.stage || "",
+          stage:      row.Stage || row.stage || "ringing",
           sub_stage:  row["Sub Stage"] || row.sub_stage || "",
           remark:     row.Remark || row.remark || row.Remarks || "",
         })).filter((r: any) => r.name);
         setUploadPreview(mapped);
         if (mapped.length === 0)
-          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value");
+          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark");
       } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
     };
     reader.readAsBinaryString(file);
@@ -485,7 +743,7 @@ export default function Leads() {
           name: lead.name, email: lead.email, phone: lead.phone, company: lead.company,
           source: lead.source, value: lead.value, status: "new" as any,
           lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-          budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage, remark: lead.remark,
+          budget: lead.budget, stage: lead.stage || "ringing", sub_stage: lead.sub_stage, remark: lead.remark,
         } as any);
         success++;
       } catch { }
@@ -522,13 +780,15 @@ export default function Leads() {
   const handleExport = () => {
     const exportData = leads.map(l => ({
       Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
-      "Lead type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
+      "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
       Budget: l.budget, Stage: l.stage, "Sub Stage": l.sub_stage, Remark: l.remark,
       Source: l.source, Status: l.status, Value: l.value,
       "Business Status": l.business_status,
       "Assigned To": getProfileName(l.assigned_to),
       "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
       "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
+      "Lost Reason": l.lost_reason || "",
+      "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
     }));
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -555,9 +815,26 @@ export default function Leads() {
   // ── Stats ──
   const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
   const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
+  const lostCount = leads.filter(l => l.stage === "lost").length;
 
   return (
     <div className="space-y-5">
+      {/* Call Reminder Popup */}
+      {showReminder && pendingReminders.length > 0 && (
+        <CallReminderPopup
+          leads={pendingReminders}
+          onDismiss={dismissReminder}
+          onCallNow={handleCallNow}
+        />
+      )}
+      
+      {/* Lost Lead Dialog */}
+      <LostLeadDialog
+        lead={lostLeadDialog}
+        open={!!lostLeadDialog}
+        onClose={() => setLostLeadDialog(null)}
+        onConfirm={markLeadAsLost}
+      />
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -574,12 +851,25 @@ export default function Leads() {
               <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
-              <DialogHeader><DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5" />Import Leads from Excel/CSV</DialogTitle></DialogHeader>
+              <DialogHeader>
+                <DialogTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5" />
+                    Import Leads from Excel/CSV
+                  </span>
+                  <Button variant="outline" size="sm" onClick={downloadExcelTemplate}>
+                    <Download className="mr-2 h-3 w-3" />
+                    Download Template
+                  </Button>
+                </DialogTitle>
+              </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="border-2 border-dashed rounded-lg p-6 text-center">
                   <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
-                  <p className="text-xs text-muted-foreground mb-3">Columns: Name, Email, Phone, Company, Source, Value</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark
+                  </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
                 {uploadPreview.length > 0 && (
@@ -680,12 +970,16 @@ export default function Leads() {
                   </Select>
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
-                  <Label>CX Comment</Label>
-                  <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
+                  <Label>Remark (for call scheduling, e.g., "call at 2:30 PM")</Label>
+                  <Textarea 
+                    value={form.remark} 
+                    onChange={e => setForm({ ...form, remark: e.target.value })} 
+                    placeholder="Add remarks or schedule calls (e.g., call at 2:30 PM)..." 
+                  />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
-                  <Label>Remark</Label>
-                  <Textarea value={form.remark} onChange={e => setForm({ ...form, remark: e.target.value })} placeholder="Additional remarks..." />
+                  <Label>CX Comment</Label>
+                  <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
                 <Button onClick={handleAdd} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
                   {insertLead.isPending ? "Adding..." : "Add Lead"}
@@ -712,6 +1006,48 @@ export default function Leads() {
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Converted card */}
+        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
+          <CardContent className="p-4">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, background: "#ecfdf5",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <TrendingUp style={{ color: "#10b981", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{convertedCount}</p>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Converted</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>
+                  {((convertedCount / leads.length) * 100).toFixed(1)}% rate
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Lost card */}
+        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
+          <CardContent className="p-4">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, background: "#fef2f2",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Flag style={{ color: "#ef4444", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{lostCount}</p>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Lost</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>
+                  {((lostCount / leads.length) * 100).toFixed(1)}% rate
+                </p>
               </div>
             </div>
           </CardContent>
@@ -1017,6 +1353,17 @@ export default function Leads() {
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit">
                               <Edit className="h-3.5 w-3.5" />
                             </Button>
+                            {lead.stage !== "lost" && lead.stage !== "converted" && (
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-7 w-7 text-red-600" 
+                                onClick={() => setLostLeadDialog(lead)} 
+                                title="Mark as Lost"
+                              >
+                                <Flag className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -1127,7 +1474,10 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Status</p>
                   <span style={{
                     fontSize: 11, padding: "2px 10px", borderRadius: 10,
-                    background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", fontWeight: 600,
+                    background: detailLead.stage === "lost" ? "#fef2f2" : "#f0fdf4", 
+                    color: detailLead.stage === "lost" ? "#dc2626" : "#16a34a", 
+                    border: `1px solid ${detailLead.stage === "lost" ? "#fecaca" : "#bbf7d0"}`, 
+                    fontWeight: 600,
                   }}>{formatStageLabel(detailLead.status)}</span>
                 </div>
                 <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
@@ -1141,6 +1491,12 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Created At</p>
                   <p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p>
                 </div>
+                {detailLead.lost_reason && (
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground text-xs">Lost Reason</p>
+                    <p className="font-medium text-red-600">{formatStageLabel(detailLead.lost_reason)}</p>
+                  </div>
+                )}
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
               </div>
@@ -1166,6 +1522,11 @@ export default function Leads() {
                       onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}>
                       <MessageCircle className="mr-1 h-3 w-3" />WhatsApp
                     </a>
+                  </Button>
+                )}
+                {detailLead.stage !== "lost" && detailLead.stage !== "converted" && (
+                  <Button size="sm" variant="destructive" onClick={() => setLostLeadDialog(detailLead)}>
+                    <Flag className="mr-1 h-3 w-3" />Mark as Lost
                   </Button>
                 )}
               </div>
@@ -1253,12 +1614,16 @@ export default function Leads() {
                 </Select>
               </div>
               <div className="grid gap-2 sm:col-span-2">
-                <Label>CX Comment</Label>
-                <Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} />
+                <Label>Remark (for call scheduling)</Label>
+                <Textarea 
+                  value={editLead.remark || ""} 
+                  onChange={e => setEditLead({ ...editLead, remark: e.target.value })}
+                  placeholder="e.g., call at 2:30 PM"
+                />
               </div>
               <div className="grid gap-2 sm:col-span-2">
-                <Label>Remark</Label>
-                <Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} />
+                <Label>CX Comment</Label>
+                <Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} />
               </div>
               <Button onClick={handleUpdate} disabled={updateLead.isPending} className="sm:col-span-2">
                 {updateLead.isPending ? "Saving..." : "Save Changes"}
