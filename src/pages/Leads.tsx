@@ -18,7 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar, TrendingUp, BarChart3, StickyNote
+  MessageCircle, Calendar, TrendingUp, BarChart3
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -102,7 +102,6 @@ interface DbLead {
   lead_type: string | null; address: string | null; cx_comment: string | null;
   budget: string | null; stage: string | null; sub_stage: string | null; remark: string | null;
   assign_date?: string | null;
-  ads_notes?: string | null;
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
@@ -324,12 +323,11 @@ export default function Leads() {
   const [uploadPreview, setUploadPreview]   = useState<any[]>([]);
   const [uploading, setUploading]           = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [isUpdatingAdsNotes, setIsUpdatingAdsNotes] = useState(false);
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
     lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
-    budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "", ads_notes: "",
+    budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -369,23 +367,6 @@ export default function Leads() {
       toast.success("Stage updated");
     } catch (error: any) {
       toast.error(error.message);
-    }
-  };
-
-  // ── Update Ads Notes ──
-  const handleUpdateAdsNotes = async (id: string, adsNotes: string) => {
-    setIsUpdatingAdsNotes(true);
-    try {
-      await supabase.from("leads").update({ ads_notes: adsNotes }).eq("id", id);
-      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-      if (detailLead && detailLead.id === id) {
-        setDetailLead({ ...detailLead, ads_notes: adsNotes });
-      }
-      toast.success("Ads Notes updated");
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setIsUpdatingAdsNotes(false);
     }
   };
 
@@ -437,6 +418,7 @@ export default function Leads() {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     try {
       const assign_date = new Date().toISOString();
+      // Update assign_date for all bulk assigned leads
       await supabase.from("leads")
         .update({ assigned_to: bulkAssignTo, assign_date })
         .in("id", Array.from(selectedIds));
@@ -453,7 +435,7 @@ export default function Leads() {
       name: form.name, email: form.email, phone: form.phone, company: form.company,
       source: form.source, value: Number(form.value) || 0, status: "new" as any,
       lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
-      budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark, ads_notes: form.ads_notes,
+      budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
     } as any);
     setForm(emptyForm);
     setDialogOpen(false);
@@ -484,7 +466,6 @@ export default function Leads() {
           stage:      row.Stage || row.stage || "",
           sub_stage:  row["Sub Stage"] || row.sub_stage || "",
           remark:     row.Remark || row.remark || row.Remarks || "",
-          ads_notes:  row["Ads Notes"] || row.ads_notes || row["Notes"] || "",
         })).filter((r: any) => r.name);
         setUploadPreview(mapped);
         if (mapped.length === 0)
@@ -504,7 +485,7 @@ export default function Leads() {
           name: lead.name, email: lead.email, phone: lead.phone, company: lead.company,
           source: lead.source, value: lead.value, status: "new" as any,
           lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-          budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage, remark: lead.remark, ads_notes: lead.ads_notes,
+          budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage, remark: lead.remark,
         } as any);
         success++;
       } catch { }
@@ -524,7 +505,7 @@ export default function Leads() {
       status: editLead.status as any, business_status: editLead.business_status,
       lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
       budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage,
-      remark: editLead.remark, ads_notes: editLead.ads_notes,
+      remark: editLead.remark,
     } as any);
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
@@ -543,7 +524,6 @@ export default function Leads() {
       Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
       "Lead type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
       Budget: l.budget, Stage: l.stage, "Sub Stage": l.sub_stage, Remark: l.remark,
-      "Ads Notes": l.ads_notes,
       Source: l.source, Status: l.status, Value: l.value,
       "Business Status": l.business_status,
       "Assigned To": getProfileName(l.assigned_to),
@@ -572,6 +552,10 @@ export default function Leads() {
 
   const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
 
+  // ── Stats ──
+  const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
+  const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
+
   return (
     <div className="space-y-5">
 
@@ -595,7 +579,7 @@ export default function Leads() {
                 <div className="border-2 border-dashed rounded-lg p-6 text-center">
                   <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
-                  <p className="text-xs text-muted-foreground mb-3">Columns: Name, Email, Phone, Company, Source, Value, Ads Notes</p>
+                  <p className="text-xs text-muted-foreground mb-3">Columns: Name, Email, Phone, Company, Source, Value</p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
                 {uploadPreview.length > 0 && (
@@ -607,7 +591,7 @@ export default function Leads() {
                     <div className="max-h-60 overflow-auto rounded border">
                       <Table>
                         <TableHeader>
-                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead><TableHead>Ads Notes</TableHead></TableRow>
+                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead></TableRow>
                         </TableHeader>
                         <TableBody>
                           {uploadPreview.slice(0, 10).map((r, i) => (
@@ -617,7 +601,6 @@ export default function Leads() {
                               <TableCell className="text-sm">{r.phone}</TableCell>
                               <TableCell className="text-sm">{r.company}</TableCell>
                               <TableCell className="text-sm">{r.source}</TableCell>
-                              <TableCell className="text-sm truncate max-w-[150px]">{r.ads_notes}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -703,10 +686,6 @@ export default function Leads() {
                 <div className="grid gap-2 sm:col-span-2">
                   <Label>Remark</Label>
                   <Textarea value={form.remark} onChange={e => setForm({ ...form, remark: e.target.value })} placeholder="Additional remarks..." />
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label>Ads Notes</Label>
-                  <Textarea value={form.ads_notes} onChange={e => setForm({ ...form, ads_notes: e.target.value })} placeholder="Advertising campaign notes, ad responses, etc..." />
                 </div>
                 <Button onClick={handleAdd} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
                   {insertLead.isPending ? "Adding..." : "Add Lead"}
@@ -1164,26 +1143,6 @@ export default function Leads() {
                 </div>
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
-                
-                {/* Ads Notes Section */}
-                <div className="col-span-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <StickyNote className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-muted-foreground text-xs font-medium">Ads Notes</p>
-                  </div>
-                  <Textarea
-                    value={detailLead.ads_notes || ""}
-                    onChange={(e) => handleUpdateAdsNotes(detailLead.id, e.target.value)}
-                    placeholder="Add advertising campaign notes, ad responses, marketing insights..."
-                    className="min-h-[80px] text-sm"
-                    disabled={isUpdatingAdsNotes}
-                  />
-                  {isUpdatingAdsNotes && (
-                    <div className="flex justify-end mt-1">
-                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -1300,10 +1259,6 @@ export default function Leads() {
               <div className="grid gap-2 sm:col-span-2">
                 <Label>Remark</Label>
                 <Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} />
-              </div>
-              <div className="grid gap-2 sm:col-span-2">
-                <Label>Ads Notes</Label>
-                <Textarea value={editLead.ads_notes || ""} onChange={e => setEditLead({ ...editLead, ads_notes: e.target.value })} placeholder="Advertising campaign notes..." />
               </div>
               <Button onClick={handleUpdate} disabled={updateLead.isPending} className="sm:col-span-2">
                 {updateLead.isPending ? "Saving..." : "Save Changes"}
