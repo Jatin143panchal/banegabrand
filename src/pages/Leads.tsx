@@ -433,75 +433,6 @@ function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   );
 }
 
-// ── Duplicate Lead Dialog ─────────────────────────────────────────────────────
-function DuplicateLeadDialog({ 
-  open, 
-  onClose, 
-  duplicateData,
-  onContinueAnyway,
-  onCancel
-}: { 
-  open: boolean;
-  onClose: () => void;
-  duplicateData: any;
-  onContinueAnyway: () => void;
-  onCancel: () => void;
-}) {
-  if (!duplicateData) return null;
-  
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-amber-600">
-            <AlertTriangle className="h-5 w-5" />
-            Duplicate Lead Detected
-          </DialogTitle>
-        </DialogHeader>
-        <div className="py-4">
-          <p className="text-sm mb-3">
-            A lead with similar information already exists:
-          </p>
-          <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 mb-4">
-            <p className="font-semibold">{duplicateData.existing_lead_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {duplicateData.existing_lead_email && `📧 ${duplicateData.existing_lead_email}`}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {duplicateData.existing_lead_phone && `📞 ${duplicateData.existing_lead_phone}`}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {duplicateData.existing_lead_company && `🏢 ${duplicateData.existing_lead_company}`}
-            </p>
-            <div className="mt-2 flex gap-2">
-              <Badge variant="outline" className="text-xs">
-                Stage: {duplicateData.existing_lead_stage || 'N/A'}
-              </Badge>
-              <Badge variant="outline" className="text-xs">
-                Status: {duplicateData.existing_lead_status || 'N/A'}
-              </Badge>
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground mb-2">
-            Match type: <strong>{duplicateData.match_type}</strong>
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Are you sure you want to continue? This will create a duplicate record.
-          </p>
-        </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={onContinueAnyway}>
-            Continue Anyway
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Excel Template Download ───────────────────────────────────────────────────
 function downloadExcelTemplate() {
   const template = [
@@ -569,13 +500,6 @@ export default function Leads() {
   
   // Lost lead states
   const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
-  
-  // Duplicate detection states
-  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
-  const [duplicateData, setDuplicateData] = useState<any>(null);
-  const [pendingLeadData, setPendingLeadData] = useState<any>(null);
-  const [isBulkImport, setIsBulkImport] = useState(false);
-  const [bulkImportDuplicates, setBulkImportDuplicates] = useState<any[]>([]);
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
@@ -584,7 +508,7 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── Check for duplicate lead function ──
+  // ── Check for duplicate lead function (only for import) ──
   const checkForDuplicate = async (leadData: any, excludeId?: string) => {
     try {
       const { data, error } = await supabase.rpc('check_duplicate_lead', {
@@ -726,38 +650,19 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   };
 
-  // ── Add lead with duplicate check ──
-  const handleAddWithDuplicateCheck = async () => {
+  // ── Add lead (without duplicate check) ──
+  const handleAddLead = async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
       return; 
     }
     
-    const leadData = {
-      name: form.name,
-      email: form.email,
-      phone: form.phone,
-      company: form.company
-    };
-    
-    const duplicate = await checkForDuplicate(leadData);
-    
-    if (duplicate && duplicate.is_duplicate) {
-      setDuplicateData(duplicate);
-      setPendingLeadData(form);
-      setDuplicateDialogOpen(true);
-    } else {
-      await performAddLead(form);
-    }
-  };
-  
-  const performAddLead = async (data: any) => {
     try {
       await insertLead.mutateAsync({
-        name: data.name, email: data.email, phone: data.phone, company: data.company,
-        source: data.source, value: Number(data.value) || 0, status: "new" as any,
-        lead_type: data.lead_type, address: data.address, cx_comment: data.cx_comment,
-        budget: data.budget, stage: data.stage, sub_stage: data.sub_stage, remark: data.remark,
+        name: form.name, email: form.email, phone: form.phone, company: form.company,
+        source: form.source, value: Number(form.value) || 0, status: "new" as any,
+        lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
+        budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
       } as any);
       setForm(emptyForm);
       setDialogOpen(false);
@@ -858,12 +763,20 @@ export default function Leads() {
     setUploading(true);
     let success = 0;
     let duplicates = 0;
+    let duplicateList: any[] = [];
     
     for (const lead of uploadPreview) {
+      // Check for duplicate before importing
       const duplicate = await checkForDuplicate(lead);
       
       if (duplicate && duplicate.is_duplicate) {
         duplicates++;
+        duplicateList.push({
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          existing_lead: duplicate.existing_lead_name
+        });
         continue; // Skip duplicate leads
       }
       
@@ -875,7 +788,9 @@ export default function Leads() {
           budget: lead.budget, stage: lead.stage || "ringing", sub_stage: lead.sub_stage, remark: lead.remark,
         } as any);
         success++;
-      } catch { }
+      } catch (error) {
+        console.error("Error importing lead:", error);
+      }
     }
     
     setUploading(false);
@@ -883,8 +798,18 @@ export default function Leads() {
     setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
     
+    // Show detailed toast message
     if (duplicates > 0) {
-      toast.warning(`${success} leads imported, ${duplicates} duplicates skipped`);
+      if (success > 0) {
+        toast.warning(
+          `${success} leads imported successfully, ${duplicates} duplicate leads skipped.`,
+          { duration: 5000 }
+        );
+      } else {
+        toast.error(`All ${duplicates} leads were duplicates and were skipped.`);
+      }
+      // Log duplicates for debugging
+      console.log("Skipped duplicates:", duplicateList);
     } else {
       toast.success(`${success} leads imported successfully!`);
     }
@@ -893,29 +818,15 @@ export default function Leads() {
   const handleUpdate = async () => {
     if (!editLead) return;
     
-    // Check for duplicate before update
-    const duplicate = await checkForDuplicate(editLead, editLead.id);
-    
-    if (duplicate && duplicate.is_duplicate) {
-      setDuplicateData(duplicate);
-      setPendingLeadData(editLead);
-      setDuplicateDialogOpen(true);
-      return;
-    }
-    
-    await performUpdateLead(editLead);
-  };
-  
-  const performUpdateLead = async (lead: DbLead) => {
     await updateLead.mutateAsync({
-      id: lead.id, name: lead.name, email: lead.email, phone: lead.phone,
-      company: lead.company, source: lead.source, value: lead.value,
-      status: lead.status as any, business_status: lead.business_status,
-      lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-      budget: lead.budget, stage: lead.stage, sub_stage: lead.sub_stage,
-      remark: lead.remark,
+      id: editLead.id, name: editLead.name, email: editLead.email, phone: editLead.phone,
+      company: editLead.company, source: editLead.source, value: editLead.value,
+      status: editLead.status as any, business_status: editLead.business_status,
+      lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
+      budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage,
+      remark: editLead.remark,
     } as any);
-    logActivity(lead.id, "updated", `Status: ${lead.status}`);
+    logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
     toast.success("Lead updated");
   };
@@ -985,37 +896,6 @@ export default function Leads() {
         onClose={() => setLostLeadDialog(null)}
         onConfirm={markLeadAsLost}
       />
-      
-      {/* Duplicate Lead Dialog */}
-      <DuplicateLeadDialog
-        open={duplicateDialogOpen}
-        onClose={() => {
-          setDuplicateDialogOpen(false);
-          setDuplicateData(null);
-          setPendingLeadData(null);
-        }}
-        duplicateData={duplicateData}
-        onContinueAnyway={() => {
-          setDuplicateDialogOpen(false);
-          if (pendingLeadData) {
-            if (editLead) {
-              performUpdateLead(pendingLeadData);
-            } else {
-              performAddLead(pendingLeadData);
-            }
-          }
-          setPendingLeadData(null);
-          setDuplicateData(null);
-        }}
-        onCancel={() => {
-          setDuplicateDialogOpen(false);
-          setDuplicateData(null);
-          setPendingLeadData(null);
-          if (editLead) {
-            setEditLead(null);
-          }
-        }}
-      />
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1051,12 +931,15 @@ export default function Leads() {
                   <p className="text-xs text-muted-foreground mb-3">
                     Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark
                   </p>
+                  <p className="text-xs text-amber-600 mb-2">
+                    ⚠️ Duplicate leads (based on email/phone/name) will be automatically skipped
+                  </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
                 {uploadPreview.length > 0 && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium">{uploadPreview.length} leads found</p>
+                      <p className="text-sm font-medium">{uploadPreview.length} leads found in file</p>
                       <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
                     </div>
                     <div className="max-h-60 overflow-auto rounded border">
@@ -1083,7 +966,7 @@ export default function Leads() {
               </div>
               <DialogFooter>
                 <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
+                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads (Duplicates will be skipped)`}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1162,7 +1045,7 @@ export default function Leads() {
                   <Label>CX Comment</Label>
                   <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
-                <Button onClick={handleAddWithDuplicateCheck} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
+                <Button onClick={handleAddLead} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
                   {insertLead.isPending ? "Adding..." : "Add Lead"}
                 </Button>
               </div>
