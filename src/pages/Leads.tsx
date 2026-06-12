@@ -627,16 +627,13 @@ export default function Leads() {
     setLeegalityLoading(leadId);
     
     try {
-      // Call your Supabase Edge Function for Leegality
-      const { data: session } = await supabase.auth.getSession();
-      
       // For demo - using a sample PDF. In production, generate actual agreement PDF
       const samplePdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
       
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-sign`, {
+      // ✅ CORRECT URL - Using leegality-prod (working function)
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-prod`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${session?.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
