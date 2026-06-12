@@ -696,13 +696,21 @@ export default function Leads() {
     setLeegalityLoading(leadId);
     
     try {
-      // For demo - using a sample PDF. In production, generate actual agreement PDF
+      // ✅ FIXED: Added Authorization header
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        toast.error("You need to be logged in. Please refresh and try again.");
+        setLeegalityLoading(null);
+        return;
+      }
+      
       const samplePdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
       
-      // ✅ CORRECT URL - Using leegality-prod (working function)
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-prod`, {
         method: "POST",
         headers: {
+          "Authorization": `Bearer ${session.access_token}`, // ✅ CRITICAL FIX
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -718,13 +726,11 @@ export default function Leads() {
       const result = await response.json();
       
       if (result.success && result.sign_url) {
-        // Update local lead state
         setDetailLead(prev => prev ? { ...prev, leegality_status: "pending", leegality_document_id: result.document_id } : prev);
         
         toast.success("eSign request created! Redirecting to Leegality...");
         logActivity(lead.id, "leegality_initiated", `Document ID: ${result.document_id}`);
         
-        // Open Leegality sign portal in new tab
         setTimeout(() => {
           window.open(result.sign_url, "_blank");
         }, 1000);
