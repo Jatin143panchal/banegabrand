@@ -584,6 +584,10 @@ export default function Leads() {
   // Leegality states
   const [leegalitySignDialog, setLeegalitySignDialog] = useState<DbLead | null>(null);
   const [leegalityLoading, setLeegalityLoading] = useState<string | null>(null);
+  
+  // Send Agreement states
+  const [sendingAgreement, setSendingAgreement] = useState<string | null>(null);
+  const [agreementData, setAgreementData] = useState<Record<string, any>>({});
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
@@ -608,6 +612,71 @@ export default function Leads() {
     } catch (error) {
       console.error("Error checking duplicate:", error);
       return null;
+    }
+  };
+
+  // ── Send Agreement Function ──────────────────────────────────────────────────
+  const handleSendAgreement = async (lead: DbLead) => {
+    if (!lead.email) {
+      toast.error("Client email is required to send agreement");
+      return;
+    }
+    
+    setSendingAgreement(lead.id);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-agreement`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session?.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lead_id: lead.id,
+          client_name: lead.name,
+          client_email: lead.email,
+          client_phone: lead.phone,
+          company_name: lead.company,
+          package_name: "Premium Package",
+          amount: lead.value || 0,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success("Agreement sent! Client will receive signing link.");
+        setAgreementData(prev => ({ ...prev, [lead.id]: result.agreement }));
+        logActivity(lead.id, "agreement_sent", `Agreement sent via Leegality`);
+      } else {
+        toast.error(result.error || "Failed to send agreement");
+      }
+    } catch (error: any) {
+      console.error("Send agreement error:", error);
+      toast.error(error.message || "Something went wrong");
+    } finally {
+      setSendingAgreement(null);
+    }
+  };
+
+  // ── Fetch Agreement Status ──────────────────────────────────────────────────
+  const fetchAgreementStatus = async (leadId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("agreements")
+        .select("*")
+        .eq("lead_id", leadId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (!error && data) {
+        setAgreementData(prev => ({ ...prev, [leadId]: data }));
+      }
+    } catch (error) {
+      // No agreement found - ignore
     }
   };
 
@@ -670,6 +739,13 @@ export default function Leads() {
       setLeegalitySignDialog(null);
     }
   };
+
+  // ── Load agreement status when detail lead opens ──
+  useEffect(() => {
+    if (detailLead?.id) {
+      fetchAgreementStatus(detailLead.id);
+    }
+  }, [detailLead?.id]);
 
   // ── Check for reminders every minute ──
   useEffect(() => {
@@ -1744,6 +1820,48 @@ export default function Leads() {
                     </span>
                   </div>
                 )}
+                
+                {/* Agreement Status Display */}
+                {agreementData[detailLead.id] && (
+                  <div className="col-span-2 mt-2 p-3 rounded-lg border bg-muted/20">
+                    <p className="text-muted-foreground text-xs font-semibold mb-2">Agreement Status</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge className={
+                        agreementData[detailLead.id].status === 'signed' ? 'bg-green-100 text-green-800 hover:bg-green-100' :
+                        agreementData[detailLead.id].status === 'sent' ? 'bg-blue-100 text-blue-800 hover:bg-blue-100' :
+                        'bg-gray-100 text-gray-800 hover:bg-gray-100'
+                      }>
+                        {agreementData[detailLead.id].status === 'signed' && '✓ Signed'}
+                        {agreementData[detailLead.id].status === 'sent' && '📤 Sent'}
+                        {agreementData[detailLead.id].status === 'not_sent' && 'Not Sent'}
+                        {agreementData[detailLead.id].status === 'rejected' && '❌ Rejected'}
+                      </Badge>
+                      
+                      {agreementData[detailLead.id].signed_date && (
+                        <span className="text-xs text-muted-foreground">
+                          Signed: {format(new Date(agreementData[detailLead.id].signed_date), "dd MMM yyyy, hh:mm a")}
+                        </span>
+                      )}
+                      
+                      {agreementData[detailLead.id].leegality_sign_url && agreementData[detailLead.id].status !== 'signed' && (
+                        <Button variant="link" size="sm" className="p-0 h-auto text-xs" asChild>
+                          <a href={agreementData[detailLead.id].leegality_sign_url} target="_blank" rel="noopener noreferrer">
+                            View Signing Link
+                          </a>
+                        </Button>
+                      )}
+                      
+                      {agreementData[detailLead.id].signed_pdf_url && (
+                        <Button variant="link" size="sm" className="p-0 h-auto text-xs" asChild>
+                          <a href={agreementData[detailLead.id].signed_pdf_url} target="_blank" rel="noopener noreferrer">
+                            📄 Download Signed PDF
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
               </div>
@@ -1765,7 +1883,7 @@ export default function Leads() {
                 )}
                 {detailLead.phone && (
                   <Button size="sm" variant="outline" asChild>
-                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank"
+                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer"
                       onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}>
                       <MessageCircle className="mr-1 h-3 w-3" />WhatsApp
                     </a>
@@ -1777,19 +1895,38 @@ export default function Leads() {
                   </Button>
                 )}
                 {detailLead.stage === "converted" && (
-                  <Button 
-                    size="sm" 
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={() => setLeegalitySignDialog(detailLead)}
-                    disabled={leegalityLoading === detailLead.id}
-                  >
-                    {leegalityLoading === detailLead.id ? (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    ) : (
-                      <FileSignature className="mr-1 h-3 w-3" />
-                    )}
-                    eSign via Leegality
-                  </Button>
+                  <>
+                    {/* Send Agreement Button */}
+                    <Button 
+                      size="sm" 
+                      variant="default"
+                      onClick={() => handleSendAgreement(detailLead)}
+                      disabled={sendingAgreement === detailLead.id}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {sendingAgreement === detailLead.id ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <FileSignature className="mr-1 h-3 w-3" />
+                      )}
+                      Send Agreement
+                    </Button>
+                    
+                    {/* eSign Button */}
+                    <Button 
+                      size="sm" 
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => setLeegalitySignDialog(detailLead)}
+                      disabled={leegalityLoading === detailLead.id}
+                    >
+                      {leegalityLoading === detailLead.id ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <FileSignature className="mr-1 h-3 w-3" />
+                      )}
+                      eSign via Leegality
+                    </Button>
+                  </>
                 )}
               </div>
               <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
