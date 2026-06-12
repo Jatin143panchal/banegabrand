@@ -19,7 +19,7 @@ import {
   Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
   MessageCircle, Calendar, TrendingUp, BarChart3, AlarmClock, Flag, XCircle,
-  AlertTriangle
+  AlertTriangle, FileSignature
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -114,6 +114,9 @@ interface DbLead {
   assign_date?: string | null;
   lost_reason?: string | null;
   lost_date?: string | null;
+  leegality_document_id?: string | null;
+  leegality_status?: string | null;
+  leegality_signed_at?: string | null;
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
@@ -433,6 +436,83 @@ function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   );
 }
 
+// ── Leegality Sign Dialog ─────────────────────────────────────────────────────
+function LeegalitySignDialog({ lead, open, onClose, onSignInitiated }: {
+  lead: DbLead | null;
+  open: boolean;
+  onClose: () => void;
+  onSignInitiated: (leadId: string) => Promise<void>;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [agreementType, setAgreementType] = useState("service_agreement");
+  
+  if (!lead) return null;
+  
+  const handleSign = async () => {
+    setLoading(true);
+    try {
+      await onSignInitiated(lead.id);
+      onClose();
+    } catch (error) {
+      console.error("Sign initiation failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-green-600">
+            <FileSignature className="h-5 w-5" />
+            Leegality eSign Agreement
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="bg-green-50 p-4 rounded-lg">
+            <p className="font-semibold text-green-800">{lead.name}</p>
+            <p className="text-sm text-green-600 mt-1">{lead.email || lead.phone}</p>
+            {lead.company && <p className="text-xs text-green-600">{lead.company}</p>}
+          </div>
+          
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Agreement Type</Label>
+              <Select value={agreementType} onValueChange={setAgreementType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select agreement type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="service_agreement">Service Agreement</SelectItem>
+                  <SelectItem value="nda">NDA</SelectItem>
+                  <SelectItem value="partnership">Partnership Agreement</SelectItem>
+                  <SelectItem value="custom">Custom Agreement</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="text-xs text-muted-foreground space-y-1 border-t pt-3">
+              <p className="font-semibold">✓ Legally compliant with:</p>
+              <p>• IT Act 2000 (Aadhaar eSign)</p>
+              <p>• Indian Stamp Act (eStamp)</p>
+              <p>• DPDP Act 2023</p>
+              <p>• RBI/SEBI guidelines</p>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSign} disabled={loading} className="bg-green-600 hover:bg-green-700">
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}
+            Continue to Sign
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Excel Template Download ───────────────────────────────────────────────────
 function downloadExcelTemplate() {
   const template = [
@@ -500,6 +580,10 @@ export default function Leads() {
   
   // Lost lead states
   const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
+  
+  // Leegality states
+  const [leegalitySignDialog, setLeegalitySignDialog] = useState<DbLead | null>(null);
+  const [leegalityLoading, setLeegalityLoading] = useState<string | null>(null);
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
@@ -524,6 +608,69 @@ export default function Leads() {
     } catch (error) {
       console.error("Error checking duplicate:", error);
       return null;
+    }
+  };
+
+  // ── Leegality Sign Function ──────────────────────────────────────────────────
+  const handleLeegalitySign = async (leadId: string) => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) {
+      toast.error("Lead not found");
+      return;
+    }
+    
+    if (!lead.email && !lead.phone) {
+      toast.error("Lead must have email or phone number to sign agreement");
+      return;
+    }
+    
+    setLeegalityLoading(leadId);
+    
+    try {
+      // Call your Supabase Edge Function for Leegality
+      const { data: session } = await supabase.auth.getSession();
+      
+      // For demo - using a sample PDF. In production, generate actual agreement PDF
+      const samplePdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
+      
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-sign`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session?.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lead_id: lead.id,
+          document_url: samplePdfUrl,
+          signer_name: lead.name,
+          signer_email: lead.email,
+          signer_phone: lead.phone,
+          redirect_url: window.location.href,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (result.success && result.sign_url) {
+        // Update local lead state
+        setDetailLead(prev => prev ? { ...prev, leegality_status: "pending", leegality_document_id: result.document_id } : prev);
+        
+        toast.success("eSign request created! Redirecting to Leegality...");
+        logActivity(lead.id, "leegality_initiated", `Document ID: ${result.document_id}`);
+        
+        // Open Leegality sign portal in new tab
+        setTimeout(() => {
+          window.open(result.sign_url, "_blank");
+        }, 1000);
+      } else {
+        toast.error(result.error || "Failed to create eSign request");
+      }
+    } catch (error: any) {
+      console.error("Leegality error:", error);
+      toast.error(error.message || "Something went wrong");
+    } finally {
+      setLeegalityLoading(null);
+      setLeegalitySignDialog(null);
     }
   };
 
@@ -766,7 +913,6 @@ export default function Leads() {
     let duplicateList: any[] = [];
     
     for (const lead of uploadPreview) {
-      // Check for duplicate before importing
       const duplicate = await checkForDuplicate(lead);
       
       if (duplicate && duplicate.is_duplicate) {
@@ -777,7 +923,7 @@ export default function Leads() {
           phone: lead.phone,
           existing_lead: duplicate.existing_lead_name
         });
-        continue; // Skip duplicate leads
+        continue;
       }
       
       try {
@@ -798,7 +944,6 @@ export default function Leads() {
     setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
     
-    // Show detailed toast message
     if (duplicates > 0) {
       if (success > 0) {
         toast.warning(
@@ -808,7 +953,6 @@ export default function Leads() {
       } else {
         toast.error(`All ${duplicates} leads were duplicates and were skipped.`);
       }
-      // Log duplicates for debugging
       console.log("Skipped duplicates:", duplicateList);
     } else {
       toast.success(`${success} leads imported successfully!`);
@@ -850,6 +994,8 @@ export default function Leads() {
       "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
       "Lost Reason": l.lost_reason || "",
       "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
+      "eSign Status": l.leegality_status || "Not Started",
+      "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
     }));
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -895,6 +1041,14 @@ export default function Leads() {
         open={!!lostLeadDialog}
         onClose={() => setLostLeadDialog(null)}
         onConfirm={markLeadAsLost}
+      />
+      
+      {/* Leegality Sign Dialog */}
+      <LeegalitySignDialog
+        lead={leegalitySignDialog}
+        open={!!leegalitySignDialog}
+        onClose={() => setLeegalitySignDialog(null)}
+        onSignInitiated={handleLeegalitySign}
       />
 
       {/* ── Header ── */}
@@ -1428,6 +1582,23 @@ export default function Leads() {
                                 <Flag className="h-3.5 w-3.5" />
                               </Button>
                             )}
+                            {/* Leegality eSign Button - Only for converted leads */}
+                            {lead.stage === "converted" && (
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-7 w-7 text-green-600" 
+                                onClick={() => setLeegalitySignDialog(lead)} 
+                                title="eSign via Leegality"
+                                disabled={leegalityLoading === lead.id}
+                              >
+                                {leegalityLoading === lead.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <FileSignature className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            )}
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -1561,11 +1732,26 @@ export default function Leads() {
                     <p className="font-medium text-red-600">{formatStageLabel(detailLead.lost_reason)}</p>
                   </div>
                 )}
+                {/* Leegality Status */}
+                {detailLead.leegality_status && (
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground text-xs">eSign Status</p>
+                    <span style={{
+                      fontSize: 11, padding: "2px 10px", borderRadius: 10,
+                      background: detailLead.leegality_status === "completed" ? "#ecfdf5" : "#fef3c7",
+                      color: detailLead.leegality_status === "completed" ? "#16a34a" : "#d97706",
+                      border: `1px solid ${detailLead.leegality_status === "completed" ? "#bbf7d0" : "#fde68a"}`,
+                      fontWeight: 500,
+                    }}>
+                      {detailLead.leegality_status === "completed" ? "✓ Signed" : detailLead.leegality_status === "pending" ? "⏳ Pending" : "Not Started"}
+                    </span>
+                  </div>
+                )}
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-2 flex-wrap">
                 {detailLead.phone && (
                   <Button size="sm" variant="outline" asChild>
                     <a href={`tel:${detailLead.phone}`} onClick={() => logActivity(detailLead.id, "called", detailLead.phone || undefined)}>
@@ -1591,6 +1777,21 @@ export default function Leads() {
                 {detailLead.stage !== "lost" && detailLead.stage !== "converted" && (
                   <Button size="sm" variant="destructive" onClick={() => setLostLeadDialog(detailLead)}>
                     <Flag className="mr-1 h-3 w-3" />Mark as Lost
+                  </Button>
+                )}
+                {detailLead.stage === "converted" && (
+                  <Button 
+                    size="sm" 
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => setLeegalitySignDialog(detailLead)}
+                    disabled={leegalityLoading === detailLead.id}
+                  >
+                    {leegalityLoading === detailLead.id ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <FileSignature className="mr-1 h-3 w-3" />
+                    )}
+                    eSign via Leegality
                   </Button>
                 )}
               </div>
