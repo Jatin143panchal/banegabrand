@@ -717,7 +717,7 @@ export default function Leads() {
         return;
       }
       
-      const response = await fetch(`${supabaseUrl}/functions/v1/leegality-prod`, {
+      const response = await fetch(`${supabaseUrl}/functions/v1/esign-final`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
