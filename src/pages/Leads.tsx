@@ -696,7 +696,6 @@ export default function Leads() {
     setLeegalityLoading(leadId);
     
     try {
-      // ✅ FIXED: Added Authorization header
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError || !session?.access_token) {
@@ -710,7 +709,7 @@ export default function Leads() {
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-prod`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${session.access_token}`, // ✅ CRITICAL FIX
+          "Authorization": `Bearer ${session.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -745,6 +744,17 @@ export default function Leads() {
       setLeegalitySignDialog(null);
     }
   };
+
+  // ── Check for redirect after signing ──
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('agreement_signed') === 'true') {
+      const leadId = urlParams.get('lead_id');
+      toast.success("Agreement signed successfully!");
+      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   // ── Load agreement status when detail lead opens ──
   useEffect(() => {
