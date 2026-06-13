@@ -646,10 +646,13 @@ export default function Leads() {
       
       const result = await response.json();
       
-      if (result.success) {
-        toast.success("Agreement sent! Client will receive signing link.");
+      if (result.success && result.sign_url) {
         setAgreementData(prev => ({ ...prev, [lead.id]: result.agreement }));
-        logActivity(lead.id, "agreement_sent", `Agreement sent via Leegality`);
+        
+        // Optionally send email with link (you can implement this)
+        toast.success(`Signing link generated for ${lead.email}`);
+        console.log("Signing link:", result.sign_url);
+        logActivity(lead.id, "agreement_sent", `Signing link sent to ${lead.email}`);
       } else {
         toast.error(result.error || "Failed to send agreement");
       }
@@ -706,6 +709,9 @@ export default function Leads() {
       
       const samplePdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
       
+      // Add redirect URL so client comes back after signing
+      const redirectUrl = `${window.location.origin}/leads?agreement_signed=true&lead_id=${lead.id}`;
+      
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-prod`, {
         method: "POST",
         headers: {
@@ -718,7 +724,7 @@ export default function Leads() {
           signer_name: lead.name,
           signer_email: lead.email,
           signer_phone: lead.phone,
-          redirect_url: window.location.href,
+          redirect_url: redirectUrl,
         }),
       });
       
@@ -730,8 +736,9 @@ export default function Leads() {
         toast.success("eSign request created! Redirecting to Leegality...");
         logActivity(lead.id, "leegality_initiated", `Document ID: ${result.document_id}`);
         
+        // Redirect to Leegality signing page
         setTimeout(() => {
-          window.open(result.sign_url, "_blank");
+          window.location.href = result.sign_url;
         }, 1000);
       } else {
         toast.error(result.error || "Failed to create eSign request");
@@ -752,6 +759,10 @@ export default function Leads() {
       const leadId = urlParams.get('lead_id');
       toast.success("Agreement signed successfully!");
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      if (leadId) {
+        fetchAgreementStatus(leadId);
+      }
+      // Clean URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
