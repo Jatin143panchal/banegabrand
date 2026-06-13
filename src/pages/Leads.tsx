@@ -628,10 +628,10 @@ export default function Leads() {
       const { data: { session } } = await supabase.auth.getSession();
       
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-agreement`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Authorization": `Bearer ${session?.access_token}`,
-          "Content-Type": "application/json",
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           lead_id: lead.id,
@@ -648,8 +648,6 @@ export default function Leads() {
       
       if (result.success && result.sign_url) {
         setAgreementData(prev => ({ ...prev, [lead.id]: result.agreement }));
-        
-        // Optionally send email with link (you can implement this)
         toast.success(`Signing link generated for ${lead.email}`);
         console.log("Signing link:", result.sign_url);
         logActivity(lead.id, "agreement_sent", `Signing link sent to ${lead.email}`);
@@ -713,10 +711,10 @@ export default function Leads() {
       const redirectUrl = `${window.location.origin}/leads?agreement_signed=true&lead_id=${lead.id}`;
       
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/leegality-prod`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           lead_id: lead.id,
