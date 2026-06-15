@@ -119,7 +119,7 @@ interface DbLead {
   leegality_signed_at?: string | null;
 }
 
-const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma", "Nutraceutical", "Other"];
+const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma","Perfume", "Nutraceutical", "Other"];
 const BUDGETS    = ["₹5l+", "₹50k - ₹1l", "₹1l - ₹3l", "₹3l - ₹5l", "Below ₹50k"];
 
 const formatCurrency = (val: number) => `₹${(val / 100000).toFixed(1)}L`;
