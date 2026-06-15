@@ -29,9 +29,10 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
 // ── Stages config ─────────────────────────────────────────────────────────────
-const DEFAULT_LEAD_STAGE = "ringing";
+const DEFAULT_LEAD_STAGE = "new";
 
 const LEAD_STAGES = [
+  { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },  // ✅ Added New stage
   { value: "ringing",   label: "Ringing",   color: "#f97316", bg: "#fff7ed", icon: "📞" },
   { value: "callback",  label: "Callback",  color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
   { value: "dp",        label: "DP",        color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
@@ -40,7 +41,6 @@ const LEAD_STAGES = [
   { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
   { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
-
 const LEAD_STATUSES = [
   { value: "Ringing",            label: "Ringing"           },
   { value: "Callback",           label: "Callback"          },
