@@ -19,7 +19,7 @@ import {
   Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
   MessageCircle, Calendar, TrendingUp, BarChart3, AlarmClock, Flag, XCircle,
-  AlertTriangle, FileSignature
+  AlertTriangle, FileSignature, Flame, Snowflake, Sun
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -32,7 +32,7 @@ import * as XLSX from "xlsx";
 const DEFAULT_LEAD_STAGE = "new";
 
 const LEAD_STAGES = [
-  { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },  // ✅ Added New stage
+  { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },
   { value: "ringing",   label: "Ringing",   color: "#f97316", bg: "#fff7ed", icon: "📞" },
   { value: "callback",  label: "Callback",  color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
   { value: "dp",        label: "DP",        color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
@@ -41,6 +41,14 @@ const LEAD_STAGES = [
   { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
   { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
+
+// ── Lead Temperature Status ──────────────────────────────────────────────────
+const LEAD_TEMPERATURE = [
+  { value: "hot",   label: "🔥 Hot",   color: "#ef4444", bg: "#fef2f2", icon: <Flame className="h-4 w-4" /> },
+  { value: "warm",  label: "☀️ Warm",  color: "#f97316", bg: "#fff7ed", icon: <Sun className="h-4 w-4" /> },
+  { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff", icon: <Snowflake className="h-4 w-4" /> },
+];
+
 const LEAD_STATUSES = [
   { value: "Ringing",            label: "Ringing"           },
   { value: "Callback",           label: "Callback"          },
@@ -103,6 +111,10 @@ function formatStageLabel(value: string | null | undefined): string {
 function getStageConfig(stage: string | null | undefined) {
   return LEAD_STAGES.find(s => s.value === stage) || null;
 }
+
+function getTemperatureConfig(temp: string | null | undefined) {
+  return LEAD_TEMPERATURE.find(t => t.value === temp) || null;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface DbLead {
@@ -117,6 +129,7 @@ interface DbLead {
   leegality_document_id?: string | null;
   leegality_status?: string | null;
   leegality_signed_at?: string | null;
+  temperature?: string | null;  // ← NEW: Hot/Warm/Cold
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma","Perfume", "Nutraceutical", "Other"];
@@ -151,6 +164,11 @@ function getLeadScore(lead: DbLead): number {
   else if (lead.status === "new")        score += 5;
   else if (lead.status === "lost")       score = 0;
   if (lead.sub_stage === "meeting_booked" || lead.sub_stage === "business_generated") score += 10;
+  
+  // Temperature bonus
+  if (lead.temperature === "hot") score += 15;
+  else if (lead.temperature === "warm") score += 8;
+  
   return Math.min(score, 100);
 }
 
@@ -166,6 +184,24 @@ function ScoreBadge({ score }: { score: number }) {
         {score}
       </div>
     </div>
+  );
+}
+
+// ── Temperature Badge ──────────────────────────────────────────────────────
+function TemperatureBadge({ temperature }: { temperature: string | null | undefined }) {
+  const config = getTemperatureConfig(temperature);
+  if (!config) return <span style={{ fontSize: 11, color: "#94a3b8" }}>-</span>;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "2px 10px", borderRadius: 12,
+      fontSize: 11, fontWeight: 600,
+      color: config.color, background: config.bg,
+      border: `1px solid ${config.color}30`,
+    }}>
+      {config.icon}
+      {config.label}
+    </span>
   );
 }
 
@@ -529,7 +565,8 @@ function downloadExcelTemplate() {
       "Budget": "₹5l+",
       "Stage": "ringing",
       "Sub Stage": "ringing_1st",
-      "Remark": "Call after 2 PM"
+      "Remark": "Call after 2 PM",
+      "Temperature": "Hot"
     }
   ];
   
@@ -559,6 +596,7 @@ export default function Leads() {
   const [filterEmployee, setFilterEmployee] = useState("all");
   const [filterLeadType, setFilterLeadType] = useState("all");
   const [filterBudget, setFilterBudget]     = useState("all");
+  const [filterTemperature, setFilterTemperature] = useState("all"); // ← NEW
   const [dateFrom, setDateFrom]             = useState("");
   const [dateTo, setDateTo]                 = useState("");
   const [dialogOpen, setDialogOpen]         = useState(false);
@@ -593,6 +631,7 @@ export default function Leads() {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
     lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
     budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
+    temperature: "warm", // ← NEW default
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -708,7 +747,6 @@ export default function Leads() {
       const samplePdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
       const redirectUrl = `${window.location.origin}/leads?agreement_signed=true&lead_id=${lead.id}`;
       
-      // Use production URL - ensure VITE_SUPABASE_URL is set
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) {
         console.error("VITE_SUPABASE_URL is not set!");
@@ -913,6 +951,7 @@ export default function Leads() {
         source: form.source, value: Number(form.value) || 0, status: "new" as any,
         lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
         budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
+        temperature: form.temperature, // ← NEW
       } as any);
       setForm(emptyForm);
       setDialogOpen(false);
@@ -933,6 +972,7 @@ export default function Leads() {
     const matchStage      = filterStage === "all"      || l.stage === filterStage;
     const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
     const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
+    const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature; // ← NEW
     const matchAssignment =
       filterAssignment === "all" ||
       (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
@@ -950,7 +990,8 @@ export default function Leads() {
     const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
     const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
     return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
-           matchAssignment && matchEmployee && matchPreset && matchDateFrom && matchDateTo;
+           matchAssignment && matchEmployee && matchPreset && matchDateFrom && matchDateTo &&
+           matchTemperature; // ← NEW
   });
 
   const toggleSelect = (id: string) => {
@@ -999,10 +1040,11 @@ export default function Leads() {
           stage:      row.Stage || row.stage || "ringing",
           sub_stage:  row["Sub Stage"] || row.sub_stage || "",
           remark:     row.Remark || row.remark || row.Remarks || "",
+          temperature: row.Temperature || row.temperature || row["Lead Temperature"] || "warm", // ← NEW
         })).filter((r: any) => r.name);
         setUploadPreview(mapped);
         if (mapped.length === 0)
-          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark");
+          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature");
       } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
     };
     reader.readAsBinaryString(file);
@@ -1035,6 +1077,7 @@ export default function Leads() {
           source: lead.source, value: lead.value, status: "new" as any,
           lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
           budget: lead.budget, stage: lead.stage || "ringing", sub_stage: lead.sub_stage, remark: lead.remark,
+          temperature: lead.temperature || "warm", // ← NEW
         } as any);
         success++;
       } catch (error) {
@@ -1071,7 +1114,7 @@ export default function Leads() {
       status: editLead.status as any, business_status: editLead.business_status,
       lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
       budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage,
-      remark: editLead.remark,
+      remark: editLead.remark, temperature: editLead.temperature, // ← NEW
     } as any);
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
@@ -1099,6 +1142,7 @@ export default function Leads() {
       "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
       "eSign Status": l.leegality_status || "Not Started",
       "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
+      "Temperature": l.temperature || "Warm", // ← NEW
     }));
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -1111,6 +1155,7 @@ export default function Leads() {
     setSearch(""); setFilterStatus("all"); setFilterStage("all");
     setFilterAssignment("all"); setFilterEmployee("all");
     setFilterLeadType("all"); setFilterBudget("all");
+    setFilterTemperature("all"); // ← NEW
     setDateFrom(""); setDateTo(""); setFilterPreset("all");
   };
 
@@ -1126,6 +1171,9 @@ export default function Leads() {
   const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
   const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
   const lostCount = leads.filter(l => l.stage === "lost").length;
+  const hotCount = leads.filter(l => l.temperature === "hot").length; // ← NEW
+  const warmCount = leads.filter(l => l.temperature === "warm").length; // ← NEW
+  const coldCount = leads.filter(l => l.temperature === "cold").length; // ← NEW
 
   return (
     <div className="space-y-5">
@@ -1186,7 +1234,7 @@ export default function Leads() {
                   <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark
+                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
                   </p>
                   <p className="text-xs text-amber-600 mb-2">
                     ⚠️ Duplicate leads (based on email/phone/name) will be automatically skipped
@@ -1202,7 +1250,7 @@ export default function Leads() {
                     <div className="max-h-60 overflow-auto rounded border">
                       <Table>
                         <TableHeader>
-                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Source</TableHead></TableRow>
+                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Temperature</TableHead></TableRow>
                         </TableHeader>
                         <TableBody>
                           {uploadPreview.slice(0, 10).map((r, i) => (
@@ -1211,7 +1259,7 @@ export default function Leads() {
                               <TableCell className="text-sm">{r.email}</TableCell>
                               <TableCell className="text-sm">{r.phone}</TableCell>
                               <TableCell className="text-sm">{r.company}</TableCell>
-                              <TableCell className="text-sm">{r.source}</TableCell>
+                              <TableCell className="text-sm">{r.temperature || "Warm"}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -1264,6 +1312,22 @@ export default function Leads() {
                   </Select>
                 </div>
                 <div className="grid gap-2">
+                  <Label>Lead Temperature</Label>
+                  <Select value={form.temperature} onValueChange={v => setForm({ ...form, temperature: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select temperature" /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_TEMPERATURE.map(t => (
+                        <SelectItem key={t.value} value={t.value}>
+                          <span className="flex items-center gap-2">
+                            {t.icon}
+                            {t.label}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
                   <Label>Brand Stage</Label>
                   <Select value={form.stage} onValueChange={v => setForm({ ...form, stage: v, sub_stage: "" })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1311,7 +1375,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* ── Top Cards: Total + Employees ── */}
+      {/* ── Top Cards: Total + Temperature + Employees ── */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         {/* Total leads card */}
         <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
@@ -1332,6 +1396,63 @@ export default function Leads() {
           </CardContent>
         </Card>
 
+        {/* Hot Leads Card */}
+        <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
+          <CardContent className="p-4">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, background: "#fef2f2",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Flame style={{ color: "#ef4444", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{hotCount}</p>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Hot Leads</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>High priority</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Warm Leads Card */}
+        <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
+          <CardContent className="p-4">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, background: "#fff7ed",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Sun style={{ color: "#f97316", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{warmCount}</p>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Warm Leads</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Medium priority</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Cold Leads Card */}
+        <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
+          <CardContent className="p-4">
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, background: "#eff6ff",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Snowflake style={{ color: "#3b82f6", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{coldCount}</p>
+                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Cold Leads</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Low priority</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Converted card */}
         <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
           <CardContent className="p-4">
@@ -1347,27 +1468,6 @@ export default function Leads() {
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Converted</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>
                   {((convertedCount / leads.length) * 100).toFixed(1)}% rate
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Lost card */}
-        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
-          <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#fef2f2",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <Flag style={{ color: "#ef4444", width: 24, height: 24 }} />
-              </div>
-              <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{lostCount}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Lost</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>
-                  {((lostCount / leads.length) * 100).toFixed(1)}% rate
                 </p>
               </div>
             </div>
@@ -1455,6 +1555,20 @@ export default function Leads() {
                 <SelectItem value="unassigned">Unassigned</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filterTemperature} onValueChange={setFilterTemperature}> {/* ← NEW */}
+              <SelectTrigger className="w-36"><SelectValue placeholder="Temperature" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Temperatures</SelectItem>
+                {LEAD_TEMPERATURE.map(t => (
+                  <SelectItem key={t.value} value={t.value}>
+                    <span className="flex items-center gap-2">
+                      {t.icon}
+                      {t.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={filterLeadType} onValueChange={setFilterLeadType}>
               <SelectTrigger className="w-40"><SelectValue placeholder="Lead Type" /></SelectTrigger>
               <SelectContent>
@@ -1529,7 +1643,8 @@ export default function Leads() {
                     {canAssign && <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>}
                     <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
                     <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
-                    <TableHead>Assigned To</TableHead><TableHead className="hidden lg:table-cell">Lead Type</TableHead>
+                    <TableHead>Temperature</TableHead><TableHead>Assigned To</TableHead>
+                    <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
                     <TableHead className="hidden lg:table-cell">Budget</TableHead><TableHead>Lead Score</TableHead>
                     <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead><TableHead>Actions</TableHead>
                   </TableRow>
@@ -1547,6 +1662,7 @@ export default function Leads() {
                         <TableCell>{lead.phone ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a> : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}</TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a> : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}</TableCell>
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
+                        <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
                         <TableCell>{lead.assigned_to ? (<div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 28, height: 28, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{getInitials(assignee)}</div><div><span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>{lead.assign_date && (<p style={{ fontSize: 10, color: "#94a3b8" }}>{format(new Date(lead.assign_date), "dd MMM yyyy")}</p>)}</div></div>) : (canAssign ? (<Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}><SelectTrigger className="w-32 h-7 text-xs"><SelectValue placeholder="Assign..." /></SelectTrigger><SelectContent>{typedProfiles.map(p => (<SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>))}</SelectContent></Select>) : (<span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>))}</TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
                         <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>{lead.budget || "-"}</TableCell>
@@ -1584,7 +1700,10 @@ export default function Leads() {
                   <div style={{ width: 44, height: 44, borderRadius: "50%", background: avatarColor(detailLead.name), display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: 16 }}>{getInitials(detailLead.name)}</div>
                   <div><h3 style={{ fontWeight: 700, fontSize: 16, margin: 0 }}>{detailLead.name}</h3>{detailLead.company && <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>{detailLead.company}</p>}</div>
                 </div>
-                <ScoreBadge score={getLeadScore(detailLead)} />
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <TemperatureBadge temperature={detailLead.temperature} />
+                  <ScoreBadge score={getLeadScore(detailLead)} />
+                </div>
               </div>
               <Progress value={getLeadScore(detailLead)} className="h-2" />
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1594,6 +1713,7 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Temperature</p><p className="font-medium"><TemperatureBadge temperature={detailLead.temperature} /></p></div>
                 <div className="grid gap-1"><p className="text-muted-foreground text-xs">Brand Stage</p><Select value={detailLead.stage || "ringing"} onValueChange={async (v) => { const updated = { ...detailLead, stage: v, sub_stage: "" }; setDetailLead(updated); await handleUpdateStageFromDetail(detailLead.id, v, ""); logActivity(detailLead.id, "updated", `Stage: ${v}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-1"><p className="text-muted-foreground text-xs">Sub Stage</p><Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => { const val = v === "none" ? "" : v; setDetailLead({ ...detailLead, sub_stage: val }); await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val); logActivity(detailLead.id, "updated", `Sub Stage: ${val}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
                 <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
@@ -1632,6 +1752,7 @@ export default function Leads() {
               <div className="grid gap-2"><Label>Value (₹)</Label><Input type="number" value={editLead.value || 0} onChange={e => setEditLead({ ...editLead, value: Number(e.target.value) })} /></div>
               <div className="grid gap-2"><Label>Lead Type</Label><Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Budget</Label><Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Lead Temperature</Label><Select value={editLead.temperature || "warm"} onValueChange={v => setEditLead({ ...editLead, temperature: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TEMPERATURE.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Brand Stage</Label><Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Sub Stage</Label><Select value={editLead.sub_stage || "none"} onValueChange={v => setEditLead({ ...editLead, sub_stage: v === "none" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Status</Label><Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
