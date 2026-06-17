@@ -6,7 +6,8 @@ SELECT u.id,
   CASE lower(u.email)
     WHEN 'banegabrand.owner@gmail.com' THEN 'owner'::app_role
     WHEN 'banegabrand.admin@gmail.com' THEN 'admin'::app_role
-    WHEN 'banegabrand.hr@gmail.com' THEN 'hr_manager'::app_role
+  
+    WHEN 'lavika.banegabrand@gmail.com' THEN 'admin'::app_role
     WHEN 'banegabrand.tl@gmail.com' THEN 'tl'::app_role
     WHEN 'banegabrand.manager@gmail.com' THEN 'tl'::app_role
     WHEN 'owner@gmail.com' THEN 'owner'::app_role
