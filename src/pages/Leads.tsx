@@ -618,33 +618,6 @@ export default function Leads() {
   const [sendingAgreement, setSendingAgreement] = useState<string | null>(null);
   const [agreementData, setAgreementData] = useState<Record<string, any>>({});
 
-  // ── NEW: Permission state for assignment ──────────────────────────────────
-  const [canAssignLeads, setCanAssignLeads] = useState(false);
-
-  // ── NEW: Check user permissions for lead assignment ──────────────────────
-  useEffect(() => {
-    const checkAdminPermissions = async () => {
-      try {
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        if (!currentUser) return;
-        
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('user_id', currentUser.id)
-          .single();
-        
-        const allowedRoles = ['admin', 'manager', 'super_admin'];
-        setCanAssignLeads(profile?.role ? allowedRoles.includes(profile.role) : false);
-      } catch (error) {
-        console.error('Error checking permissions:', error);
-        setCanAssignLeads(false);
-      }
-    };
-    
-    checkAdminPermissions();
-  }, []);
-
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
     lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
@@ -1588,8 +1561,8 @@ export default function Leads() {
             </Select>
           </div>
 
-          {/* ── UPDATED: Bulk Assign only for admins ── */}
-          {canAssignLeads && selectedIds.size > 0 && (
+          {/* Bulk Assign - Now available for everyone */}
+          {selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
               <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
               <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
@@ -1628,8 +1601,8 @@ export default function Leads() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {/* ── UPDATED: Checkbox only for admins ── */}
-                    {canAssignLeads && <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>}
+                    {/* Checkbox - Now available for everyone */}
+                    <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
                     <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
                     <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
                     <TableHead>Temperature</TableHead><TableHead>Assigned To</TableHead>
@@ -1643,14 +1616,10 @@ export default function Leads() {
                     const score = getLeadScore(lead);
                     const assignee = getProfileName(lead.assigned_to);
                     const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
-                    
-                    // ── NEW: Check if user can assign this specific lead ──
-                    const canAssignThisLead = canAssignLeads;
-                    
                     return (
                       <TableRow key={lead.id} style={{ verticalAlign: "middle" }}>
-                        {/* ── UPDATED: Checkbox only for admins ── */}
-                        {canAssignLeads && (<TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>)}
+                        {/* Checkbox - Now available for everyone */}
+                        <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>
                         <TableCell><div style={{ display: "flex", alignItems: "center", gap: 8 }}><p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details"><Eye className="h-3 w-3" /></Button></div></TableCell>
                         <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
                         <TableCell>{lead.phone ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a> : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}</TableCell>
@@ -1669,23 +1638,19 @@ export default function Leads() {
                               </div>
                             </div>
                           ) : (
-                            /* ── UPDATED: Only show assign dropdown if user has permission ── */
-                            canAssignThisLead ? (
-                              <Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
-                                <SelectTrigger className="w-32 h-7 text-xs">
-                                  <SelectValue placeholder="Assign..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {typedProfiles.map(p => (
-                                    <SelectItem key={p.user_id} value={p.user_id}>
-                                      {p.display_name || "Unknown"}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>
-                            )
+                            /* ── ALWAYS SHOW DROPDOWN FOR UNASSIGNED LEADS ── */
+                            <Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
+                              <SelectTrigger className="w-32 h-7 text-xs">
+                                <SelectValue placeholder="Assign..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {typedProfiles.map(p => (
+                                  <SelectItem key={p.user_id} value={p.user_id}>
+                                    {p.display_name || "Unknown"}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           )}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
