@@ -44,9 +44,9 @@ const LEAD_STAGES = [
 
 // ── Lead Temperature Status ──────────────────────────────────────────────────
 const LEAD_TEMPERATURE = [
-  { value: "hot",   label: "🔥 Hot",   color: "#ef4444", bg: "#fef2f2", icon: <Flame className="h-4 w-4" /> },
-  { value: "warm",  label: "☀️ Warm",  color: "#f97316", bg: "#fff7ed", icon: <Sun className="h-4 w-4" /> },
-  { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff", icon: <Snowflake className="h-4 w-4" /> },
+  { value: "hot",   label: "🔥 Hot",   color: "#ef4444", bg: "#fef2f2" },
+  { value: "warm",  label: "☀️ Warm",  color: "#f97316", bg: "#fff7ed" },
+  { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff" },
 ];
 
 const LEAD_STATUSES = [
@@ -129,7 +129,7 @@ interface DbLead {
   leegality_document_id?: string | null;
   leegality_status?: string | null;
   leegality_signed_at?: string | null;
-  temperature?: string | null;  // ← NEW: Hot/Warm/Cold
+  temperature?: string | null;
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma","Perfume", "Nutraceutical", "Other"];
@@ -165,7 +165,6 @@ function getLeadScore(lead: DbLead): number {
   else if (lead.status === "lost")       score = 0;
   if (lead.sub_stage === "meeting_booked" || lead.sub_stage === "business_generated") score += 10;
   
-  // Temperature bonus
   if (lead.temperature === "hot") score += 15;
   else if (lead.temperature === "warm") score += 8;
   
@@ -199,7 +198,6 @@ function TemperatureBadge({ temperature }: { temperature: string | null | undefi
       color: config.color, background: config.bg,
       border: `1px solid ${config.color}30`,
     }}>
-      {config.icon}
       {config.label}
     </span>
   );
@@ -596,7 +594,7 @@ export default function Leads() {
   const [filterEmployee, setFilterEmployee] = useState("all");
   const [filterLeadType, setFilterLeadType] = useState("all");
   const [filterBudget, setFilterBudget]     = useState("all");
-  const [filterTemperature, setFilterTemperature] = useState("all"); // ← NEW
+  const [filterTemperature, setFilterTemperature] = useState("all");
   const [dateFrom, setDateFrom]             = useState("");
   const [dateTo, setDateTo]                 = useState("");
   const [dialogOpen, setDialogOpen]         = useState(false);
@@ -612,18 +610,11 @@ export default function Leads() {
   const [uploading, setUploading]           = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   
-  // Call reminder states
   const [pendingReminders, setPendingReminders] = useState<DbLead[]>([]);
   const [showReminder, setShowReminder] = useState(false);
-  
-  // Lost lead states
   const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
-  
-  // Leegality states
   const [leegalitySignDialog, setLeegalitySignDialog] = useState<DbLead | null>(null);
   const [leegalityLoading, setLeegalityLoading] = useState<string | null>(null);
-  
-  // Send Agreement states
   const [sendingAgreement, setSendingAgreement] = useState<string | null>(null);
   const [agreementData, setAgreementData] = useState<Record<string, any>>({});
 
@@ -631,11 +622,10 @@ export default function Leads() {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
     lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
     budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
-    temperature: "warm", // ← NEW default
+    temperature: "warm",
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── Check for duplicate lead function (only for import) ──
   const checkForDuplicate = async (leadData: any, excludeId?: string) => {
     try {
       const { data, error } = await supabase.rpc('check_duplicate_lead', {
@@ -654,7 +644,6 @@ export default function Leads() {
     }
   };
 
-  // ── Send Agreement Function ──────────────────────────────────────────────────
   const handleSendAgreement = async (lead: DbLead) => {
     if (!lead.email) {
       toast.error("Client email is required to send agreement");
@@ -701,7 +690,6 @@ export default function Leads() {
     }
   };
 
-  // ── Fetch Agreement Status ──────────────────────────────────────────────────
   const fetchAgreementStatus = async (leadId: string) => {
     try {
       const { data, error } = await supabase
@@ -720,7 +708,6 @@ export default function Leads() {
     }
   };
 
-  // ── Leegality Sign Function ──────────────────────────────────────────────────
   const handleLeegalitySign = async (leadId: string) => {
     const lead = leads.find(l => l.id === leadId);
     if (!lead) {
@@ -794,7 +781,6 @@ export default function Leads() {
     }
   };
 
-  // ── Check for redirect after signing ──
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('agreement_signed') === 'true') {
@@ -808,14 +794,12 @@ export default function Leads() {
     }
   }, []);
 
-  // ── Load agreement status when detail lead opens ──
   useEffect(() => {
     if (detailLead?.id) {
       fetchAgreementStatus(detailLead.id);
     }
   }, [detailLead?.id]);
 
-  // ── Check for reminders every minute ──
   useEffect(() => {
     const checkReminders = () => {
       const now = new Date();
@@ -895,7 +879,6 @@ export default function Leads() {
     }
   };
 
-  // ── assign lead (inline dropdown) ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       const assign_date = new Date().toISOString();
@@ -919,7 +902,6 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   };
 
-  // ── Live update for stage/sub-stage from detail view ──
   const handleUpdateStageFromDetail = async (id: string, stage: string, subStage: string) => {
     try {
       await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
@@ -938,7 +920,6 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   };
 
-  // ── Add lead (without duplicate check) ──
   const handleAddLead = async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
@@ -951,7 +932,7 @@ export default function Leads() {
         source: form.source, value: Number(form.value) || 0, status: "new" as any,
         lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
         budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
-        temperature: form.temperature, // ← NEW
+        temperature: form.temperature,
       } as any);
       setForm(emptyForm);
       setDialogOpen(false);
@@ -961,7 +942,6 @@ export default function Leads() {
     }
   };
 
-  // ── filtering ──
   const filtered = leads.filter(l => {
     const matchSearch =
       l.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -972,7 +952,7 @@ export default function Leads() {
     const matchStage      = filterStage === "all"      || l.stage === filterStage;
     const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
     const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
-    const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature; // ← NEW
+    const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature;
     const matchAssignment =
       filterAssignment === "all" ||
       (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
@@ -991,7 +971,7 @@ export default function Leads() {
     const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
     return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
            matchAssignment && matchEmployee && matchPreset && matchDateFrom && matchDateTo &&
-           matchTemperature; // ← NEW
+           matchTemperature;
   });
 
   const toggleSelect = (id: string) => {
@@ -1040,7 +1020,7 @@ export default function Leads() {
           stage:      row.Stage || row.stage || "ringing",
           sub_stage:  row["Sub Stage"] || row.sub_stage || "",
           remark:     row.Remark || row.remark || row.Remarks || "",
-          temperature: row.Temperature || row.temperature || row["Lead Temperature"] || "warm", // ← NEW
+          temperature: row.Temperature || row.temperature || row["Lead Temperature"] || "warm",
         })).filter((r: any) => r.name);
         setUploadPreview(mapped);
         if (mapped.length === 0)
@@ -1077,7 +1057,7 @@ export default function Leads() {
           source: lead.source, value: lead.value, status: "new" as any,
           lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
           budget: lead.budget, stage: lead.stage || "ringing", sub_stage: lead.sub_stage, remark: lead.remark,
-          temperature: lead.temperature || "warm", // ← NEW
+          temperature: lead.temperature || "warm",
         } as any);
         success++;
       } catch (error) {
@@ -1114,7 +1094,7 @@ export default function Leads() {
       status: editLead.status as any, business_status: editLead.business_status,
       lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
       budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage,
-      remark: editLead.remark, temperature: editLead.temperature, // ← NEW
+      remark: editLead.remark, temperature: editLead.temperature,
     } as any);
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
@@ -1142,7 +1122,7 @@ export default function Leads() {
       "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
       "eSign Status": l.leegality_status || "Not Started",
       "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
-      "Temperature": l.temperature || "Warm", // ← NEW
+      "Temperature": l.temperature || "Warm",
     }));
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -1155,7 +1135,7 @@ export default function Leads() {
     setSearch(""); setFilterStatus("all"); setFilterStage("all");
     setFilterAssignment("all"); setFilterEmployee("all");
     setFilterLeadType("all"); setFilterBudget("all");
-    setFilterTemperature("all"); // ← NEW
+    setFilterTemperature("all");
     setDateFrom(""); setDateTo(""); setFilterPreset("all");
   };
 
@@ -1167,17 +1147,15 @@ export default function Leads() {
 
   const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
 
-  // ── Stats ──
   const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
   const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
   const lostCount = leads.filter(l => l.stage === "lost").length;
-  const hotCount = leads.filter(l => l.temperature === "hot").length; // ← NEW
-  const warmCount = leads.filter(l => l.temperature === "warm").length; // ← NEW
-  const coldCount = leads.filter(l => l.temperature === "cold").length; // ← NEW
+  const hotCount = leads.filter(l => l.temperature === "hot").length;
+  const warmCount = leads.filter(l => l.temperature === "warm").length;
+  const coldCount = leads.filter(l => l.temperature === "cold").length;
 
   return (
     <div className="space-y-5">
-      {/* Call Reminder Popup */}
       {showReminder && pendingReminders.length > 0 && (
         <CallReminderPopup
           leads={pendingReminders}
@@ -1186,7 +1164,6 @@ export default function Leads() {
         />
       )}
       
-      {/* Lost Lead Dialog */}
       <LostLeadDialog
         lead={lostLeadDialog}
         open={!!lostLeadDialog}
@@ -1194,7 +1171,6 @@ export default function Leads() {
         onConfirm={markLeadAsLost}
       />
       
-      {/* Leegality Sign Dialog */}
       <LeegalitySignDialog
         lead={leegalitySignDialog}
         open={!!leegalitySignDialog}
@@ -1202,7 +1178,6 @@ export default function Leads() {
         onSignInitiated={handleLeegalitySign}
       />
 
-      {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
@@ -1318,10 +1293,7 @@ export default function Leads() {
                     <SelectContent>
                       {LEAD_TEMPERATURE.map(t => (
                         <SelectItem key={t.value} value={t.value}>
-                          <span className="flex items-center gap-2">
-                            {t.icon}
-                            {t.label}
-                          </span>
+                          {t.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1375,9 +1347,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* ── Top Cards: Total + Temperature + Employees ── */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {/* Total leads card */}
         <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1396,7 +1366,6 @@ export default function Leads() {
           </CardContent>
         </Card>
 
-        {/* Hot Leads Card */}
         <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1415,7 +1384,6 @@ export default function Leads() {
           </CardContent>
         </Card>
 
-        {/* Warm Leads Card */}
         <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1434,7 +1402,6 @@ export default function Leads() {
           </CardContent>
         </Card>
 
-        {/* Cold Leads Card */}
         <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1453,7 +1420,6 @@ export default function Leads() {
           </CardContent>
         </Card>
 
-        {/* Converted card */}
         <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1474,7 +1440,6 @@ export default function Leads() {
           </CardContent>
         </Card>
 
-        {/* Employees panel */}
         {canAssign && typedProfiles.length > 0 && (
           <Card style={{ flex: 1, minWidth: 300 }}>
             <CardContent className="p-4">
@@ -1501,7 +1466,6 @@ export default function Leads() {
         )}
       </div>
 
-      {/* ── Stage Stats Bar ── */}
       <Card>
         <CardContent className="p-4">
           <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#374151" }}>Stages</p>
@@ -1534,7 +1498,6 @@ export default function Leads() {
         </CardContent>
       </Card>
 
-      {/* ── Filters ── */}
       <Card className="sticky top-0 z-20 shadow-md">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap gap-2">
@@ -1555,16 +1518,13 @@ export default function Leads() {
                 <SelectItem value="unassigned">Unassigned</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={filterTemperature} onValueChange={setFilterTemperature}> {/* ← NEW */}
+            <Select value={filterTemperature} onValueChange={setFilterTemperature}>
               <SelectTrigger className="w-36"><SelectValue placeholder="Temperature" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Temperatures</SelectItem>
                 {LEAD_TEMPERATURE.map(t => (
                   <SelectItem key={t.value} value={t.value}>
-                    <span className="flex items-center gap-2">
-                      {t.icon}
-                      {t.label}
-                    </span>
+                    {t.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1663,7 +1623,36 @@ export default function Leads() {
                         <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a> : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}</TableCell>
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                         <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
-                        <TableCell>{lead.assigned_to ? (<div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 28, height: 28, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{getInitials(assignee)}</div><div><span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>{lead.assign_date && (<p style={{ fontSize: 10, color: "#94a3b8" }}>{format(new Date(lead.assign_date), "dd MMM yyyy")}</p>)}</div></div>) : (canAssign ? (<Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}><SelectTrigger className="w-32 h-7 text-xs"><SelectValue placeholder="Assign..." /></SelectTrigger><SelectContent>{typedProfiles.map(p => (<SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>))}</SelectContent></Select>) : (<span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>))}</TableCell>
+                        <TableCell>
+                          {lead.assigned_to ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                                {getInitials(assignee)}
+                              </div>
+                              <div>
+                                <span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>
+                                {lead.assign_date && (<p style={{ fontSize: 10, color: "#94a3b8" }}>{format(new Date(lead.assign_date), "dd MMM yyyy")}</p>)}
+                              </div>
+                            </div>
+                          ) : (
+                            canAssign ? (
+                              <Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
+                                <SelectTrigger className="w-32 h-7 text-xs">
+                                  <SelectValue placeholder="Assign..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {typedProfiles.map(p => (
+                                    <SelectItem key={p.user_id} value={p.user_id}>
+                                      {p.display_name || "Unknown"}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span style={{ fontSize: 12, color: "#94a3b8" }}>Unassigned</span>
+                            )
+                          )}
+                        </TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
                         <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>{lead.budget || "-"}</TableCell>
                         <TableCell><ScoreBadge score={score} /></TableCell>
@@ -1689,7 +1678,6 @@ export default function Leads() {
 
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
 
-      {/* Lead Detail Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>
@@ -1742,7 +1730,6 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Lead Dialog */}
       <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
