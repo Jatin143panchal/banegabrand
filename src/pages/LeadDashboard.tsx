@@ -339,6 +339,288 @@ export default function LeadDashboard() {
       {/* Activity feed for managers */}
       {isLeader && <LeadActivityFeed />}
 
+      function EmployeeFilterSection({ 
+  profiles, 
+  leads, 
+  onSelectEmployee, 
+  selectedEmployee,
+  onSelectStage,
+  selectedStage,
+  onSelectStatus,
+  selectedStatus
+}: {
+  profiles: { user_id: string; display_name: string | null }[];
+  leads: DbLead[];
+  onSelectEmployee: (userId: string | null) => void;
+  selectedEmployee: string | null;
+  onSelectStage: (stage: string | null) => void;
+  selectedStage: string | null;
+  onSelectStatus: (status: string | null) => void;
+  selectedStatus: string | null;
+}) {
+  const [searchEmployee, setSearchEmployee] = useState("");
+  
+  const filteredProfiles = profiles.filter(p => 
+    (p.display_name || "").toLowerCase().includes(searchEmployee.toLowerCase())
+  );
+  
+  // Get employee stats
+  const employeeStats = filteredProfiles.map(p => {
+    const empLeads = leads.filter(l => l.assigned_to === p.user_id);
+    const stageCounts = LEAD_STAGES.map(s => ({
+      ...s,
+      count: empLeads.filter(l => l.stage === s.value).length
+    }));
+    const statusCounts = LEAD_STATUSES.map(s => ({
+      ...s,
+      count: empLeads.filter(l => l.status === s.value).length
+    }));
+    return {
+      ...p,
+      total: empLeads.length,
+      converted: empLeads.filter(l => l.stage === "converted").length,
+      lost: empLeads.filter(l => l.stage === "lost").length,
+      stageCounts,
+      statusCounts,
+      hot: empLeads.filter(l => l.temperature === "hot").length,
+      warm: empLeads.filter(l => l.temperature === "warm").length,
+      cold: empLeads.filter(l => l.temperature === "cold").length,
+    };
+  }).sort((a, b) => b.total - a.total);
+  
+  const unassignedCount = leads.filter(l => !l.assigned_to).length;
+
+  return (
+    <Card className="mb-4">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Employee Leads Overview
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              View and filter leads by employee, stage, and status
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-sm">
+              Total: {leads.length}
+            </Badge>
+            {selectedEmployee && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => onSelectEmployee(null)}
+                className="text-xs"
+              >
+                <X className="h-3 w-3 mr-1" />
+                Clear Filter
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {/* Search Employee */}
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search employee..."
+            value={searchEmployee}
+            onChange={(e) => setSearchEmployee(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        
+        {/* Employee Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
+          {/* Unassigned Card */}
+          <div 
+            className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+              selectedEmployee === "unassigned" 
+                ? "border-primary bg-primary/5" 
+                : "border-gray-200 hover:border-gray-300"
+            }`}
+            onClick={() => onSelectEmployee(selectedEmployee === "unassigned" ? null : "unassigned")}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold">
+                  ?
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Unassigned</p>
+                  <p className="text-xs text-muted-foreground">{unassignedCount} leads</p>
+                </div>
+              </div>
+              <Badge variant={selectedEmployee === "unassigned" ? "default" : "outline"}>
+                {unassignedCount}
+              </Badge>
+            </div>
+          </div>
+          
+          {/* Employee Cards */}
+          {employeeStats.map(emp => {
+            const color = avatarColor(emp.display_name || "?");
+            const isActive = selectedEmployee === emp.user_id;
+            return (
+              <div 
+                key={emp.user_id}
+                className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                  isActive 
+                    ? "border-primary bg-primary/5" 
+                    : "border-gray-200 hover:border-gray-300"
+                }`}
+                onClick={() => onSelectEmployee(isActive ? null : emp.user_id)}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                      style={{ background: color }}
+                    >
+                      {getInitials(emp.display_name || "?")}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">{emp.display_name || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {emp.converted} converted / {emp.lost} lost
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant={isActive ? "default" : "outline"}>
+                    {emp.total}
+                  </Badge>
+                </div>
+                
+                {/* Temperature badges */}
+                <div className="flex gap-1 mt-2">
+                  {emp.hot > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
+                      🔥 {emp.hot}
+                    </span>
+                  )}
+                  {emp.warm > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700">
+                      ☀️ {emp.warm}
+                    </span>
+                  )}
+                  {emp.cold > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                      ❄️ {emp.cold}
+                    </span>
+                  )}
+                </div>
+                
+                {/* Stage progress */}
+                {emp.total > 0 && (
+                  <div className="mt-2">
+                    <Progress 
+                      value={(emp.converted / emp.total) * 100} 
+                      className="h-1" 
+                    />
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {emp.stageCounts.filter(s => s.count > 0).slice(0, 4).map(s => (
+                        <span 
+                          key={s.value}
+                          className="text-xs px-1.5 py-0.5 rounded"
+                          style={{ 
+                            background: s.bg, 
+                            color: s.color,
+                            border: `1px solid ${s.color}30`
+                          }}
+                        >
+                          {s.label}: {s.count}
+                        </span>
+                      ))}
+                      {emp.stageCounts.filter(s => s.count > 0).length > 4 && (
+                        <span className="text-xs text-muted-foreground">
+                          +{emp.stageCounts.filter(s => s.count > 0).length - 4} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Quick Filters */}
+        <div className="flex flex-wrap gap-2 items-center border-t pt-3">
+          <span className="text-sm font-medium mr-2">Quick Filter:</span>
+          
+          {/* Stage Filters */}
+          <div className="flex flex-wrap gap-1">
+            {LEAD_STAGES.map(s => {
+              const count = leads.filter(l => l.stage === s.value).length;
+              const isActive = selectedStage === s.value;
+              return (
+                <button
+                  key={s.value}
+                  onClick={() => onSelectStage(isActive ? null : s.value)}
+                  className={`text-xs px-2 py-1 rounded-full transition-all ${
+                    isActive 
+                      ? `ring-2 ring-offset-1` 
+                      : "hover:bg-gray-100"
+                  }`}
+                  style={{
+                    background: isActive ? s.bg : "transparent",
+                    color: isActive ? s.color : "#64748b",
+                    border: `1px solid ${isActive ? s.color : "#e2e8f0"}`,
+                  }}
+                >
+                  {s.icon} {s.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+          
+          <span className="text-sm font-medium mx-2">|</span>
+          
+          {/* Status Filters */}
+          <div className="flex flex-wrap gap-1">
+            {LEAD_STATUSES.slice(0, 6).map(s => {
+              const count = leads.filter(l => l.status === s.value).length;
+              const isActive = selectedStatus === s.value;
+              return (
+                <button
+                  key={s.value}
+                  onClick={() => onSelectStatus(isActive ? null : s.value)}
+                  className={`text-xs px-2 py-1 rounded-full transition-all ${
+                    isActive 
+                      ? "bg-primary text-white" 
+                      : "bg-gray-100 hover:bg-gray-200"
+                  }`}
+                >
+                  {s.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+          
+          {/* Clear all filters */}
+          {(selectedEmployee || selectedStage || selectedStatus) && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => {
+                onSelectEmployee(null);
+                onSelectStage(null);
+                onSelectStatus(null);
+              }}
+              className="text-xs text-red-500"
+            >
+              <X className="h-3 w-3 mr-1" />
+              Clear All Filters
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
       {/* Lead Detail + Comments Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
