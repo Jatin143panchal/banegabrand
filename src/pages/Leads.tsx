@@ -680,10 +680,10 @@ function EmployeeFilterSection({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <DialogTitle className="text-lg flex items-center gap-2">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
               <Users className="h-5 w-5" />
               Employee Leads Overview
-            </DialogTitle>
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
               View and filter leads by employee, stage, and status
             </p>
@@ -906,7 +906,6 @@ function EmployeeFilterSection({
     </Card>
   );
 }
-
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
