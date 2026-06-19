@@ -341,6 +341,7 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
 }
 
 // ── Call Reminder Popup Component ─────────────────────────────────────────────
+// ── Call Reminder Popup Component ─────────────────────────────────────────────
 function CallReminderPopup({ leads, onDismiss, onCallNow }: { 
   leads: DbLead[]; 
   onDismiss: (leadId: string) => void; 
@@ -352,14 +353,31 @@ function CallReminderPopup({ leads, onDismiss, onCallNow }: {
   
   const currentLead = leads[currentLeadIndex];
   
+  // Handle closing the entire popup
+  const handleClosePopup = () => {
+    // Dismiss all pending reminders
+    leads.forEach(lead => onDismiss(lead.id));
+  };
+  
   return (
-    <Dialog open={true} onOpenChange={() => onDismiss(currentLead.id)}>
+    <Dialog open={true} onOpenChange={() => handleClosePopup()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlarmClock className="h-5 w-5 text-orange-500" />
-            Call Reminder
-          </DialogTitle>
+          <div className="flex items-center justify-between w-full">
+            <DialogTitle className="flex items-center gap-2">
+              <AlarmClock className="h-5 w-5 text-orange-500" />
+              Call Reminder
+            </DialogTitle>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8 rounded-full hover:bg-muted"
+              onClick={handleClosePopup}
+              title="Close reminders"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </DialogHeader>
         <div className="py-4">
           <div className="text-center mb-4">
@@ -369,14 +387,27 @@ function CallReminderPopup({ leads, onDismiss, onCallNow }: {
           
           <div className="space-y-3">
             <div className="p-3 bg-orange-50 rounded-lg">
-              <p className="font-semibold text-lg">{currentLead.name}</p>
-              <p className="text-sm text-muted-foreground">{currentLead.company || "No company"}</p>
-              {currentLead.phone && (
-                <p className="text-sm mt-2">
-                  <Phone className="inline h-3 w-3 mr-1" />
-                  {currentLead.phone}
-                </p>
-              )}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <p className="font-semibold text-lg">{currentLead.name}</p>
+                  <p className="text-sm text-muted-foreground">{currentLead.company || "No company"}</p>
+                  {currentLead.phone && (
+                    <p className="text-sm mt-2">
+                      <Phone className="inline h-3 w-3 mr-1" />
+                      {currentLead.phone}
+                    </p>
+                  )}
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-7 w-7 rounded-full hover:bg-orange-100 text-muted-foreground hover:text-red-500"
+                  onClick={() => onDismiss(currentLead.id)}
+                  title="Dismiss this reminder"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
               {currentLead.remark && (
                 <p className="text-xs mt-2 p-2 bg-white rounded">
                   <span className="font-semibold">Note:</span> {currentLead.remark}
@@ -385,21 +416,39 @@ function CallReminderPopup({ leads, onDismiss, onCallNow }: {
             </div>
             
             {leads.length > 1 && (
-              <p className="text-xs text-center text-muted-foreground">
-                {currentLeadIndex + 1} of {leads.length} calls pending
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  {currentLeadIndex + 1} of {leads.length} calls pending
+                </p>
+                <div className="flex gap-1">
+                  {currentLeadIndex > 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setCurrentLeadIndex(prev => prev - 1)}
+                    >
+                      Previous
+                    </Button>
+                  )}
+                  {currentLeadIndex < leads.length - 1 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setCurrentLeadIndex(prev => prev + 1)}
+                    >
+                      Next
+                    </Button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>
         <DialogFooter className="gap-2">
-          {leads.length > 1 && currentLeadIndex < leads.length - 1 && (
-            <Button 
-              variant="outline" 
-              onClick={() => setCurrentLeadIndex(prev => prev + 1)}
-            >
-              Next
-            </Button>
-          )}
+          <Button variant="outline" onClick={handleClosePopup}>
+            <X className="mr-2 h-4 w-4" />
+            Close All
+          </Button>
           <Button variant="outline" onClick={() => onDismiss(currentLead.id)}>
             Remind Later
           </Button>
