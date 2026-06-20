@@ -632,7 +632,9 @@ function EmployeeFilterSection({
   onSelectStage,
   selectedStage,
   onSelectStatus,
-  selectedStatus
+  selectedStatus,
+  temperatureFilter,
+  onTemperatureFilterChange
 }: {
   profiles: { user_id: string; display_name: string | null }[];
   leads: DbLead[];
@@ -642,6 +644,8 @@ function EmployeeFilterSection({
   selectedStage: string | null;
   onSelectStatus: (status: string | null) => void;
   selectedStatus: string | null;
+  temperatureFilter: string;
+  onTemperatureFilterChange: (value: string) => void;
 }) {
   const [searchEmployee, setSearchEmployee] = useState("");
   
@@ -674,6 +678,11 @@ function EmployeeFilterSection({
   }).sort((a, b) => b.total - a.total);
   
   const unassignedCount = leads.filter(l => !l.assigned_to).length;
+
+  // Temperature filter counts
+  const hotCount = leads.filter(l => l.temperature === "hot").length;
+  const warmCount = leads.filter(l => l.temperature === "warm").length;
+  const coldCount = leads.filter(l => l.temperature === "cold").length;
 
   return (
     <Card className="mb-4">
@@ -884,9 +893,30 @@ function EmployeeFilterSection({
               );
             })}
           </div>
+
+          <span className="text-sm font-medium mx-2">|</span>
+
+          {/* 🔥 NEW: Temperature Dropdown */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">Temp:</span>
+            <Select 
+              value={temperatureFilter} 
+              onValueChange={onTemperatureFilterChange}
+            >
+              <SelectTrigger className="w-44 h-8 text-xs">
+                <SelectValue placeholder="All Temperatures" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">🌡️ All Leads ({leads.length})</SelectItem>
+                <SelectItem value="hot">🔥 Hot Leads ({hotCount})</SelectItem>
+                <SelectItem value="warm">☀️ Warm Leads ({warmCount})</SelectItem>
+                <SelectItem value="cold">❄️ Cold Leads ({coldCount})</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           
           {/* Clear all filters */}
-          {(selectedEmployee || selectedStage || selectedStatus) && (
+          {(selectedEmployee || selectedStage || selectedStatus || temperatureFilter !== "all") && (
             <Button 
               variant="ghost" 
               size="sm" 
@@ -894,6 +924,7 @@ function EmployeeFilterSection({
                 onSelectEmployee(null);
                 onSelectStage(null);
                 onSelectStatus(null);
+                onTemperatureFilterChange("all");
               }}
               className="text-xs text-red-500"
             >
@@ -952,6 +983,9 @@ export default function Leads() {
   // New state for employee filter
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  // 🔥 NEW: Temperature filter state for EmployeeFilterSection
+  const [temperatureFilter, setTemperatureFilter] = useState<string>("all");
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
@@ -1288,6 +1322,7 @@ export default function Leads() {
     const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
     const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
     const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature;
+    const matchTemperatureFilter = temperatureFilter === "all" || l.temperature === temperatureFilter;
     const matchAssignment =
       filterAssignment === "all" ||
       (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
@@ -1311,7 +1346,8 @@ export default function Leads() {
     const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
     return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
            matchAssignment && matchEmployee && matchEmployeeFilter2 && matchPreset && 
-           matchDateFrom && matchDateTo && matchTemperature && matchStatusFilter;
+           matchDateFrom && matchDateTo && matchTemperature && matchStatusFilter &&
+           matchTemperatureFilter;
   });
 
   const toggleSelect = (id: string) => {
@@ -1479,6 +1515,7 @@ export default function Leads() {
     setDateFrom(""); setDateTo(""); setFilterPreset("all");
     setEmployeeFilter(null);
     setStatusFilter(null);
+    setTemperatureFilter("all");
   };
 
   if (isLoading) return (
@@ -1818,6 +1855,8 @@ export default function Leads() {
         selectedStage={filterStage === "all" ? null : filterStage}
         onSelectStatus={setStatusFilter}
         selectedStatus={statusFilter}
+        temperatureFilter={temperatureFilter}
+        onTemperatureFilterChange={setTemperatureFilter}
       />
 
       <Card>
