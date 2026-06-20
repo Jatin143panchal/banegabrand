@@ -1250,10 +1250,12 @@ export default function Leads() {
 
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
-      const assign_date = new Date().toISOString();
+      const assign_date = assigned_to === "unassigned" ? null : new Date().toISOString();
+      const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
+      
       const { error } = await supabase
         .from("leads")
-        .update({ assigned_to, assign_date })
+        .update({ assigned_to: finalAssignedTo, assign_date })
         .eq("id", id);
       if (error) throw error;
     },
@@ -2029,11 +2031,15 @@ export default function Leads() {
                               </div>
                             </div>
                           ) : (
-                            <Select value="" onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}>
+                            <Select 
+                              value="unassigned" 
+                              onValueChange={(v) => assignLead.mutate({ id: lead.id, assigned_to: v })}
+                            >
                               <SelectTrigger className="w-32 h-7 text-xs">
                                 <SelectValue placeholder="Assign..." />
                               </SelectTrigger>
                               <SelectContent>
+                                <SelectItem value="unassigned">Unassigned</SelectItem>
                                 {typedProfiles.map(p => (
                                   <SelectItem key={p.user_id} value={p.user_id}>
                                     {p.display_name || "Unknown"}
