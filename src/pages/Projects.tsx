@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,18 +21,21 @@ import {
   CheckCircle, AlertTriangle, DollarSign, Clock, Rocket,
   Package, MessageSquare, Share2, MoreVertical, UserCheck,
   FileText, CreditCard, ClipboardList, Building2, Send,
-  ChevronRight, ArrowLeft
+  ChevronRight, ArrowLeft, Bell, File, Image, Video,
+  Shield, Award, Coffee, Globe, Zap, Target, BarChart3
 } from "lucide-react";
 import { format } from "date-fns";
 
-// ── Constants ──────────────────────────────────────────────────────────────
+// ============================================================
+// CONSTANTS
+// ============================================================
 const PROJECT_STAGES = [
-  { value: "discovery", label: "Product Discovery & Validation", icon: "🔍" },
-  { value: "development", label: "Product Development & Sourcing", icon: "🏭" },
-  { value: "branding", label: "Brand Creation", icon: "🎨" },
-  { value: "launch_prep", label: "Launch Preparation", icon: "🚀" },
-  { value: "launch", label: "Product Launch", icon: "🎯" },
-  { value: "growth", label: "Growth & Scale", icon: "📈" },
+  { value: "discovery", label: "Product Discovery & Validation", icon: "🔍", color: "#3b82f6" },
+  { value: "development", label: "Product Development & Sourcing", icon: "🏭", color: "#f97316" },
+  { value: "branding", label: "Brand Creation", icon: "🎨", color: "#8b5cf6" },
+  { value: "launch_prep", label: "Launch Preparation", icon: "🚀", color: "#06b6d4" },
+  { value: "launch", label: "Product Launch", icon: "🎯", color: "#10b981" },
+  { value: "growth", label: "Growth & Scale", icon: "📈", color: "#ec4899" },
 ];
 
 const PROJECT_STATUSES = [
@@ -42,9 +45,60 @@ const PROJECT_STATUSES = [
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
 ];
 
-const PROJECT_TYPES = ["perfume", "ayurveda", "cosmetics", "food", "supplements"];
+const PROJECT_TYPES = [
+  { value: "perfume", label: "Perfume", icon: "🌸" },
+  { value: "ayurveda", label: "Ayurveda", icon: "🌿" },
+  { value: "cosmetics", label: "Cosmetics", icon: "💄" },
+  { value: "food", label: "Food", icon: "🍽️" },
+  { value: "supplements", label: "Supplements", icon: "💊" },
+];
 
-// ── Interfaces ─────────────────────────────────────────────────────────────
+const MANUFACTURING_STAGES = [
+  "Sample Requested",
+  "Sample Sent",
+  "Sample Approved",
+  "Packaging Approved",
+  "Bottle Procurement",
+  "Raw Material Procurement",
+  "Production Started",
+  "Filling",
+  "Quality Check",
+  "Packing",
+  "Dispatch",
+  "Delivered"
+];
+
+const BRANDING_CATEGORIES = [
+  "Brand Name",
+  "Logo",
+  "Trademark",
+  "Packaging",
+  "Mockups",
+  "Website",
+  "Social Media",
+  "Marketplace",
+  "Photography",
+  "Video"
+];
+
+const DOCUMENT_FOLDERS = [
+  "Company Registration",
+  "GST",
+  "Trademark",
+  "Agreements",
+  "Invoices",
+  "Packaging Files",
+  "Mockups",
+  "Photos",
+  "Videos",
+  "Manufacturing Documents",
+  "Certificates",
+  "Others"
+];
+
+// ============================================================
+// INTERFACES
+// ============================================================
 interface Project {
   id: string;
   project_id: string;
@@ -89,7 +143,81 @@ interface ProjectTask {
   completion_date: string | null;
 }
 
-// ── Helper Functions ──────────────────────────────────────────────────────
+interface Agreement {
+  id: string;
+  project_id: string;
+  agreement_type: string;
+  title: string;
+  status: string;
+  file_url: string | null;
+  signed_file_url: string | null;
+  sent_date: string | null;
+  signed_date: string | null;
+}
+
+interface Payment {
+  id: string;
+  project_id: string;
+  payment_type: string;
+  milestone: string;
+  amount: number;
+  due_date: string | null;
+  paid_date: string | null;
+  payment_mode: string | null;
+  invoice_number: string | null;
+  status: string;
+}
+
+interface Manufacturing {
+  id: string;
+  project_id: string;
+  stage: string;
+  status: string;
+  start_date: string | null;
+  completion_date: string | null;
+  remarks: string | null;
+  responsible_person: string | null;
+  file_url: string | null;
+}
+
+interface BrandingItem {
+  id: string;
+  project_id: string;
+  category: string;
+  item_name: string;
+  status: string;
+  file_url: string | null;
+  notes: string | null;
+}
+
+interface Document {
+  id: string;
+  project_id: string;
+  folder: string;
+  file_name: string;
+  file_url: string;
+  file_size: number | null;
+  file_type: string | null;
+  version: number;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+interface Communication {
+  id: string;
+  project_id: string;
+  communication_type: string;
+  subject: string | null;
+  message: string | null;
+  attachment_url: string | null;
+  communication_date: string;
+  user_id: string | null;
+  next_followup_date: string | null;
+}
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
 function getStageLabel(value: string) {
   const stage = PROJECT_STAGES.find(s => s.value === value);
   return stage?.label || value;
@@ -100,36 +228,315 @@ function getStageIcon(value: string) {
   return stage?.icon || "📋";
 }
 
+function getStageColor(value: string) {
+  const stage = PROJECT_STAGES.find(s => s.value === value);
+  return stage?.color || "#64748b";
+}
+
 function getStatusColor(status: string) {
   const s = PROJECT_STATUSES.find(ps => ps.value === status);
   return s?.color || "#64748b";
+}
+
+function getStatusLabel(status: string) {
+  const s = PROJECT_STATUSES.find(ps => ps.value === status);
+  return s?.label || status;
 }
 
 function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 }
 
-// ── Main Projects Component ──────────────────────────────────────────────
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(amount);
+}
+
+function getPriorityColor(priority: string) {
+  const colors: Record<string, string> = {
+    urgent: "text-red-600 bg-red-100 border-red-200",
+    high: "text-orange-600 bg-orange-100 border-orange-200",
+    medium: "text-blue-600 bg-blue-100 border-blue-200",
+    low: "text-gray-600 bg-gray-100 border-gray-200"
+  };
+  return colors[priority] || colors.medium;
+}
+
+// ============================================================
+// COMPONENTS
+// ============================================================
+
+// ── Stat Card ──────────────────────────────────────────────────
+function StatCard({ icon: Icon, label, value, color, subtitle, onClick }: any) {
+  const colors: any = {
+    blue: "bg-blue-100 text-blue-600",
+    green: "bg-green-100 text-green-600",
+    red: "bg-red-100 text-red-600",
+    purple: "bg-purple-100 text-purple-600",
+    orange: "bg-orange-100 text-orange-600",
+    yellow: "bg-yellow-100 text-yellow-600",
+    indigo: "bg-indigo-100 text-indigo-600",
+    pink: "bg-pink-100 text-pink-600",
+    teal: "bg-teal-100 text-teal-600",
+  };
+
+  return (
+    <Card className={`cursor-pointer hover:shadow-md transition-shadow ${onClick ? 'hover:border-primary' : ''}`} onClick={onClick}>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold mt-1">{value}</p>
+            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+          </div>
+          <div className={`p-3 rounded-full ${colors[color]}`}>
+            <Icon className="h-5 w-5" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Status Badge ──────────────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const color = getStatusColor(status);
+  const label = getStatusLabel(status);
+  
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{
+        color: color,
+        background: `${color}20`,
+        border: `1px solid ${color}30`
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ── Stage Badge ──────────────────────────────────────────────
+function StageBadge({ stage }: { stage: string }) {
+  const label = getStageLabel(stage);
+  const icon = getStageIcon(stage);
+  const color = getStageColor(stage);
+  
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{
+        color: color,
+        background: `${color}20`,
+        border: `1px solid ${color}30`
+      }}
+    >
+      {icon} {label}
+    </span>
+  );
+}
+
+// ── Priority Badge ────────────────────────────────────────────
+function PriorityBadge({ priority }: { priority: string }) {
+  const colors: Record<string, string> = {
+    urgent: "bg-red-100 text-red-700 border-red-200",
+    high: "bg-orange-100 text-orange-700 border-orange-200",
+    medium: "bg-blue-100 text-blue-700 border-blue-200",
+    low: "bg-gray-100 text-gray-700 border-gray-200"
+  };
+  
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[priority] || colors.medium}`}>
+      {priority.charAt(0).toUpperCase() + priority.slice(1)}
+    </span>
+  );
+}
+
+// ── Project Card ──────────────────────────────────────────────
+function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
+  const progress = project.completion_percentage || 0;
+  const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "📋";
+  
+  return (
+    <div 
+      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50"
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="font-semibold text-lg">{project.client_name}</h4>
+            <Badge variant="outline" className="text-xs font-mono">
+              {project.project_id}
+            </Badge>
+            <span className="text-sm">{typeIcon}</span>
+          </div>
+          {project.brand_name && (
+            <p className="text-sm text-muted-foreground">{project.brand_name}</p>
+          )}
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            <StageBadge stage={project.current_stage} />
+            <StatusBadge status={project.status} />
+            {project.project_value && project.project_value > 0 && (
+              <span className="text-sm font-medium text-green-600">
+                {formatCurrency(project.project_value)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <div className="flex items-center gap-2">
+              <Progress value={progress} className="w-24 h-2" />
+              <span className="text-xs font-medium">{progress}%</span>
+            </div>
+            {project.expected_launch_date && (
+              <p className="text-xs text-muted-foreground mt-1">
+                🚀 {format(new Date(project.expected_launch_date), "dd MMM yyyy")}
+              </p>
+            )}
+          </div>
+          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Task Card ──────────────────────────────────────────────────
+function TaskCard({ task, onStatusChange, onDelete }: { 
+  task: ProjectTask; 
+  onStatusChange: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  
+  return (
+    <div className={`border rounded-lg p-3 hover:bg-muted/30 transition-colors ${task.status === 'completed' ? 'bg-muted/20' : ''}`}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <input 
+              type="checkbox" 
+              checked={task.status === 'completed'}
+              onChange={() => onStatusChange(task.id, task.status === 'completed' ? 'not_started' : 'completed')}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+            />
+            <span className={`font-medium ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
+              {task.task_name}
+            </span>
+            <PriorityBadge priority={task.priority} />
+            <StatusBadge status={task.status} />
+          </div>
+          {task.description && (
+            <p className="text-sm text-muted-foreground mt-1 ml-9">{task.description}</p>
+          )}
+          <div className="flex items-center gap-4 mt-1 ml-9 text-xs text-muted-foreground flex-wrap">
+            {task.department && <span>📁 {task.department}</span>}
+            {task.due_date && (
+              <span>📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
+            )}
+            {task.assigned_to && <span>👤 Assigned</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpanded(!expanded)}>
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(task.id)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+      
+      {expanded && (
+        <div className="mt-3 pt-3 border-t">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <span className="text-muted-foreground">Status: </span>
+              <Select 
+                value={task.status} 
+                onValueChange={(v) => onStatusChange(task.id, v)}
+              >
+                <SelectTrigger className="h-7 text-xs w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="not_started">Not Started</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="review">Review</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="blocked">Blocked</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Priority: </span>
+              <Select 
+                value={task.priority} 
+                onValueChange={async (v) => {
+                  // Update priority
+                }}
+              >
+                <SelectTrigger className="h-7 text-xs w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 export default function Projects() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   
+  // ── States ──────────────────────────────────────────────────
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
   const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  
+  // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [stageDialogOpen, setStageDialogOpen] = useState(false);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [selectedStage, setSelectedStage] = useState<ProjectStage | null>(null);
+  const [agreementDialogOpen, setAgreementDialogOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [manufacturingDialogOpen, setManufacturingDialogOpen] = useState(false);
+  const [brandingDialogOpen, setBrandingDialogOpen] = useState(false);
+  const [documentDialogOpen, setDocumentDialogOpen] = useState(false);
+  const [communicationDialogOpen, setCommunicationDialogOpen] = useState(false);
+  
+  // Data states
   const [projectStages, setProjectStages] = useState<ProjectStage[]>([]);
   const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
+  const [agreements, setAgreements] = useState<Agreement[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [manufacturing, setManufacturing] = useState<Manufacturing[]>([]);
+  const [brandingItems, setBrandingItems] = useState<BrandingItem[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [communications, setCommunications] = useState<Communication[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
-
-  // ── Fetch Projects ──────────────────────────────────────────────────────
+  
+  // ── Fetch Projects ─────────────────────────────────────────
   const { data: projects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
@@ -143,7 +550,7 @@ export default function Projects() {
     },
   });
 
-  // ── Stats ───────────────────────────────────────────────────────────────
+  // ── Stats ──────────────────────────────────────────────────
   const stats = {
     total: projects.length,
     active: projects.filter((p: Project) => p.status === "active").length,
@@ -152,7 +559,7 @@ export default function Projects() {
     totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
   };
 
-  // ── Filter Projects ────────────────────────────────────────────────────
+  // ── Filter Projects ────────────────────────────────────────
   const filteredProjects = projects.filter((project: Project) => {
     const matchSearch = 
       project.client_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -165,7 +572,7 @@ export default function Projects() {
     return matchSearch && matchStatus && matchStage;
   });
 
-  // ── Fetch Project Details ──────────────────────────────────────────────
+  // ── Fetch Project Details ──────────────────────────────────
   const fetchProjectDetails = async (projectId: string) => {
     setLoadingDetail(true);
     try {
@@ -175,7 +582,6 @@ export default function Projects() {
         .select("*")
         .eq("project_id", projectId)
         .order("stage_order");
-      
       if (stagesData) setProjectStages(stagesData);
 
       // Fetch tasks
@@ -184,8 +590,54 @@ export default function Projects() {
         .select("*")
         .eq("project_id", projectId)
         .order("due_date");
-      
       if (tasksData) setProjectTasks(tasksData);
+
+      // Fetch agreements
+      const { data: agreementsData } = await supabase
+        .from("agreements")
+        .select("*")
+        .eq("project_id", projectId);
+      if (agreementsData) setAgreements(agreementsData);
+
+      // Fetch payments
+      const { data: paymentsData } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("due_date");
+      if (paymentsData) setPayments(paymentsData);
+
+      // Fetch manufacturing
+      const { data: manufacturingData } = await supabase
+        .from("manufacturing_tracker")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("stage");
+      if (manufacturingData) setManufacturing(manufacturingData);
+
+      // Fetch branding
+      const { data: brandingData } = await supabase
+        .from("branding_tracker")
+        .select("*")
+        .eq("project_id", projectId);
+      if (brandingData) setBrandingItems(brandingData);
+
+      // Fetch documents
+      const { data: documentsData } = await supabase
+        .from("project_documents")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+      if (documentsData) setDocuments(documentsData);
+
+      // Fetch communications
+      const { data: communicationsData } = await supabase
+        .from("client_communications")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("communication_date", { ascending: false });
+      if (communicationsData) setCommunications(communicationsData);
+
     } catch (error) {
       console.error("Error fetching project details:", error);
     } finally {
@@ -193,10 +645,11 @@ export default function Projects() {
     }
   };
 
-  // ── Handle Project Click ──────────────────────────────────────────────
+  // ── Handle Project Click ──────────────────────────────────
   const handleProjectClick = (project: Project) => {
     setSelectedProject(project);
     setViewMode("detail");
+    setActiveTab("overview");
     fetchProjectDetails(project.id);
   };
 
@@ -205,9 +658,15 @@ export default function Projects() {
     setSelectedProject(null);
     setProjectStages([]);
     setProjectTasks([]);
+    setAgreements([]);
+    setPayments([]);
+    setManufacturing([]);
+    setBrandingItems([]);
+    setDocuments([]);
+    setCommunications([]);
   };
 
-  // ── Create Project ─────────────────────────────────────────────────────
+  // ── Create Project ──────────────────────────────────────────
   const [newProject, setNewProject] = useState({
     client_name: "",
     brand_name: "",
@@ -244,7 +703,7 @@ export default function Projects() {
 
       if (error) throw error;
 
-      // Create default stages
+      // Create 6 stages
       const stages = PROJECT_STAGES.map((stage, index) => ({
         project_id: data.id,
         stage_name: stage.label,
@@ -270,7 +729,9 @@ export default function Projects() {
     }
   };
 
-  // ── Update Project ─────────────────────────────────────────────────────
+  // ── Update Project ──────────────────────────────────────────
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+
   const updateProject = async () => {
     if (!editingProject) return;
 
@@ -303,7 +764,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Stage Status ────────────────────────────────────────────────
+  // ── Update Stage Status ────────────────────────────────────
   const updateStageStatus = async (stageId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -322,7 +783,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Task Status ─────────────────────────────────────────────────
+  // ── Update Task Status ──────────────────────────────────────
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -341,13 +802,14 @@ export default function Projects() {
     }
   };
 
-  // ── Add Task ────────────────────────────────────────────────────────────
+  // ── Add Task ─────────────────────────────────────────────────
   const [newTask, setNewTask] = useState({
     task_name: "",
     description: "",
     department: "",
     priority: "medium",
     due_date: "",
+    stage_id: "",
   });
 
   const addTask = async () => {
@@ -361,6 +823,7 @@ export default function Projects() {
         .from("project_tasks")
         .insert({
           project_id: selectedProject.id,
+          stage_id: newTask.stage_id || null,
           task_name: newTask.task_name,
           description: newTask.description || null,
           department: newTask.department || null,
@@ -380,6 +843,7 @@ export default function Projects() {
         department: "",
         priority: "medium",
         due_date: "",
+        stage_id: "",
       });
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
@@ -389,64 +853,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Stage ───────────────────────────────────────────────────────────
-  const [newStage, setNewStage] = useState({
-    stage_name: "",
-    stage_order: 0,
-  });
-
-  const addStage = async () => {
-    if (!newStage.stage_name || !selectedProject) {
-      toast.error("Stage name is required");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("project_stages")
-        .insert({
-          project_id: selectedProject.id,
-          stage_name: newStage.stage_name,
-          stage_order: projectStages.length + 1,
-          status: "pending",
-        });
-
-      if (error) throw error;
-
-      toast.success("Stage added successfully!");
-      setStageDialogOpen(false);
-      setNewStage({ stage_name: "", stage_order: 0 });
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  // ── Delete Project ─────────────────────────────────────────────────────
-  const deleteProject = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this project?")) return;
-
-    try {
-      const { error } = await supabase
-        .from("projects")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
-
-      toast.success("Project deleted successfully!");
-      refetch();
-      if (selectedProject?.id === id) {
-        handleBack();
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  // ── Delete Task ─────────────────────────────────────────────────────────
+  // ── Delete Task ─────────────────────────────────────────────
   const deleteTask = async (taskId: string) => {
     if (!confirm("Delete this task?")) return;
 
@@ -467,6 +874,171 @@ export default function Projects() {
     }
   };
 
+  // ── Add Agreement ────────────────────────────────────────────
+  const [newAgreement, setNewAgreement] = useState({
+    title: "",
+    agreement_type: "banega_brand",
+    status: "not_sent",
+  });
+
+  const addAgreement = async () => {
+    if (!newAgreement.title || !selectedProject) {
+      toast.error("Title is required");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("agreements")
+        .insert({
+          project_id: selectedProject.id,
+          title: newAgreement.title,
+          agreement_type: newAgreement.agreement_type,
+          status: newAgreement.status,
+        });
+
+      if (error) throw error;
+
+      toast.success("Agreement added successfully!");
+      setAgreementDialogOpen(false);
+      setNewAgreement({ title: "", agreement_type: "banega_brand", status: "not_sent" });
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Add Payment ──────────────────────────────────────────────
+  const [newPayment, setNewPayment] = useState({
+    payment_type: "client",
+    milestone: "",
+    amount: "",
+    due_date: "",
+    status: "pending",
+  });
+
+  const addPayment = async () => {
+    if (!newPayment.milestone || !newPayment.amount || !selectedProject) {
+      toast.error("Milestone and amount are required");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("payments")
+        .insert({
+          project_id: selectedProject.id,
+          payment_type: newPayment.payment_type,
+          milestone: newPayment.milestone,
+          amount: Number(newPayment.amount),
+          due_date: newPayment.due_date || null,
+          status: newPayment.status,
+        });
+
+      if (error) throw error;
+
+      toast.success("Payment added successfully!");
+      setPaymentDialogOpen(false);
+      setNewPayment({ payment_type: "client", milestone: "", amount: "", due_date: "", status: "pending" });
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Add Communication ──────────────────────────────────────
+  const [newCommunication, setNewCommunication] = useState({
+    type: "comment",
+    subject: "",
+    message: "",
+    next_followup: "",
+  });
+
+  const addCommunication = async () => {
+    if (!newCommunication.message || !selectedProject) {
+      toast.error("Message is required");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("client_communications")
+        .insert({
+          project_id: selectedProject.id,
+          communication_type: newCommunication.type,
+          subject: newCommunication.subject || null,
+          message: newCommunication.message,
+          next_followup_date: newCommunication.next_followup || null,
+          user_id: user?.id,
+        });
+
+      if (error) throw error;
+
+      toast.success("Communication added successfully!");
+      setCommunicationDialogOpen(false);
+      setNewCommunication({ type: "comment", subject: "", message: "", next_followup: "" });
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Delete Project ──────────────────────────────────────────
+  const deleteProject = async (id: string) => {
+    if (!confirm("Delete this project? All data will be lost.")) return;
+
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      toast.success("Project deleted successfully!");
+      refetch();
+      if (selectedProject?.id === id) {
+        handleBack();
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Calculate Payment Summary ──────────────────────────────
+  const getPaymentSummary = () => {
+    const clientPayments = payments.filter(p => p.payment_type === 'client');
+    const manufacturerPayments = payments.filter(p => p.payment_type === 'manufacturer');
+    
+    const totalClient = clientPayments.reduce((sum, p) => sum + p.amount, 0);
+    const received = clientPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
+    const pending = clientPayments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + p.amount, 0);
+    
+    const totalManufacturer = manufacturerPayments.reduce((sum, p) => sum + p.amount, 0);
+    const manufacturerPaid = manufacturerPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
+    const manufacturerPending = manufacturerPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+    
+    return {
+      totalClient,
+      received,
+      pending,
+      totalManufacturer,
+      manufacturerPaid,
+      manufacturerPending,
+      grossProfit: received - manufacturerPaid,
+    };
+  };
+
+  // ════════════════════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════════════════════
+  
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -475,13 +1047,15 @@ export default function Projects() {
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   // DETAIL VIEW
-  // ════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   if (viewMode === "detail" && selectedProject) {
+    const paymentSummary = getPaymentSummary();
+    
     return (
       <div className="space-y-6">
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={handleBack}>
@@ -497,6 +1071,7 @@ export default function Projects() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="outline" className="text-sm">
+              {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"} 
               {selectedProject.project_type || "N/A"}
             </Badge>
             <Button 
@@ -521,7 +1096,7 @@ export default function Projects() {
           </div>
         </div>
 
-        {/* Progress Bar */}
+        {/* ── Progress ── */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>Project Progress</span>
@@ -529,101 +1104,118 @@ export default function Projects() {
           </div>
           <Progress value={selectedProject.completion_percentage || 0} className="h-3" />
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
-            <span>Expected Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
+            <span>📅 Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
+            <span>🚀 Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
           </div>
         </div>
 
-        {/* Tabs */}
-        <Tabs defaultValue="overview">
-          <TabsList className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {/* ── Tabs ── */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="stages">Stages</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
-            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="payments">Payments</TabsTrigger>
+            <TabsTrigger value="manufacturing">Manufacturing</TabsTrigger>
+            <TabsTrigger value="branding">Branding</TabsTrigger>
+            <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="communication">Communication</TabsTrigger>
           </TabsList>
 
-          {/* ── Overview Tab ── */}
+          {/* ── OVERVIEW TAB ── */}
           <TabsContent value="overview" className="space-y-4 mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card>
                 <CardContent className="p-4">
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <span className="inline-flex px-2 py-1 rounded text-sm font-medium mt-1"
-                    style={{
-                      color: getStatusColor(selectedProject.status),
-                      background: `${getStatusColor(selectedProject.status)}20`,
-                      border: `1px solid ${getStatusColor(selectedProject.status)}30`
-                    }}
-                  >
-                    {PROJECT_STATUSES.find(s => s.value === selectedProject.status)?.label || selectedProject.status}
-                  </span>
+                  <StatusBadge status={selectedProject.status} />
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-4">
                   <p className="text-sm text-muted-foreground">Stage</p>
-                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium mt-1 bg-gray-100 text-gray-700">
-                    {getStageIcon(selectedProject.current_stage)} {getStageLabel(selectedProject.current_stage)}
-                  </span>
+                  <StageBadge stage={selectedProject.current_stage} />
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-4">
                   <p className="text-sm text-muted-foreground">Project Value</p>
+                  <p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-muted-foreground">Tasks</p>
                   <p className="text-xl font-bold">
-                    ₹{(selectedProject.project_value || 0).toLocaleString()}
+                    {projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}
                   </p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Stages Progress */}
+            {/* Payment Summary */}
             <Card>
               <CardHeader>
-                <h3 className="text-lg font-semibold">Stages Progress</h3>
+                <CardTitle className="text-lg">Payment Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Client</p>
+                    <p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Received</p>
+                    <p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Pending</p>
+                    <p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Gross Profit</p>
+                    <p className="text-lg font-semibold text-blue-600">{formatCurrency(paymentSummary.grossProfit)}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Recent Tasks */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Recent Tasks</CardTitle>
+                  <Button size="sm" onClick={() => setTaskDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Task
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {loadingDetail ? (
-                  <div className="flex justify-center py-4">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                  </div>
+                  <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin" /></div>
                 ) : (
-                  <div className="space-y-3">
-                    {projectStages.map((stage) => (
-                      <div key={stage.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${
-                            stage.status === "completed" ? "bg-green-500" :
-                            stage.status === "in_progress" ? "bg-blue-500" :
-                            stage.status === "blocked" ? "bg-red-500" :
-                            "bg-gray-300"
-                          }`} />
-                          <span className="text-sm">{stage.stage_name}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">
-                            {stage.status || "pending"}
-                          </Badge>
-                          <Select 
-                            value={stage.status || "pending"} 
-                            onValueChange={(v) => updateStageStatus(stage.id, v)}
-                          >
-                            <SelectTrigger className="w-28 h-7 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="in_progress">In Progress</SelectItem>
-                              <SelectItem value="completed">Completed</SelectItem>
-                              <SelectItem value="blocked">Blocked</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                  <div className="space-y-2">
+                    {projectTasks.slice(0, 5).map(task => (
+                      <div key={task.id} className="flex items-center gap-3 py-2 border-b last:border-0">
+                        <div className={`w-2 h-2 rounded-full ${
+                          task.status === 'completed' ? 'bg-green-500' :
+                          task.status === 'in_progress' ? 'bg-blue-500' :
+                          task.status === 'blocked' ? 'bg-red-500' :
+                          'bg-gray-300'
+                        }`} />
+                        <span className={`flex-1 ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
+                          {task.task_name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {task.due_date ? format(new Date(task.due_date), "dd MMM") : "No due"}
+                        </span>
+                        <Badge variant="outline" className="text-xs">{task.status}</Badge>
                       </div>
                     ))}
-                    {projectStages.length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">No stages found</p>
+                    {projectTasks.length === 0 && (
+                      <p className="text-center text-muted-foreground py-4">No tasks yet</p>
                     )}
                   </div>
                 )}
@@ -631,12 +1223,12 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── Stages Tab ── */}
+          {/* ── STAGES TAB ── */}
           <TabsContent value="stages" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Project Stages</h3>
+                  <CardTitle className="text-lg">Project Stages</CardTitle>
                   <Button size="sm" onClick={() => setStageDialogOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Stage
@@ -645,9 +1237,7 @@ export default function Projects() {
               </CardHeader>
               <CardContent>
                 {loadingDetail ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
+                  <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
                 ) : (
                   <div className="space-y-4">
                     {projectStages.map((stage) => (
@@ -655,9 +1245,7 @@ export default function Projects() {
                         <div className="flex items-center justify-between">
                           <div>
                             <h4 className="font-semibold">{stage.stage_name}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              Order: {stage.stage_order}
-                            </p>
+                            <p className="text-sm text-muted-foreground">Order: {stage.stage_order}</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs">
@@ -696,12 +1284,12 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── Tasks Tab ── */}
+          {/* ── TASKS TAB ── */}
           <TabsContent value="tasks" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Project Tasks</h3>
+                  <CardTitle className="text-lg">Project Tasks</CardTitle>
                   <Button size="sm" onClick={() => setTaskDialogOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Task
@@ -710,71 +1298,19 @@ export default function Projects() {
               </CardHeader>
               <CardContent>
                 {loadingDetail ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                  </div>
+                  <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
                 ) : (
                   <div className="space-y-3">
-                    {projectTasks.map((task) => (
-                      <div key={task.id} className="border rounded-lg p-3 hover:bg-muted/50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${
-                              task.priority === "urgent" ? "bg-red-500" :
-                              task.priority === "high" ? "bg-orange-500" :
-                              task.priority === "medium" ? "bg-blue-500" :
-                              "bg-gray-400"
-                            }`} />
-                            <div>
-                              <p className="font-medium">{task.task_name}</p>
-                              {task.description && (
-                                <p className="text-sm text-muted-foreground">{task.description}</p>
-                              )}
-                              {task.department && (
-                                <p className="text-xs text-muted-foreground">Dept: {task.department}</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">
-                              {task.priority || "medium"}
-                            </Badge>
-                            <Select 
-                              value={task.status || "not_started"} 
-                              onValueChange={(v) => updateTaskStatus(task.id, v)}
-                            >
-                              <SelectTrigger className="w-28 h-7 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="not_started">Not Started</SelectItem>
-                                <SelectItem value="in_progress">In Progress</SelectItem>
-                                <SelectItem value="review">Review</SelectItem>
-                                <SelectItem value="completed">Completed</SelectItem>
-                                <SelectItem value="blocked">Blocked</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-7 w-7 text-destructive"
-                              onClick={() => deleteTask(task.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-                        {task.due_date && (
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Due: {format(new Date(task.due_date), "dd MMM yyyy")}
-                          </p>
-                        )}
-                      </div>
+                    {projectTasks.map(task => (
+                      <TaskCard 
+                        key={task.id} 
+                        task={task} 
+                        onStatusChange={updateTaskStatus}
+                        onDelete={deleteTask}
+                      />
                     ))}
                     {projectTasks.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">
-                        No tasks yet. Add your first task!
-                      </p>
+                      <p className="text-center text-muted-foreground py-8">No tasks yet</p>
                     )}
                   </div>
                 )}
@@ -782,81 +1318,333 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── Details Tab ── */}
-          <TabsContent value="details" className="mt-4">
+          {/* ── PAYMENTS TAB ── */}
+          <TabsContent value="payments" className="mt-4">
+            <div className="space-y-4">
+              {/* Payment Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Total Client</p>
+                    <p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Received</p>
+                    <p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Pending</p>
+                    <p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Manufacturer Pending</p>
+                    <p className="text-lg font-semibold text-orange-600">{formatCurrency(paymentSummary.manufacturerPending)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Client Payments */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">Client Payments</CardTitle>
+                    <Button size="sm" onClick={() => setPaymentDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Payment
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Milestone</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Amount</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Due Date</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Status</th>
+                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payments.filter(p => p.payment_type === 'client').map(payment => (
+                          <tr key={payment.id} className="border-b hover:bg-muted/50">
+                            <td className="p-2 text-sm">{payment.milestone}</td>
+                            <td className="p-2 text-sm font-medium">{formatCurrency(payment.amount)}</td>
+                            <td className="p-2 text-sm">{payment.due_date ? format(new Date(payment.due_date), "dd MMM yyyy") : '-'}</td>
+                            <td className="p-2"><StatusBadge status={payment.status} /></td>
+                            <td className="p-2">
+                              <Button variant="ghost" size="sm">Edit</Button>
+                            </td>
+                          </tr>
+                        ))}
+                        {payments.filter(p => p.payment_type === 'client').length === 0 && (
+                          <tr><td colSpan={5} className="text-center py-4 text-muted-foreground">No client payments</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* ── MANUFACTURING TAB ── */}
+          <TabsContent value="manufacturing" className="mt-4">
             <Card>
-              <CardContent className="p-6">
-                <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Project ID</dt>
-                    <dd className="font-medium">{selectedProject.project_id}</dd>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Manufacturing Tracker</CardTitle>
+                  <Button size="sm" onClick={() => setManufacturingDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Update Manufacturing
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Progress Bar */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Manufacturing Progress</span>
+                      <span className="font-semibold">
+                        {manufacturing.filter(m => m.status === 'completed').length}/{MANUFACTURING_STAGES.length}
+                      </span>
+                    </div>
+                    <Progress 
+                      value={(manufacturing.filter(m => m.status === 'completed').length / MANUFACTURING_STAGES.length) * 100} 
+                      className="h-2" 
+                    />
                   </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Client Name</dt>
-                    <dd className="font-medium">{selectedProject.client_name}</dd>
+
+                  {/* Timeline */}
+                  <div className="relative">
+                    {MANUFACTURING_STAGES.map((stage, index) => {
+                      const item = manufacturing.find(m => m.stage === stage);
+                      const isCompleted = item?.status === 'completed';
+                      const isInProgress = item?.status === 'in_progress';
+                      
+                      return (
+                        <div key={index} className="flex items-start gap-4 mb-4">
+                          <div className="flex flex-col items-center">
+                            <div className={`
+                              w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-medium
+                              ${isCompleted ? 'bg-green-500 border-green-500 text-white' : 
+                                isInProgress ? 'bg-blue-500 border-blue-500 text-white' : 
+                                'border-gray-300 text-gray-400'}
+                            `}>
+                              {isCompleted ? '✓' : isInProgress ? '●' : index + 1}
+                            </div>
+                            {index < MANUFACTURING_STAGES.length - 1 && (
+                              <div className={`w-0.5 h-8 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-medium">{stage}</p>
+                                {item?.remarks && (
+                                  <p className="text-sm text-muted-foreground">{item.remarks}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {item?.status || 'pending'}
+                                </Badge>
+                                {item?.file_url && (
+                                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                                    <Download className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                            {item?.start_date && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {isCompleted ? '✅ Completed: ' : '📅 Started: '}
+                                {format(new Date(item.start_date), "dd MMM yyyy")}
+                                {item?.completion_date && ` • ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Brand Name</dt>
-                    <dd className="font-medium">{selectedProject.brand_name || "N/A"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Project Type</dt>
-                    <dd className="font-medium">{selectedProject.project_type || "N/A"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Start Date</dt>
-                    <dd className="font-medium">
-                      {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Expected Launch</dt>
-                    <dd className="font-medium">
-                      {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Status</dt>
-                    <dd className="font-medium">{PROJECT_STATUSES.find(s => s.value === selectedProject.status)?.label || selectedProject.status}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Current Stage</dt>
-                    <dd className="font-medium">{getStageLabel(selectedProject.current_stage)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Completion</dt>
-                    <dd className="font-medium">{selectedProject.completion_percentage || 0}%</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Created At</dt>
-                    <dd className="font-medium">
-                      {format(new Date(selectedProject.created_at), "dd MMM yyyy")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm text-muted-foreground">Last Updated</dt>
-                    <dd className="font-medium">
-                      {format(new Date(selectedProject.updated_at), "dd MMM yyyy")}
-                    </dd>
-                  </div>
-                </dl>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── BRANDING TAB ── */}
+          <TabsContent value="branding" className="mt-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Branding & Digital Tracker</CardTitle>
+                  <Button size="sm" onClick={() => setBrandingDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Item
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {BRANDING_CATEGORIES.map(category => {
+                    const items = brandingItems.filter(b => b.category === category);
+                    const completed = items.filter(b => b.status === 'completed').length;
+                    const total = items.length;
+                    
+                    return (
+                      <div key={category} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium">{category}</h4>
+                          <Badge variant="outline" className="text-xs">
+                            {completed}/{total}
+                          </Badge>
+                        </div>
+                        <Progress value={total > 0 ? (completed / total) * 100 : 0} className="h-1" />
+                        <div className="mt-2 space-y-1">
+                          {items.map(item => (
+                            <div key={item.id} className="flex items-center gap-2 text-sm">
+                              <span className={`w-2 h-2 rounded-full ${
+                                item.status === 'completed' ? 'bg-green-500' :
+                                item.status === 'approved' ? 'bg-blue-500' :
+                                item.status === 'review' ? 'bg-orange-500' :
+                                item.status === 'in_progress' ? 'bg-yellow-500' :
+                                'bg-gray-300'
+                              }`} />
+                              <span>{item.item_name}</span>
+                              <Badge variant="outline" className="text-xs ml-auto">{item.status}</Badge>
+                            </div>
+                          ))}
+                          {items.length === 0 && (
+                            <p className="text-xs text-muted-foreground">No items in this category</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── DOCUMENTS TAB ── */}
+          <TabsContent value="documents" className="mt-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Documents</CardTitle>
+                  <Button size="sm" onClick={() => setDocumentDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Upload Document
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {DOCUMENT_FOLDERS.map(folder => {
+                    const files = documents.filter(d => d.folder === folder);
+                    return (
+                      <div key={folder} className="border rounded-lg p-3 hover:bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium text-sm">{folder}</span>
+                          <Badge variant="outline" className="ml-auto text-xs">{files.length}</Badge>
+                        </div>
+                        {files.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {files.slice(0, 3).map(file => (
+                              <div key={file.id} className="flex items-center gap-2 text-xs">
+                                <File className="h-3 w-3 text-muted-foreground" />
+                                <span className="truncate">{file.file_name}</span>
+                              </div>
+                            ))}
+                            {files.length > 3 && (
+                              <p className="text-xs text-muted-foreground">+{files.length - 3} more</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── COMMUNICATION TAB ── */}
+          <TabsContent value="communication" className="mt-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Communication Center</CardTitle>
+                  <Button size="sm" onClick={() => setCommunicationDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Communication
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {communications.map(comm => (
+                    <div key={comm.id} className="border-l-4 pl-4 py-2" style={{
+                      borderColor: 
+                        comm.communication_type === 'call' ? '#3b82f6' :
+                        comm.communication_type === 'email' ? '#8b5cf6' :
+                        comm.communication_type === 'whatsapp' ? '#25D366' :
+                        comm.communication_type === 'meeting' ? '#f59e0b' :
+                        comm.communication_type === 'followup' ? '#ef4444' :
+                        '#94a3b8'
+                    }}>
+                      <div className="flex items-center gap-2">
+                        {comm.communication_type === 'call' && <Phone className="h-4 w-4 text-blue-500" />}
+                        {comm.communication_type === 'email' && <Mail className="h-4 w-4 text-purple-500" />}
+                        {comm.communication_type === 'whatsapp' && <MessageSquare className="h-4 w-4 text-green-500" />}
+                        {comm.communication_type === 'meeting' && <Calendar className="h-4 w-4 text-orange-500" />}
+                        {comm.communication_type === 'followup' && <Bell className="h-4 w-4 text-red-500" />}
+                        {comm.communication_type === 'comment' && <MessageSquare className="h-4 w-4 text-gray-500" />}
+                        <span className="text-xs font-medium uppercase text-muted-foreground">{comm.communication_type}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(new Date(comm.communication_date), "dd MMM yyyy, hh:mm a")}
+                        </span>
+                      </div>
+                      {comm.subject && <p className="font-medium mt-1">{comm.subject}</p>}
+                      <p className="text-sm text-muted-foreground mt-1">{comm.message}</p>
+                      {comm.next_followup_date && (
+                        <p className="text-xs text-red-500 mt-1">
+                          🔔 Follow-up: {format(new Date(comm.next_followup_date), "dd MMM yyyy")}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  {communications.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No communications yet</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
 
-        {/* ── Add Stage Dialog ── */}
+        {/* ── DIALOGS ── */}
+        
+        {/* Add Stage Dialog */}
         <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
           <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Stage</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Add New Stage</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid gap-2">
                 <Label>Stage Name</Label>
                 <Input 
-                  value={newStage.stage_name} 
-                  onChange={(e) => setNewStage({ ...newStage, stage_name: e.target.value })}
+                  value={newProject.stage_name || ''} 
+                  onChange={(e) => setNewProject({ ...newProject, stage_name: e.target.value })}
                   placeholder="Enter stage name"
                 />
               </div>
@@ -868,12 +1656,10 @@ export default function Projects() {
           </DialogContent>
         </Dialog>
 
-        {/* ── Add Task Dialog ── */}
+        {/* Add Task Dialog */}
         <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Add New Task</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Add New Task</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid gap-2">
                 <Label>Task Name *</Label>
@@ -902,13 +1688,8 @@ export default function Projects() {
                 </div>
                 <div className="grid gap-2">
                   <Label>Priority</Label>
-                  <Select 
-                    value={newTask.priority} 
-                    onValueChange={(v) => setNewTask({ ...newTask, priority: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="low">Low</SelectItem>
                       <SelectItem value="medium">Medium</SelectItem>
@@ -919,12 +1700,20 @@ export default function Projects() {
                 </div>
               </div>
               <div className="grid gap-2">
+                <Label>Stage (Optional)</Label>
+                <Select value={newTask.stage_id} onValueChange={(v) => setNewTask({ ...newTask, stage_id: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {projectStages.map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.stage_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
                 <Label>Due Date</Label>
-                <Input 
-                  type="date"
-                  value={newTask.due_date} 
-                  onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
-                />
+                <Input type="date" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} />
               </div>
             </div>
             <DialogFooter>
@@ -933,16 +1722,180 @@ export default function Projects() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Add Payment Dialog */}
+        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Add Payment</DialogTitle></DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Payment Type</Label>
+                <Select value={newPayment.payment_type} onValueChange={(v) => setNewPayment({ ...newPayment, payment_type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="client">Client Payment</SelectItem>
+                    <SelectItem value="manufacturer">Manufacturer Payment</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Milestone</Label>
+                <Input 
+                  value={newPayment.milestone} 
+                  onChange={(e) => setNewPayment({ ...newPayment, milestone: e.target.value })}
+                  placeholder="e.g., Booking Amount"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Amount (₹)</Label>
+                <Input 
+                  type="number"
+                  value={newPayment.amount} 
+                  onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Due Date</Label>
+                <Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment({ ...newPayment, due_date: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={newPayment.status} onValueChange={(v) => setNewPayment({ ...newPayment, status: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="overdue">Overdue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
+              <Button onClick={addPayment}>Add Payment</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Communication Dialog */}
+        <Dialog open={communicationDialogOpen} onOpenChange={setCommunicationDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Add Communication</DialogTitle></DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Type</Label>
+                <Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="call">Call</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="meeting">Meeting</SelectItem>
+                    <SelectItem value="comment">Comment</SelectItem>
+                    <SelectItem value="followup">Follow-up</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Subject</Label>
+                <Input 
+                  value={newCommunication.subject} 
+                  onChange={(e) => setNewCommunication({ ...newCommunication, subject: e.target.value })}
+                  placeholder="Enter subject"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Message *</Label>
+                <Textarea 
+                  value={newCommunication.message} 
+                  onChange={(e) => setNewCommunication({ ...newCommunication, message: e.target.value })}
+                  placeholder="Enter message"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Next Follow-up</Label>
+                <Input type="datetime-local" value={newCommunication.next_followup} onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCommunicationDialogOpen(false)}>Cancel</Button>
+              <Button onClick={addCommunication}>Add Communication</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Project Dialog */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader><DialogTitle>Edit Project</DialogTitle></DialogHeader>
+            {editingProject && (
+              <div className="grid gap-4 py-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Client Name *</Label>
+                  <Input value={editingProject.client_name} onChange={(e) => setEditingProject({ ...editingProject, client_name: e.target.value })} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Brand Name</Label>
+                  <Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Project Type</Label>
+                  <Select value={editingProject.project_type || "perfume"} onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Project Value (₹)</Label>
+                  <Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Status</Label>
+                  <Select value={editingProject.status} onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Current Stage</Label>
+                  <Select value={editingProject.current_stage} onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Start Date</Label>
+                  <Input type="date" value={editingProject.start_date || ""} onChange={(e) => setEditingProject({ ...editingProject, start_date: e.target.value })} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Expected Launch Date</Label>
+                  <Input type="date" value={editingProject.expected_launch_date || ""} onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+              <Button onClick={updateProject}>Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   // DASHBOARD VIEW
-  // ════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
@@ -951,6 +1904,10 @@ export default function Projects() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm">
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -959,68 +1916,36 @@ export default function Projects() {
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Create New Project</DialogTitle>
-              </DialogHeader>
+              <DialogHeader><DialogTitle>Create New Project</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <Label>Client Name *</Label>
-                  <Input 
-                    value={newProject.client_name} 
-                    onChange={(e) => setNewProject({ ...newProject, client_name: e.target.value })}
-                    placeholder="Enter client name"
-                  />
+                  <Input value={newProject.client_name} onChange={(e) => setNewProject({ ...newProject, client_name: e.target.value })} placeholder="Enter client name" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Brand Name</Label>
-                  <Input 
-                    value={newProject.brand_name} 
-                    onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })}
-                    placeholder="Enter brand name"
-                  />
+                  <Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Project Type</Label>
-                  <Select 
-                    value={newProject.project_type} 
-                    onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
+                  <Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                     <SelectContent>
-                      {PROJECT_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type.charAt(0).toUpperCase() + type.slice(1)}
-                        </SelectItem>
-                      ))}
+                      {PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label>Project Value (₹)</Label>
-                  <Input 
-                    type="number"
-                    value={newProject.project_value} 
-                    onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })}
-                    placeholder="Enter project value"
-                  />
+                  <Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Start Date</Label>
-                  <Input 
-                    type="date"
-                    value={newProject.start_date} 
-                    onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })}
-                  />
+                  <Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} />
                 </div>
                 <div className="grid gap-2">
                   <Label>Expected Launch Date</Label>
-                  <Input 
-                    type="date"
-                    value={newProject.expected_launch_date} 
-                    onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })}
-                  />
+                  <Input type="date" value={newProject.expected_launch_date} onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })} />
                 </div>
               </div>
               <DialogFooter>
@@ -1032,63 +1957,35 @@ export default function Projects() {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* ── Stats Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Projects</p>
-                <p className="text-2xl font-bold">{stats.total}</p>
-              </div>
-              <div className="p-3 rounded-full bg-blue-100 text-blue-600">
-                <FolderKanban className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Active</p>
-                <p className="text-2xl font-bold text-green-600">{stats.active}</p>
-              </div>
-              <div className="p-3 rounded-full bg-green-100 text-green-600">
-                <CheckCircle className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">On Hold</p>
-                <p className="text-2xl font-bold text-orange-600">{stats.onHold}</p>
-              </div>
-              <div className="p-3 rounded-full bg-orange-100 text-orange-600">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Value</p>
-                <p className="text-2xl font-bold text-purple-600">₹{(stats.totalValue / 100000).toFixed(1)}L</p>
-              </div>
-              <div className="p-3 rounded-full bg-purple-100 text-purple-600">
-                <DollarSign className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard 
+          icon={FolderKanban}
+          label="Total Projects"
+          value={stats.total}
+          color="blue"
+        />
+        <StatCard 
+          icon={CheckCircle}
+          label="Active"
+          value={stats.active}
+          color="green"
+        />
+        <StatCard 
+          icon={AlertTriangle}
+          label="On Hold"
+          value={stats.onHold}
+          color="red"
+        />
+        <StatCard 
+          icon={DollarSign}
+          label="Total Value"
+          value={formatCurrency(stats.totalValue)}
+          color="purple"
+        />
       </div>
 
-      {/* Filters */}
+      {/* ── Filters ── */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap gap-2">
@@ -1107,9 +2004,7 @@ export default function Projects() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                {PROJECT_STATUSES.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                ))}
+                {PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterStage} onValueChange={setFilterStage}>
@@ -1118,16 +2013,10 @@ export default function Projects() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Stages</SelectItem>
-                {PROJECT_STAGES.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>
-                ))}
+                {PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => {
-              setSearch("");
-              setFilterStatus("all");
-              setFilterStage("all");
-            }}>
+            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); }}>
               <X className="h-4 w-4 mr-1" />
               Clear
             </Button>
@@ -1135,178 +2024,31 @@ export default function Projects() {
         </CardHeader>
       </Card>
 
-      {/* Projects List */}
+      {/* ── Projects List ── */}
       <Card>
         <CardContent className="p-6">
           <div className="space-y-4">
             {filteredProjects.length === 0 ? (
-              <p className="text-center text-muted-foreground py-12">
-                No projects found. Create your first project!
-              </p>
+              <div className="text-center py-12">
+                <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">No projects found</p>
+                <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Your First Project
+                </Button>
+              </div>
             ) : (
               filteredProjects.map((project: Project) => (
-                <div 
+                <ProjectCard 
                   key={project.id} 
-                  className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                  project={project} 
                   onClick={() => handleProjectClick(project)}
-                >
-                  <div className="flex items-start justify-between flex-wrap gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-semibold">{project.client_name}</h4>
-                        <Badge variant="outline" className="text-xs font-mono">
-                          {project.project_id}
-                        </Badge>
-                      </div>
-                      {project.brand_name && (
-                        <p className="text-sm text-muted-foreground">{project.brand_name}</p>
-                      )}
-                      <div className="flex items-center gap-3 mt-2 flex-wrap">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700">
-                          {getStageIcon(project.current_stage)} {getStageLabel(project.current_stage)}
-                        </span>
-                        <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium"
-                          style={{
-                            color: getStatusColor(project.status),
-                            background: `${getStatusColor(project.status)}20`,
-                            border: `1px solid ${getStatusColor(project.status)}30`
-                          }}
-                        >
-                          {PROJECT_STATUSES.find(s => s.value === project.status)?.label || project.status}
-                        </span>
-                        {project.project_value && (
-                          <span className="text-sm font-medium">
-                            ₹{(project.project_value / 100000).toFixed(1)}L
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="flex items-center gap-2">
-                          <Progress value={project.completion_percentage || 0} className="w-24 h-2" />
-                          <span className="text-xs font-medium">{project.completion_percentage || 0}%</span>
-                        </div>
-                        {project.expected_launch_date && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Launch: {format(new Date(project.expected_launch_date), "dd MMM yyyy")}
-                          </p>
-                        )}
-                      </div>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                  </div>
-                </div>
+                />
               ))
             )}
           </div>
         </CardContent>
       </Card>
-
-      {/* ── Edit Project Dialog ── */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Edit Project</DialogTitle>
-          </DialogHeader>
-          {editingProject && (
-            <div className="grid gap-4 py-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>Client Name *</Label>
-                <Input 
-                  value={editingProject.client_name} 
-                  onChange={(e) => setEditingProject({ ...editingProject, client_name: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Brand Name</Label>
-                <Input 
-                  value={editingProject.brand_name || ""} 
-                  onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Project Type</Label>
-                <Select 
-                  value={editingProject.project_type || "perfume"} 
-                  onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROJECT_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Project Value (₹)</Label>
-                <Input 
-                  type="number"
-                  value={editingProject.project_value || 0} 
-                  onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select 
-                  value={editingProject.status} 
-                  onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROJECT_STATUSES.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Current Stage</Label>
-                <Select 
-                  value={editingProject.current_stage} 
-                  onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROJECT_STAGES.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Start Date</Label>
-                <Input 
-                  type="date"
-                  value={editingProject.start_date || ""} 
-                  onChange={(e) => setEditingProject({ ...editingProject, start_date: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Expected Launch Date</Label>
-                <Input 
-                  type="date"
-                  value={editingProject.expected_launch_date || ""} 
-                  onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })}
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-            <Button onClick={updateProject}>Save Changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
