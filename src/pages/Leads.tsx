@@ -2068,19 +2068,24 @@ export default function Leads() {
 
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
 
+      {/* ── LEAD DETAIL DIALOG (EYE ICON) ── */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Lead Details</span>
+              <div className="flex items-center gap-2">
+                <TemperatureBadge temperature={detailLead?.temperature} />
+                <ScoreBadge score={detailLead ? getLeadScore(detailLead) : 0} />
+              </div>
+            </DialogTitle>
+          </DialogHeader>
           {detailLead && (
             <div className="space-y-4 py-2">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ width: 44, height: 44, borderRadius: "50%", background: avatarColor(detailLead.name), display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: 16 }}>{getInitials(detailLead.name)}</div>
                   <div><h3 style={{ fontWeight: 700, fontSize: 16, margin: 0 }}>{detailLead.name}</h3>{detailLead.company && <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>{detailLead.company}</p>}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <TemperatureBadge temperature={detailLead.temperature} />
-                  <ScoreBadge score={getLeadScore(detailLead)} />
                 </div>
               </div>
               <Progress value={getLeadScore(detailLead)} className="h-2" />
@@ -2091,7 +2096,51 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Temperature</p><p className="font-medium"><TemperatureBadge temperature={detailLead.temperature} /></p></div>
+                
+                {/* 🔥 NEW: Editable Temperature Dropdown in Eye Dialog */}
+                <div className="grid gap-1">
+                  <p className="text-muted-foreground text-xs flex items-center gap-1">
+                    <span>Temperature</span>
+                    <span className="text-[10px] text-muted-foreground">(click to change)</span>
+                  </p>
+                  <Select 
+                    value={detailLead.temperature || "warm"} 
+                    onValueChange={async (v) => {
+                      try {
+                        const { error } = await supabase
+                          .from("leads")
+                          .update({ temperature: v })
+                          .eq("id", detailLead.id);
+                        
+                        if (error) throw error;
+                        
+                        queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+                        setDetailLead({ ...detailLead, temperature: v });
+                        logActivity(detailLead.id, "updated", `Temperature changed to: ${v}`);
+                        toast.success(`Temperature updated to ${v.toUpperCase()}`);
+                      } catch (error: any) {
+                        toast.error(error.message);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select temperature" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LEAD_TEMPERATURE.map(t => (
+                        <SelectItem key={t.value} value={t.value}>
+                          <span className="flex items-center gap-2">
+                            <span>{t.label}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              ({t.value === "hot" ? "High Priority" : t.value === "warm" ? "Medium Priority" : "Low Priority"})
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
                 <div className="grid gap-1"><p className="text-muted-foreground text-xs">Brand Stage</p><Select value={detailLead.stage || "ringing"} onValueChange={async (v) => { const updated = { ...detailLead, stage: v, sub_stage: "" }; setDetailLead(updated); await handleUpdateStageFromDetail(detailLead.id, v, ""); logActivity(detailLead.id, "updated", `Stage: ${v}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-1"><p className="text-muted-foreground text-xs">Sub Stage</p><Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => { const val = v === "none" ? "" : v; setDetailLead({ ...detailLead, sub_stage: val }); await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val); logActivity(detailLead.id, "updated", `Sub Stage: ${val}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
                 <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
