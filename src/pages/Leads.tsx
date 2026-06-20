@@ -2036,8 +2036,7 @@ export default function Leads() {
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                         <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
                         <TableCell>
-                          {/* FIXED: Assignment dropdown - now works for both assigned and unassigned leads */}
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-[140px]">
                             {lead.assigned_to && (
                               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <div style={{ width: 24, height: 24, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
@@ -2048,11 +2047,10 @@ export default function Leads() {
                             <Select 
                               value={lead.assigned_to || "unassigned"} 
                               onValueChange={(v) => {
-                                console.log("📝 Assigning lead:", lead.id, "to:", v);
                                 assignLead.mutate({ id: lead.id, assigned_to: v });
                               }}
                             >
-                              <SelectTrigger className="w-32 h-7 text-xs">
+                              <SelectTrigger className="w-[120px] h-7 text-xs">
                                 <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
                                   {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
                                 </SelectValue>
