@@ -49,16 +49,17 @@ const LEAD_TEMPERATURE = [
   { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff" },
 ];
 
+// FIXED: Use lowercase values that match enum
 const LEAD_STATUSES = [
-  { value: "Ringing",            label: "Ringing"           },
-  { value: "Callback",           label: "Callback"          },
-  { value: "DP",                 label: "DP"                },
-  { value: "VMS",                label: "VMS"               },
-  { value: "PG",                 label: "PG"                },
-  { value: "Converted",          label: "Converted"         },
-  { value: "Lost",               label: "Lost"              },
-  { value: "Meeting Booked",     label: "Meeting Booked"    },
-  { value: "Business Generated", label: "Business Generated"},
+  { value: "ringing",            label: "Ringing"           },
+  { value: "callback",           label: "Callback"          },
+  { value: "dp",                 label: "DP"                },
+  { value: "vms",                label: "VMS"               },
+  { value: "pg",                 label: "PG"                },
+  { value: "converted",          label: "Converted"         },
+  { value: "lost",               label: "Lost"              },
+  { value: "meeting_booked",     label: "Meeting Booked"    },
+  { value: "business_generated", label: "Business Generated"},
 ];
 
 const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
@@ -1224,6 +1225,7 @@ export default function Leads() {
     dismissReminder(lead.id);
   };
 
+  // FIXED: markLeadAsLost with lowercase status
   const markLeadAsLost = async (leadId: string, reason: string) => {
     try {
       const lostDate = new Date().toISOString();
@@ -1231,7 +1233,7 @@ export default function Leads() {
         .from("leads")
         .update({ 
           stage: "lost", 
-          status: "Lost",
+          status: "lost",
           lost_reason: reason,
           lost_date: lostDate,
           business_status: "no-go"
@@ -1257,6 +1259,7 @@ export default function Leads() {
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
       const assign_date = finalAssignedTo ? new Date().toISOString() : null;
       
+      // ONLY update assigned_to and assign_date - don't touch status
       const { error } = await supabase
         .from("leads")
         .update({ 
