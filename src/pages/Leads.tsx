@@ -1250,21 +1250,37 @@ export default function Leads() {
 
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
-      const assign_date = assigned_to === "unassigned" ? null : new Date().toISOString();
+      console.log("🔄 Assigning lead:", id, "to:", assigned_to);
+      
+      // Handle unassigned case - if "unassigned" is passed, set to null
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
+      const assign_date = finalAssignedTo ? new Date().toISOString() : null;
       
       const { error } = await supabase
         .from("leads")
-        .update({ assigned_to: finalAssignedTo, assign_date })
+        .update({ 
+          assigned_to: finalAssignedTo, 
+          assign_date: assign_date 
+        })
         .eq("id", id);
-      if (error) throw error;
+        
+      if (error) {
+        console.error("❌ Assignment error:", error);
+        throw error;
+      }
+      
+      console.log("✅ Lead assigned successfully:", id, "to:", finalAssignedTo);
+      return { id, assigned_to: finalAssignedTo };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
       toast.success("Lead assigned successfully");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      console.error("❌ Assignment mutation error:", e);
+      toast.error(e.message || "Failed to assign lead");
+    },
   });
 
   const getProfileName = (userId: string | null) => {
@@ -2020,23 +2036,26 @@ export default function Leads() {
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                         <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
                         <TableCell>
-                          {lead.assigned_to ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <div style={{ width: 28, height: 28, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-                                {getInitials(assignee)}
+                          {/* FIXED: Assignment dropdown - now works for both assigned and unassigned leads */}
+                          <div className="flex items-center gap-2">
+                            {lead.assigned_to && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                                  {getInitials(assignee)}
+                                </div>
                               </div>
-                              <div>
-                                <span style={{ fontSize: 12, fontWeight: 500 }}>{assignee}</span>
-                                {lead.assign_date && (<p style={{ fontSize: 10, color: "#94a3b8" }}>{format(new Date(lead.assign_date), "dd MMM yyyy")}</p>)}
-                              </div>
-                            </div>
-                          ) : (
+                            )}
                             <Select 
-                              value="unassigned" 
-                              onValueChange={(v) => assignLead.mutate({ id: lead.id, assigned_to: v })}
+                              value={lead.assigned_to || "unassigned"} 
+                              onValueChange={(v) => {
+                                console.log("📝 Assigning lead:", lead.id, "to:", v);
+                                assignLead.mutate({ id: lead.id, assigned_to: v });
+                              }}
                             >
                               <SelectTrigger className="w-32 h-7 text-xs">
-                                <SelectValue placeholder="Assign..." />
+                                <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
+                                  {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
+                                </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="unassigned">Unassigned</SelectItem>
@@ -2047,7 +2066,7 @@ export default function Leads() {
                                 ))}
                               </SelectContent>
                             </Select>
-                          )}
+                          </div>
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
                         <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>{lead.budget || "-"}</TableCell>
