@@ -1248,6 +1248,7 @@ export default function Leads() {
     }
   };
 
+  // FIXED: Assignment mutation with proper error handling
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       console.log("🔄 Assigning lead:", id, "to:", assigned_to);
@@ -2036,6 +2037,7 @@ export default function Leads() {
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                         <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
                         <TableCell>
+                          {/* FIXED: Assignment dropdown - works for both assigned and unassigned leads */}
                           <div className="flex items-center gap-2 min-w-[140px]">
                             {lead.assigned_to && (
                               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -2120,7 +2122,7 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
                 
-                {/* 🔥 NEW: Editable Temperature Dropdown in Eye Dialog */}
+                {/* Editable Temperature Dropdown in Eye Dialog */}
                 <div className="grid gap-1">
                   <p className="text-muted-foreground text-xs flex items-center gap-1">
                     <span>Temperature</span>
