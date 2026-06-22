@@ -805,20 +805,23 @@ export default function Leads() {
   // ── FIX: Use a direct query with proper cache management ──
   const [leads, setLeads] = useState<DbLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // ── Fetch leads function ──
   const fetchLeads = async () => {
     try {
+      console.log("🔄 Fetching leads...");
       const { data, error } = await supabase
         .from("leads")
         .select("*")
         .order("created_at", { ascending: false });
       
       if (error) throw error;
+      console.log(`✅ Fetched ${data?.length || 0} leads`);
       setLeads(data as DbLead[]);
       return data;
     } catch (error) {
-      console.error("Error fetching leads:", error);
+      console.error("❌ Error fetching leads:", error);
       toast.error("Failed to fetch leads");
       return [];
     } finally {
@@ -826,13 +829,20 @@ export default function Leads() {
     }
   };
   
+  // ── Force refresh function ──
+  const refreshLeads = () => {
+    setRefreshKey(prev => prev + 1);
+    fetchLeads();
+  };
+  
   // ── Initial fetch ──
   useEffect(() => {
     fetchLeads();
-  }, []);
+  }, [refreshKey]);
   
   // ── Real-time subscription ──
   useEffect(() => {
+    console.log("🔔 Setting up real-time subscription for leads...");
     const channel = supabase
       .channel('leads-changes')
       .on(
@@ -842,14 +852,32 @@ export default function Leads() {
           schema: 'public',
           table: 'leads'
         },
-        () => {
+        (payload) => {
+          console.log("📡 Real-time update received:", payload);
           // Refetch leads when any change occurs
           fetchLeads();
+          // Also show a toast notification for updates
+          if (payload.eventType === 'INSERT') {
+            toast.info(`New lead added: ${(payload.new as any)?.name || 'Unknown'}`, {
+              duration: 3000,
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            toast.info(`Lead updated: ${(payload.new as any)?.name || 'Unknown'}`, {
+              duration: 3000,
+            });
+          } else if (payload.eventType === 'DELETE') {
+            toast.info('A lead was deleted', {
+              duration: 3000,
+            });
+          }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("📡 Subscription status:", status);
+      });
 
     return () => {
+      console.log("🔔 Cleaning up real-time subscription...");
       supabase.removeChannel(channel);
     };
   }, []);
@@ -1161,6 +1189,7 @@ export default function Leads() {
     }
     
     try {
+      console.log("➕ Adding lead:", form);
       await insertLead.mutateAsync({
         name: form.name, email: form.email, phone: form.phone, company: form.company,
         source: form.source, value: Number(form.value) || 0, status: "new" as any,
@@ -1170,10 +1199,12 @@ export default function Leads() {
       } as any);
       setForm(emptyForm);
       setDialogOpen(false);
-      toast.success("Lead added successfully");
-      fetchLeads();
+      toast.success(`✅ Lead "${form.name}" added successfully!`);
+      // Force refresh
+      refreshLeads();
     } catch (error: any) {
-      toast.error(error.message);
+      console.error("❌ Error adding lead:", error);
+      toast.error(error.message || "Failed to add lead");
     }
   };
 
@@ -1582,7 +1613,7 @@ export default function Leads() {
                   <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
                 <Button onClick={handleAddLead} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
-                  {insertLead.isPending ? "Adding..." : "Add Lead"}
+                  {insertLead.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Add Lead"}
                 </Button>
               </div>
             </DialogContent>
@@ -1591,7 +1622,18 @@ export default function Leads() {
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
+        {/* ── TOTAL LEADS CARD - NOW CLICKABLE ── */}
+        <Card 
+          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer" }} 
+          className="hover:shadow-md transition-shadow hover:border-primary"
+          onClick={() => {
+            // Clear all filters to show all leads
+            clearFilters();
+            // Scroll to the table
+            document.querySelector('.sticky')?.scrollIntoView({ behavior: 'smooth' });
+            toast.info(`Showing all ${totalLeads} leads`);
+          }}
+        >
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
@@ -1603,7 +1645,7 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{totalLeads}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to view all</p>
               </div>
             </div>
           </CardContent>
