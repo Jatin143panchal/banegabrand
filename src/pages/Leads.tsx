@@ -802,14 +802,15 @@ export default function Leads() {
   const logActivity = useLeadActivityLogger();
   const queryClient = useQueryClient();
   
-  // ── FIX: Use a direct query with proper cache management ──
+  // ── State for leads ──
   const [leads, setLeads] = useState<DbLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // ── Fetch leads function ──
-  const fetchLeads = async () => {
+  const fetchLeads = async (showToast = false) => {
     try {
+      if (showToast) setIsRefreshing(true);
       console.log("🔄 Fetching leads...");
       const { data, error } = await supabase
         .from("leads")
@@ -822,25 +823,20 @@ export default function Leads() {
       return data;
     } catch (error) {
       console.error("❌ Error fetching leads:", error);
-      toast.error("Failed to fetch leads");
+      if (showToast) toast.error("Failed to refresh leads");
       return [];
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
-  };
-  
-  // ── Force refresh function ──
-  const refreshLeads = () => {
-    setRefreshKey(prev => prev + 1);
-    fetchLeads();
   };
   
   // ── Initial fetch ──
   useEffect(() => {
     fetchLeads();
-  }, [refreshKey]);
+  }, []);
   
-  // ── Real-time subscription ──
+  // ── Real-time subscription with immediate update ──
   useEffect(() => {
     console.log("🔔 Setting up real-time subscription for leads...");
     const channel = supabase
@@ -854,22 +850,8 @@ export default function Leads() {
         },
         (payload) => {
           console.log("📡 Real-time update received:", payload);
-          // Refetch leads when any change occurs
-          fetchLeads();
-          // Also show a toast notification for updates
-          if (payload.eventType === 'INSERT') {
-            toast.info(`New lead added: ${(payload.new as any)?.name || 'Unknown'}`, {
-              duration: 3000,
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            toast.info(`Lead updated: ${(payload.new as any)?.name || 'Unknown'}`, {
-              duration: 3000,
-            });
-          } else if (payload.eventType === 'DELETE') {
-            toast.info('A lead was deleted', {
-              duration: 3000,
-            });
-          }
+          // Immediately fetch latest data
+          fetchLeads(true);
         }
       )
       .subscribe((status) => {
@@ -1087,7 +1069,7 @@ export default function Leads() {
     if (urlParams.get('agreement_signed') === 'true') {
       const leadId = urlParams.get('lead_id');
       toast.success("Agreement signed successfully!");
-      fetchLeads();
+      fetchLeads(true);
       if (leadId) {
         fetchAgreementStatus(leadId);
       }
@@ -1115,7 +1097,7 @@ export default function Leads() {
         })
         .eq("id", leadId);
       
-      fetchLeads();
+      fetchLeads(true);
       logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
       toast.success("Lead marked as lost");
       setLostLeadDialog(null);
@@ -1149,7 +1131,7 @@ export default function Leads() {
       return { id, assigned_to: finalAssignedTo };
     },
     onSuccess: () => {
-      fetchLeads();
+      fetchLeads(true);
       toast.success("Lead assigned successfully");
     },
     onError: (e: Error) => {
@@ -1167,7 +1149,7 @@ export default function Leads() {
   const handleUpdateStageFromDetail = async (id: string, stage: string, subStage: string) => {
     try {
       await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
-      fetchLeads();
+      fetchLeads(true);
       if (detailLead && detailLead.id === id) {
         setDetailLead({ ...detailLead, stage, sub_stage: subStage });
       }
@@ -1182,6 +1164,7 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   };
 
+  // ── FIXED: Add Lead with proper state update ──
   const handleAddLead = async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
@@ -1190,21 +1173,126 @@ export default function Leads() {
     
     try {
       console.log("➕ Adding lead:", form);
-      await insertLead.mutateAsync({
-        name: form.name, email: form.email, phone: form.phone, company: form.company,
-        source: form.source, value: Number(form.value) || 0, status: "new" as any,
-        lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
-        budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
-        temperature: form.temperature,
-      } as any);
+      
+      // Directly insert using supabase
+      const { data, error } = await supabase
+        .from("leads")
+        .insert({
+          name: form.name, 
+          email: form.email, 
+          phone: form.phone, 
+          company: form.company,
+          source: form.source, 
+          value: Number(form.value) || 0, 
+          status: "new",
+          lead_type: form.lead_type, 
+          address: form.address, 
+          cx_comment: form.cx_comment,
+          budget: form.budget, 
+          stage: form.stage, 
+          sub_stage: form.sub_stage, 
+          remark: form.remark,
+          temperature: form.temperature,
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      console.log("✅ Lead added:", data);
+      
+      // Immediately update the leads state
+      setLeads(prev => [data, ...prev]);
+      
       setForm(emptyForm);
       setDialogOpen(false);
-      toast.success(`✅ Lead "${form.name}" added successfully!`);
-      // Force refresh
-      refreshLeads();
+      toast.success(`✅ Lead "${form.name}" added successfully! (Total: ${leads.length + 1})`);
+      
     } catch (error: any) {
       console.error("❌ Error adding lead:", error);
       toast.error(error.message || "Failed to add lead");
+    }
+  };
+
+  // ── FIXED: Import leads with proper state update ──
+  const handleBulkImport = async () => {
+    if (uploadPreview.length === 0) return;
+    setUploading(true);
+    let success = 0;
+    let duplicates = 0;
+    let duplicateList: any[] = [];
+    const newLeads: DbLead[] = [];
+    
+    for (const lead of uploadPreview) {
+      const duplicate = await checkForDuplicate(lead);
+      
+      if (duplicate && duplicate.is_duplicate) {
+        duplicates++;
+        duplicateList.push({
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          existing_lead: duplicate.existing_lead_name
+        });
+        continue;
+      }
+      
+      try {
+        const { data, error } = await supabase
+          .from("leads")
+          .insert({
+            name: lead.name, 
+            email: lead.email, 
+            phone: lead.phone, 
+            company: lead.company,
+            source: lead.source, 
+            value: lead.value || 0, 
+            status: "new",
+            lead_type: lead.lead_type, 
+            address: lead.address, 
+            cx_comment: lead.cx_comment,
+            budget: lead.budget, 
+            stage: lead.stage || "ringing", 
+            sub_stage: lead.sub_stage, 
+            remark: lead.remark,
+            temperature: lead.temperature || "warm",
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        if (data) {
+          newLeads.push(data);
+          success++;
+        }
+      } catch (error) {
+        console.error("Error importing lead:", error);
+      }
+    }
+    
+    setUploading(false);
+    setUploadPreview([]);
+    setUploadOpen(false);
+    if (fileRef.current) fileRef.current.value = "";
+    
+    // Update state with all new leads at once
+    if (newLeads.length > 0) {
+      setLeads(prev => [...newLeads, ...prev]);
+    }
+    
+    if (duplicates > 0) {
+      if (success > 0) {
+        toast.warning(
+          `${success} leads imported successfully, ${duplicates} duplicate leads skipped.`,
+          { duration: 5000 }
+        );
+      } else {
+        toast.error(`All ${duplicates} leads were duplicates and were skipped.`);
+      }
+      console.log("Skipped duplicates:", duplicateList);
+    } else if (success > 0) {
+      toast.success(`${success} leads imported successfully! (Total: ${leads.length + success})`);
     }
   };
 
@@ -1266,7 +1354,7 @@ export default function Leads() {
       toast.success(`${count} leads assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
-      fetchLeads();
+      fetchLeads(true);
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Assign failed"); }
   };
 
@@ -1304,63 +1392,6 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   };
 
-  const handleBulkImport = async () => {
-    if (uploadPreview.length === 0) return;
-    setUploading(true);
-    let success = 0;
-    let duplicates = 0;
-    let duplicateList: any[] = [];
-    
-    for (const lead of uploadPreview) {
-      const duplicate = await checkForDuplicate(lead);
-      
-      if (duplicate && duplicate.is_duplicate) {
-        duplicates++;
-        duplicateList.push({
-          name: lead.name,
-          email: lead.email,
-          phone: lead.phone,
-          existing_lead: duplicate.existing_lead_name
-        });
-        continue;
-      }
-      
-      try {
-        await insertLead.mutateAsync({
-          name: lead.name, email: lead.email, phone: lead.phone, company: lead.company,
-          source: lead.source, value: lead.value, status: "new" as any,
-          lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-          budget: lead.budget, stage: lead.stage || "ringing", sub_stage: lead.sub_stage, remark: lead.remark,
-          temperature: lead.temperature || "warm",
-        } as any);
-        success++;
-      } catch (error) {
-        console.error("Error importing lead:", error);
-      }
-    }
-    
-    setUploading(false);
-    setUploadPreview([]);
-    setUploadOpen(false);
-    if (fileRef.current) fileRef.current.value = "";
-    
-    fetchLeads();
-    
-    if (duplicates > 0) {
-      if (success > 0) {
-        toast.warning(
-          `${success} leads imported successfully, ${duplicates} duplicate leads skipped.`,
-          { duration: 5000 }
-        );
-      } else {
-        toast.error(`All ${duplicates} leads were duplicates and were skipped.`);
-      }
-      console.log("Skipped duplicates:", duplicateList);
-    } else {
-      toast.success(`${success} leads imported successfully!`);
-    }
-  };
-
   const handleUpdate = async () => {
     if (!editLead) return;
     
@@ -1375,7 +1406,7 @@ export default function Leads() {
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
     toast.success("Lead updated");
-    fetchLeads();
+    fetchLeads(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -1383,7 +1414,7 @@ export default function Leads() {
     await deleteLead.mutateAsync(id);
     setDetailLead(null);
     toast.success("Lead deleted");
-    fetchLeads();
+    fetchLeads(true);
   };
 
   const handleExport = () => {
@@ -1456,8 +1487,18 @@ export default function Leads() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
           <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
+          {isRefreshing && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Refreshing...
+            </span>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => fetchLeads(true)} disabled={isRefreshing}>
+            {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />Export Excel
           </Button>
@@ -1520,7 +1561,7 @@ export default function Leads() {
               </div>
               <DialogFooter>
                 <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads (Duplicates will be skipped)`}
+                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1612,8 +1653,9 @@ export default function Leads() {
                   <Label>CX Comment</Label>
                   <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
-                <Button onClick={handleAddLead} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
-                  {insertLead.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Add Lead"}
+                <Button onClick={handleAddLead} className="mt-2 sm:col-span-2">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Lead
                 </Button>
               </div>
             </DialogContent>
@@ -1627,9 +1669,7 @@ export default function Leads() {
           style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer" }} 
           className="hover:shadow-md transition-shadow hover:border-primary"
           onClick={() => {
-            // Clear all filters to show all leads
             clearFilters();
-            // Scroll to the table
             document.querySelector('.sticky')?.scrollIntoView({ behavior: 'smooth' });
             toast.info(`Showing all ${totalLeads} leads`);
           }}
@@ -1885,6 +1925,9 @@ export default function Leads() {
               {filtered.length !== leads.length && <span style={{ color: "#94a3b8", fontWeight: 400 }}> (filtered from {leads.length})</span>}
             </p>
             <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="outline" size="sm" onClick={() => fetchLeads(true)} disabled={isRefreshing}>
+                {isRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              </Button>
               <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="mr-2 h-3 w-3" />Export Excel
               </Button>
@@ -2021,7 +2064,7 @@ export default function Leads() {
                         
                         if (error) throw error;
                         
-                        fetchLeads();
+                        fetchLeads(true);
                         setDetailLead({ ...detailLead, temperature: v });
                         logActivity(detailLead.id, "updated", `Temperature changed to: ${v}`);
                         toast.success(`Temperature updated to ${v.toUpperCase()}`);
