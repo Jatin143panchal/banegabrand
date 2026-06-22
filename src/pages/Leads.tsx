@@ -341,127 +341,6 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
   );
 }
 
-// ── Call Reminder Popup Component ─────────────────────────────────────────────
-function CallReminderPopup({ leads, onDismiss, onCallNow }: { 
-  leads: DbLead[]; 
-  onDismiss: (leadId: string) => void; 
-  onCallNow: (lead: DbLead) => void;
-}) {
-  const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
-  
-  if (leads.length === 0) return null;
-  
-  const currentLead = leads[currentLeadIndex];
-  
-  // Handle closing the entire popup
-  const handleClosePopup = () => {
-    // Dismiss all pending reminders
-    leads.forEach(lead => onDismiss(lead.id));
-  };
-  
-  return (
-    <Dialog open={true} onOpenChange={() => handleClosePopup()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <div className="flex items-center justify-between w-full">
-            <DialogTitle className="flex items-center gap-2">
-              <AlarmClock className="h-5 w-5 text-orange-500" />
-              Call Reminder
-            </DialogTitle>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-8 w-8 rounded-full hover:bg-muted"
-              onClick={handleClosePopup}
-              title="Close reminders"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </DialogHeader>
-        <div className="py-4">
-          <div className="text-center mb-4">
-            <div className="text-4xl mb-2">🔔</div>
-            <p className="text-sm text-muted-foreground">Time to call!</p>
-          </div>
-          
-          <div className="space-y-3">
-            <div className="p-3 bg-orange-50 rounded-lg">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className="font-semibold text-lg">{currentLead.name}</p>
-                  <p className="text-sm text-muted-foreground">{currentLead.company || "No company"}</p>
-                  {currentLead.phone && (
-                    <p className="text-sm mt-2">
-                      <Phone className="inline h-3 w-3 mr-1" />
-                      {currentLead.phone}
-                    </p>
-                  )}
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-7 w-7 rounded-full hover:bg-orange-100 text-muted-foreground hover:text-red-500"
-                  onClick={() => onDismiss(currentLead.id)}
-                  title="Dismiss this reminder"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              {currentLead.remark && (
-                <p className="text-xs mt-2 p-2 bg-white rounded">
-                  <span className="font-semibold">Note:</span> {currentLead.remark}
-                </p>
-              )}
-            </div>
-            
-            {leads.length > 1 && (
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  {currentLeadIndex + 1} of {leads.length} calls pending
-                </p>
-                <div className="flex gap-1">
-                  {currentLeadIndex > 0 && (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => setCurrentLeadIndex(prev => prev - 1)}
-                    >
-                      Previous
-                    </Button>
-                  )}
-                  {currentLeadIndex < leads.length - 1 && (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => setCurrentLeadIndex(prev => prev + 1)}
-                    >
-                      Next
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleClosePopup}>
-            <X className="mr-2 h-4 w-4" />
-            Close All
-          </Button>
-          <Button variant="outline" onClick={() => onDismiss(currentLead.id)}>
-            Remind Later
-          </Button>
-          <Button onClick={() => onCallNow(currentLead)}>
-            <Phone className="mr-2 h-4 w-4" />
-            Call Now
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Lost Lead Dialog ─────────────────────────────────────────────────────────
 function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   lead: DbLead | null;
@@ -973,8 +852,6 @@ export default function Leads() {
   const [uploading, setUploading]           = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   
-  const [pendingReminders, setPendingReminders] = useState<DbLead[]>([]);
-  const [showReminder, setShowReminder] = useState(false);
   const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
   const [leegalitySignDialog, setLeegalitySignDialog] = useState<DbLead | null>(null);
   const [leegalityLoading, setLeegalityLoading] = useState<string | null>(null);
@@ -1169,61 +1046,6 @@ export default function Leads() {
       fetchAgreementStatus(detailLead.id);
     }
   }, [detailLead?.id]);
-
-  useEffect(() => {
-    const checkReminders = () => {
-      const now = new Date();
-      const upcomingCalls = leads.filter(lead => {
-        if (!lead.remark) return false;
-        const timeMatch = lead.remark.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
-        if (timeMatch) {
-          let hours = parseInt(timeMatch[1]);
-          const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-          const period = timeMatch[3].toUpperCase();
-          
-          if (period === "PM" && hours !== 12) hours += 12;
-          if (period === "AM" && hours === 12) hours = 0;
-          
-          const callTime = new Date(now);
-          callTime.setHours(hours, minutes, 0, 0);
-          
-          const diffMinutes = differenceInMinutes(callTime, now);
-          if (diffMinutes >= -5 && diffMinutes <= 10 && lead.stage !== "lost") {
-            return true;
-          }
-        }
-        return false;
-      });
-      
-      const newReminders = upcomingCalls.filter(
-        lead => !pendingReminders.some(r => r.id === lead.id)
-      );
-      
-      if (newReminders.length > 0) {
-        setPendingReminders(prev => [...prev, ...newReminders]);
-        setShowReminder(true);
-      }
-    };
-    
-    checkReminders();
-    const interval = setInterval(checkReminders, 60000);
-    return () => clearInterval(interval);
-  }, [leads, pendingReminders]);
-
-  const dismissReminder = (leadId: string) => {
-    setPendingReminders(prev => prev.filter(r => r.id !== leadId));
-    if (pendingReminders.length === 1) {
-      setShowReminder(false);
-    }
-  };
-
-  const handleCallNow = (lead: DbLead) => {
-    if (lead.phone) {
-      window.location.href = `tel:${lead.phone}`;
-      logActivity(lead.id, "called", `Called from reminder - ${lead.phone}`);
-    }
-    dismissReminder(lead.id);
-  };
 
   // FIXED: markLeadAsLost with lowercase status
   const markLeadAsLost = async (leadId: string, reason: string) => {
@@ -1557,14 +1379,6 @@ export default function Leads() {
 
   return (
     <div className="space-y-5">
-      {showReminder && pendingReminders.length > 0 && (
-        <CallReminderPopup
-          leads={pendingReminders}
-          onDismiss={dismissReminder}
-          onCallNow={handleCallNow}
-        />
-      )}
-      
       <LostLeadDialog
         lead={lostLeadDialog}
         open={!!lostLeadDialog}
