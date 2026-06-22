@@ -103,7 +103,7 @@ interface Project {
   id: string;
   project_id: string;
   lead_id: string | null;
-  client_name: string;
+  name: string;
   brand_name: string | null;
   project_type: string | null;
   project_value: number | null;
@@ -367,7 +367,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-semibold text-lg">{project.client_name}</h4>
+            <h4 className="font-semibold text-lg">{project.name}</h4>
             <Badge variant="outline" className="text-xs font-mono">
               {project.project_id}
             </Badge>
@@ -536,6 +536,12 @@ export default function Projects() {
   const [communications, setCommunications] = useState<Communication[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
   
+  // ── New Stage State ──
+  const [newStage, setNewStage] = useState({
+    stage_name: "",
+    status: "pending"
+  });
+
   // ── Fetch Projects ─────────────────────────────────────────
   const { data: projects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
@@ -562,7 +568,7 @@ export default function Projects() {
   // ── Filter Projects ────────────────────────────────────────
   const filteredProjects = projects.filter((project: Project) => {
     const matchSearch = 
-      project.client_name.toLowerCase().includes(search.toLowerCase()) ||
+      project.name.toLowerCase().includes(search.toLowerCase()) ||
       (project.brand_name || "").toLowerCase().includes(search.toLowerCase()) ||
       project.project_id.toLowerCase().includes(search.toLowerCase());
     
@@ -668,7 +674,7 @@ export default function Projects() {
 
   // ── Create Project ──────────────────────────────────────────
   const [newProject, setNewProject] = useState({
-    client_name: "",
+    name: "",
     brand_name: "",
     project_type: "perfume",
     project_value: "",
@@ -677,7 +683,7 @@ export default function Projects() {
   });
 
   const createProject = async () => {
-    if (!newProject.client_name) {
+    if (!newProject.name) {
       toast.error("Client name is required");
       return;
     }
@@ -689,7 +695,7 @@ export default function Projects() {
         .from("projects")
         .insert({
           project_id: projectId,
-          client_name: newProject.client_name,
+          name: newProject.name,
           brand_name: newProject.brand_name || null,
           project_type: newProject.project_type || null,
           project_value: Number(newProject.project_value) || 0,
@@ -697,6 +703,7 @@ export default function Projects() {
           expected_launch_date: newProject.expected_launch_date || null,
           current_stage: "discovery",
           status: "active",
+          completion_percentage: 0,
         })
         .select()
         .single();
@@ -716,7 +723,7 @@ export default function Projects() {
       toast.success("Project created successfully!");
       setDialogOpen(false);
       setNewProject({
-        client_name: "",
+        name: "",
         brand_name: "",
         project_type: "perfume",
         project_value: "",
@@ -739,7 +746,7 @@ export default function Projects() {
       const { error } = await supabase
         .from("projects")
         .update({
-          client_name: editingProject.client_name,
+          name: editingProject.name,
           brand_name: editingProject.brand_name,
           project_type: editingProject.project_type,
           project_value: editingProject.project_value,
@@ -758,6 +765,38 @@ export default function Projects() {
       refetch();
       if (selectedProject) {
         setSelectedProject({ ...selectedProject, ...editingProject });
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Add Stage ──────────────────────────────────────────────
+  const addStage = async () => {
+    if (!newStage.stage_name || !selectedProject) {
+      toast.error("Stage name is required");
+      return;
+    }
+
+    try {
+      const maxOrder = projectStages.reduce((max, s) => Math.max(max, s.stage_order), 0);
+      
+      const { error } = await supabase
+        .from("project_stages")
+        .insert({
+          project_id: selectedProject.id,
+          stage_name: newStage.stage_name,
+          stage_order: maxOrder + 1,
+          status: newStage.status || "pending",
+        });
+
+      if (error) throw error;
+
+      toast.success("Stage added successfully!");
+      setStageDialogOpen(false);
+      setNewStage({ stage_name: "", status: "pending" });
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -1063,7 +1102,7 @@ export default function Projects() {
               Back
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">{selectedProject.client_name}</h1>
+              <h1 className="text-2xl font-bold">{selectedProject.name}</h1>
               <p className="text-sm text-muted-foreground">
                 {selectedProject.project_id} • {selectedProject.brand_name || "No brand"}
               </p>
@@ -1641,12 +1680,28 @@ export default function Projects() {
             <DialogHeader><DialogTitle>Add New Stage</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid gap-2">
-                <Label>Stage Name</Label>
+                <Label>Stage Name *</Label>
                 <Input 
-                  value={newProject.stage_name || ''} 
-                  onChange={(e) => setNewProject({ ...newProject, stage_name: e.target.value })}
+                  value={newStage.stage_name} 
+                  onChange={(e) => setNewStage({ ...newStage, stage_name: e.target.value })}
                   placeholder="Enter stage name"
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select 
+                  value={newStage.status} 
+                  onValueChange={(v) => setNewStage({ ...newStage, status: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <DialogFooter>
@@ -1833,7 +1888,7 @@ export default function Projects() {
               <div className="grid gap-4 py-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <Label>Client Name *</Label>
-                  <Input value={editingProject.client_name} onChange={(e) => setEditingProject({ ...editingProject, client_name: e.target.value })} />
+                  <Input value={editingProject.name} onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })} />
                 </div>
                 <div className="grid gap-2">
                   <Label>Brand Name</Label>
@@ -1920,7 +1975,7 @@ export default function Projects() {
               <div className="grid gap-4 py-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <Label>Client Name *</Label>
-                  <Input value={newProject.client_name} onChange={(e) => setNewProject({ ...newProject, client_name: e.target.value })} placeholder="Enter client name" />
+                  <Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Brand Name</Label>
