@@ -49,7 +49,6 @@ const LEAD_TEMPERATURE = [
   { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff" },
 ];
 
-// FIXED: Use lowercase values that match enum
 const LEAD_STATUSES = [
   { value: "ringing",            label: "Ringing"           },
   { value: "callback",           label: "Callback"          },
@@ -116,7 +115,6 @@ function getStageConfig(stage: string | null | undefined) {
 function getTemperatureConfig(temp: string | null | undefined) {
   return LEAD_TEMPERATURE.find(t => t.value === temp) || null;
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface DbLead {
   id: string; name: string; email: string | null; phone: string | null; company: string | null;
@@ -187,7 +185,6 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-// ── Temperature Badge ──────────────────────────────────────────────────────
 function TemperatureBadge({ temperature }: { temperature: string | null | undefined }) {
   const config = getTemperatureConfig(temperature);
   if (!config) return <span style={{ fontSize: 11, color: "#94a3b8" }}>-</span>;
@@ -204,7 +201,6 @@ function TemperatureBadge({ temperature }: { temperature: string | null | undefi
   );
 }
 
-// ── Stage Pill ────────────────────────────────────────────────────────────────
 function StagePill({ stage, subStage }: { stage: string | null; subStage: string | null }) {
   const cfg = getStageConfig(stage);
   if (!cfg) return <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>;
@@ -224,7 +220,6 @@ function StagePill({ stage, subStage }: { stage: string | null; subStage: string
   );
 }
 
-// ── Employee Card in header ───────────────────────────────────────────────────
 function EmployeeCard({ name, count, onClick, active }: {
   name: string; count: number; onClick: () => void; active: boolean;
 }) {
@@ -256,7 +251,6 @@ function EmployeeCard({ name, count, onClick, active }: {
   );
 }
 
-// ── Employee Lead Count Modal ─────────────────────────────────────────────────
 interface EmployeeLeadCountModalProps {
   leads: DbLead[];
   profiles: { user_id: string; display_name: string | null }[];
@@ -341,7 +335,6 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
   );
 }
 
-// ── Lost Lead Dialog ─────────────────────────────────────────────────────────
 function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   lead: DbLead | null;
   open: boolean;
@@ -398,7 +391,6 @@ function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   );
 }
 
-// ── Leegality Sign Dialog ─────────────────────────────────────────────────────
 function LeegalitySignDialog({ lead, open, onClose, onSignInitiated }: {
   lead: DbLead | null;
   open: boolean;
@@ -475,7 +467,6 @@ function LeegalitySignDialog({ lead, open, onClose, onSignInitiated }: {
   );
 }
 
-// ── Excel Template Download ───────────────────────────────────────────────────
 function downloadExcelTemplate() {
   const template = [
     {
@@ -503,7 +494,6 @@ function downloadExcelTemplate() {
   toast.success("Template downloaded! Fill it with your data and re-upload.");
 }
 
-// ── Employee Filter Section ──────────────────────────────────────────────────
 function EmployeeFilterSection({ 
   profiles, 
   leads, 
@@ -533,7 +523,6 @@ function EmployeeFilterSection({
     (p.display_name || "").toLowerCase().includes(searchEmployee.toLowerCase())
   );
   
-  // Get employee stats
   const employeeStats = filteredProfiles.map(p => {
     const empLeads = leads.filter(l => l.assigned_to === p.user_id);
     const stageCounts = LEAD_STAGES.map(s => ({
@@ -558,8 +547,6 @@ function EmployeeFilterSection({
   }).sort((a, b) => b.total - a.total);
   
   const unassignedCount = leads.filter(l => !l.assigned_to).length;
-
-  // Temperature filter counts
   const hotCount = leads.filter(l => l.temperature === "hot").length;
   const warmCount = leads.filter(l => l.temperature === "warm").length;
   const coldCount = leads.filter(l => l.temperature === "cold").length;
@@ -596,7 +583,6 @@ function EmployeeFilterSection({
         </div>
       </CardHeader>
       <CardContent>
-        {/* Search Employee */}
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -607,9 +593,7 @@ function EmployeeFilterSection({
           />
         </div>
         
-        {/* Employee Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
-          {/* Unassigned Card */}
           <div 
             className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
               selectedEmployee === "unassigned" 
@@ -634,7 +618,6 @@ function EmployeeFilterSection({
             </div>
           </div>
           
-          {/* Employee Cards */}
           {employeeStats.map(emp => {
             const color = avatarColor(emp.display_name || "?");
             const isActive = selectedEmployee === emp.user_id;
@@ -668,7 +651,6 @@ function EmployeeFilterSection({
                   </Badge>
                 </div>
                 
-                {/* Temperature badges */}
                 <div className="flex gap-1 mt-2">
                   {emp.hot > 0 && (
                     <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
@@ -687,7 +669,6 @@ function EmployeeFilterSection({
                   )}
                 </div>
                 
-                {/* Stage progress */}
                 {emp.total > 0 && (
                   <div className="mt-2">
                     <Progress 
@@ -721,11 +702,9 @@ function EmployeeFilterSection({
           })}
         </div>
         
-        {/* Quick Filters */}
         <div className="flex flex-wrap gap-2 items-center border-t pt-3">
           <span className="text-sm font-medium mr-2">Quick Filter:</span>
           
-          {/* Stage Filters */}
           <div className="flex flex-wrap gap-1">
             {LEAD_STAGES.map(s => {
               const count = leads.filter(l => l.stage === s.value).length;
@@ -753,7 +732,6 @@ function EmployeeFilterSection({
           
           <span className="text-sm font-medium mx-2">|</span>
           
-          {/* Status Filters */}
           <div className="flex flex-wrap gap-1">
             {LEAD_STATUSES.slice(0, 6).map(s => {
               const count = leads.filter(l => l.status === s.value).length;
@@ -776,7 +754,6 @@ function EmployeeFilterSection({
 
           <span className="text-sm font-medium mx-2">|</span>
 
-          {/* 🔥 NEW: Temperature Dropdown */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">Temp:</span>
             <Select 
@@ -795,7 +772,6 @@ function EmployeeFilterSection({
             </Select>
           </div>
           
-          {/* Clear all filters */}
           {(selectedEmployee || selectedStage || selectedStatus || temperatureFilter !== "all") && (
             <Button 
               variant="ghost" 
@@ -826,13 +802,57 @@ export default function Leads() {
   const logActivity = useLeadActivityLogger();
   const queryClient = useQueryClient();
   
-  // ── FIX: Properly fetch leads with real-time updates ──
-  const { data: leads = [], isLoading, refetch } = useCrmQuery<DbLead>("leads", {
-    // Add these options to ensure fresh data
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-  });
+  // ── FIX: Use a direct query with proper cache management ──
+  const [leads, setLeads] = useState<DbLead[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // ── Fetch leads function ──
+  const fetchLeads = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      setLeads(data as DbLead[]);
+      return data;
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+      toast.error("Failed to fetch leads");
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // ── Initial fetch ──
+  useEffect(() => {
+    fetchLeads();
+  }, []);
+  
+  // ── Real-time subscription ──
+  useEffect(() => {
+    const channel = supabase
+      .channel('leads-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'leads'
+        },
+        () => {
+          // Refetch leads when any change occurs
+          fetchLeads();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const insertLead = useCrmInsert("leads");
   const updateLead = useCrmUpdate<Record<string, unknown>>("leads");
@@ -867,11 +887,8 @@ export default function Leads() {
   const [sendingAgreement, setSendingAgreement] = useState<string | null>(null);
   const [agreementData, setAgreementData] = useState<Record<string, any>>({});
 
-  // New state for employee filter
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
-
-  // 🔥 NEW: Temperature filter state for EmployeeFilterSection
   const [temperatureFilter, setTemperatureFilter] = useState<string>("all");
 
   const emptyForm = {
@@ -1042,7 +1059,7 @@ export default function Leads() {
     if (urlParams.get('agreement_signed') === 'true') {
       const leadId = urlParams.get('lead_id');
       toast.success("Agreement signed successfully!");
-      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      fetchLeads();
       if (leadId) {
         fetchAgreementStatus(leadId);
       }
@@ -1056,30 +1073,6 @@ export default function Leads() {
     }
   }, [detailLead?.id]);
 
-  // ── FIX: Add real-time subscription for leads ──
-  useEffect(() => {
-    const channel = supabase
-      .channel('leads-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'leads'
-        },
-        () => {
-          // Refetch leads when any change occurs
-          refetch();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [refetch]);
-
-  // FIXED: markLeadAsLost with lowercase status
   const markLeadAsLost = async (leadId: string, reason: string) => {
     try {
       const lostDate = new Date().toISOString();
@@ -1094,9 +1087,7 @@ export default function Leads() {
         })
         .eq("id", leadId);
       
-      // Invalidate and refetch
-      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-      refetch();
+      fetchLeads();
       logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
       toast.success("Lead marked as lost");
       setLostLeadDialog(null);
@@ -1106,16 +1097,13 @@ export default function Leads() {
     }
   };
 
-  // FIXED: Assignment mutation with proper error handling
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       console.log("🔄 Assigning lead:", id, "to:", assigned_to);
       
-      // Handle unassigned case - if "unassigned" is passed, set to null
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
       const assign_date = finalAssignedTo ? new Date().toISOString() : null;
       
-      // ONLY update assigned_to and assign_date - don't touch status
       const { error } = await supabase
         .from("leads")
         .update({ 
@@ -1132,10 +1120,8 @@ export default function Leads() {
       console.log("✅ Lead assigned successfully:", id, "to:", finalAssignedTo);
       return { id, assigned_to: finalAssignedTo };
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
-      refetch();
+    onSuccess: () => {
+      fetchLeads();
       toast.success("Lead assigned successfully");
     },
     onError: (e: Error) => {
@@ -1153,8 +1139,7 @@ export default function Leads() {
   const handleUpdateStageFromDetail = async (id: string, stage: string, subStage: string) => {
     try {
       await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
-      queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-      refetch();
+      fetchLeads();
       if (detailLead && detailLead.id === id) {
         setDetailLead({ ...detailLead, stage, sub_stage: subStage });
       }
@@ -1186,16 +1171,11 @@ export default function Leads() {
       setForm(emptyForm);
       setDialogOpen(false);
       toast.success("Lead added successfully");
-      // Refetch after adding
-      refetch();
+      fetchLeads();
     } catch (error: any) {
       toast.error(error.message);
     }
   };
-
-  // ── FIX: Use leads directly from the query result ──
-  // The leads variable is already the data from useCrmQuery
-  // No need to create a separate filtered array from a stale variable
 
   const filtered = leads.filter(l => {
     const matchSearch =
@@ -1255,7 +1235,7 @@ export default function Leads() {
       toast.success(`${count} leads assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
-      refetch();
+      fetchLeads();
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Assign failed"); }
   };
 
@@ -1333,8 +1313,7 @@ export default function Leads() {
     setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
     
-    // Refetch after import
-    refetch();
+    fetchLeads();
     
     if (duplicates > 0) {
       if (success > 0) {
@@ -1365,7 +1344,7 @@ export default function Leads() {
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
     toast.success("Lead updated");
-    refetch();
+    fetchLeads();
   };
 
   const handleDelete = async (id: string) => {
@@ -1373,7 +1352,7 @@ export default function Leads() {
     await deleteLead.mutateAsync(id);
     setDetailLead(null);
     toast.success("Lead deleted");
-    refetch();
+    fetchLeads();
   };
 
   const handleExport = () => {
@@ -1418,7 +1397,6 @@ export default function Leads() {
 
   const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
 
-  // ── FIX: Calculate stats from the actual leads data ──
   const totalLeads = leads.length;
   const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
   const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
@@ -1731,7 +1709,6 @@ export default function Leads() {
         )}
       </div>
 
-      {/* ── EMPLOYEE FILTER SECTION ── */}
       <EmployeeFilterSection
         profiles={typedProfiles}
         leads={leads}
@@ -1840,7 +1817,6 @@ export default function Leads() {
             </Select>
           </div>
 
-          {/* Bulk Assign - Now available for everyone */}
           {selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
               <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
@@ -1904,7 +1880,6 @@ export default function Leads() {
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                         <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
                         <TableCell>
-                          {/* FIXED: Assignment dropdown - works for both assigned and unassigned leads */}
                           <div className="flex items-center gap-2 min-w-[140px]">
                             {lead.assigned_to && (
                               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -1960,7 +1935,6 @@ export default function Leads() {
 
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
 
-      {/* ── LEAD DETAIL DIALOG (EYE ICON) ── */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1989,7 +1963,6 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
                 
-                {/* Editable Temperature Dropdown in Eye Dialog */}
                 <div className="grid gap-1">
                   <p className="text-muted-foreground text-xs flex items-center gap-1">
                     <span>Temperature</span>
@@ -2006,8 +1979,7 @@ export default function Leads() {
                         
                         if (error) throw error;
                         
-                        queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
-                        refetch();
+                        fetchLeads();
                         setDetailLead({ ...detailLead, temperature: v });
                         logActivity(detailLead.id, "updated", `Temperature changed to: ${v}`);
                         toast.success(`Temperature updated to ${v.toUpperCase()}`);
