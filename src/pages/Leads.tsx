@@ -817,6 +817,7 @@ function EmployeeFilterSection({
     </Card>
   );
 }
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
@@ -824,7 +825,15 @@ export default function Leads() {
   const { data: profiles = [] } = useAllProfiles();
   const logActivity = useLeadActivityLogger();
   const queryClient = useQueryClient();
-  const { data: leads = [], isLoading } = useCrmQuery<DbLead>("leads");
+  
+  // ── FIX: Properly fetch leads with real-time updates ──
+  const { data: leads = [], isLoading, refetch } = useCrmQuery<DbLead>("leads", {
+    // Add these options to ensure fresh data
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+
   const insertLead = useCrmInsert("leads");
   const updateLead = useCrmUpdate<Record<string, unknown>>("leads");
   const deleteLead = useCrmDelete("leads");
@@ -1047,6 +1056,29 @@ export default function Leads() {
     }
   }, [detailLead?.id]);
 
+  // ── FIX: Add real-time subscription for leads ──
+  useEffect(() => {
+    const channel = supabase
+      .channel('leads-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'leads'
+        },
+        () => {
+          // Refetch leads when any change occurs
+          refetch();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refetch]);
+
   // FIXED: markLeadAsLost with lowercase status
   const markLeadAsLost = async (leadId: string, reason: string) => {
     try {
@@ -1062,7 +1094,9 @@ export default function Leads() {
         })
         .eq("id", leadId);
       
+      // Invalidate and refetch
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      refetch();
       logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
       toast.success("Lead marked as lost");
       setLostLeadDialog(null);
@@ -1101,6 +1135,7 @@ export default function Leads() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
+      refetch();
       toast.success("Lead assigned successfully");
     },
     onError: (e: Error) => {
@@ -1119,6 +1154,7 @@ export default function Leads() {
     try {
       await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
       queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+      refetch();
       if (detailLead && detailLead.id === id) {
         setDetailLead({ ...detailLead, stage, sub_stage: subStage });
       }
@@ -1150,10 +1186,16 @@ export default function Leads() {
       setForm(emptyForm);
       setDialogOpen(false);
       toast.success("Lead added successfully");
+      // Refetch after adding
+      refetch();
     } catch (error: any) {
       toast.error(error.message);
     }
   };
+
+  // ── FIX: Use leads directly from the query result ──
+  // The leads variable is already the data from useCrmQuery
+  // No need to create a separate filtered array from a stale variable
 
   const filtered = leads.filter(l => {
     const matchSearch =
@@ -1213,6 +1255,7 @@ export default function Leads() {
       toast.success(`${count} leads assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
+      refetch();
     } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Assign failed"); }
   };
 
@@ -1290,6 +1333,9 @@ export default function Leads() {
     setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
     
+    // Refetch after import
+    refetch();
+    
     if (duplicates > 0) {
       if (success > 0) {
         toast.warning(
@@ -1319,6 +1365,7 @@ export default function Leads() {
     logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
     setEditLead(null);
     toast.success("Lead updated");
+    refetch();
   };
 
   const handleDelete = async (id: string) => {
@@ -1326,6 +1373,7 @@ export default function Leads() {
     await deleteLead.mutateAsync(id);
     setDetailLead(null);
     toast.success("Lead deleted");
+    refetch();
   };
 
   const handleExport = () => {
@@ -1370,6 +1418,8 @@ export default function Leads() {
 
   const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
 
+  // ── FIX: Calculate stats from the actual leads data ──
+  const totalLeads = leads.length;
   const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
   const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
   const lostCount = leads.filter(l => l.stage === "lost").length;
@@ -1573,7 +1623,7 @@ export default function Leads() {
                 <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{leads.length}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{totalLeads}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
               </div>
@@ -1648,7 +1698,7 @@ export default function Leads() {
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{convertedCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Converted</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>
-                  {((convertedCount / leads.length) * 100).toFixed(1)}% rate
+                  {totalLeads > 0 ? ((convertedCount / totalLeads) * 100).toFixed(1) : 0}% rate
                 </p>
               </div>
             </div>
@@ -1957,6 +2007,7 @@ export default function Leads() {
                         if (error) throw error;
                         
                         queryClient.invalidateQueries({ queryKey: ["crm", "leads"] });
+                        refetch();
                         setDetailLead({ ...detailLead, temperature: v });
                         logActivity(detailLead.id, "updated", `Temperature changed to: ${v}`);
                         toast.success(`Temperature updated to ${v.toUpperCase()}`);
