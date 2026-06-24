@@ -22,7 +22,8 @@ import {
   Package, MessageSquare, Share2, MoreVertical, UserCheck,
   FileText, CreditCard, ClipboardList, Building2, Send,
   ChevronRight, ArrowLeft, Bell, File, Image, Video,
-  Shield, Award, Coffee, Globe, Zap, Target, BarChart3
+  Shield, Award, Coffee, Globe, Zap, Target, BarChart3,
+  RefreshCw, Save, Copy
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -498,6 +499,129 @@ function TaskCard({ task, onStatusChange, onDelete }: {
   );
 }
 
+// ── Payment Card ──────────────────────────────────────────────
+function PaymentCard({ payment, onStatusChange, onDelete }: {
+  payment: Payment;
+  onStatusChange: (id: string, status: string, paidDate?: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [status, setStatus] = useState(payment.status);
+  const [paidDate, setPaidDate] = useState(payment.paid_date || "");
+  
+  const statusColors: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    paid: "bg-green-100 text-green-700 border-green-200",
+    overdue: "bg-red-100 text-red-700 border-red-200",
+    partial: "bg-orange-100 text-orange-700 border-orange-200",
+  };
+  
+  const handleStatusChange = (newStatus: string) => {
+    setStatus(newStatus);
+    if (newStatus === 'paid' && !paidDate) {
+      setPaidDate(new Date().toISOString().split('T')[0]);
+    }
+    onStatusChange(payment.id, newStatus, newStatus === 'paid' ? paidDate : undefined);
+  };
+  
+  return (
+    <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="font-medium">{payment.milestone}</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[payment.status] || statusColors.pending}`}>
+              {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
+            </span>
+            <span className="text-sm font-semibold text-green-600">
+              {formatCurrency(payment.amount)}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
+            <span>💳 {payment.payment_type === 'client' ? 'Client Payment' : 'Manufacturer Payment'}</span>
+            {payment.due_date && (
+              <span>📅 Due: {format(new Date(payment.due_date), "dd MMM yyyy")}</span>
+            )}
+            {payment.paid_date && (
+              <span>✅ Paid: {format(new Date(payment.paid_date), "dd MMM yyyy")}</span>
+            )}
+            {payment.invoice_number && (
+              <span>🧾 {payment.invoice_number}</span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpanded(!expanded)}>
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(payment.id)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+      
+      {expanded && (
+        <div className="mt-3 pt-3 border-t">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={handleStatusChange}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
+                  <SelectItem value="partial">Partial</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Paid Date</Label>
+              <Input 
+                type="date" 
+                value={paidDate} 
+                onChange={(e) => setPaidDate(e.target.value)}
+                className="h-8 text-sm"
+                disabled={status !== 'paid'}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Payment Mode</Label>
+              <Select value={payment.payment_mode || ""} onValueChange={async (v) => {
+                // Update payment mode
+              }}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="card">Card</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Invoice Number</Label>
+              <Input 
+                placeholder="INV-001" 
+                defaultValue={payment.invoice_number || ""}
+                className="h-8 text-sm"
+                onBlur={async (e) => {
+                  // Update invoice number
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
@@ -913,6 +1037,55 @@ export default function Projects() {
     }
   };
 
+  // ── Update Payment Status ──────────────────────────────────
+  const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
+    try {
+      const updates: any = { status };
+      if (status === 'paid' && paidDate) {
+        updates.paid_date = paidDate;
+      } else if (status === 'paid') {
+        updates.paid_date = new Date().toISOString();
+      } else if (status !== 'paid') {
+        updates.paid_date = null;
+      }
+      
+      const { error } = await supabase
+        .from("payments")
+        .update(updates)
+        .eq("id", paymentId);
+      
+      if (error) throw error;
+      
+      toast.success("Payment status updated successfully!");
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Delete Payment ──────────────────────────────────────────
+  const deletePayment = async (paymentId: string) => {
+    if (!confirm("Delete this payment record?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("payments")
+        .delete()
+        .eq("id", paymentId);
+
+      if (error) throw error;
+
+      toast.success("Payment deleted successfully!");
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
   // ── Add Agreement ────────────────────────────────────────────
   const [newAgreement, setNewAgreement] = useState({
     title: "",
@@ -1061,7 +1234,7 @@ export default function Projects() {
     
     const totalManufacturer = manufacturerPayments.reduce((sum, p) => sum + p.amount, 0);
     const manufacturerPaid = manufacturerPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
-    const manufacturerPending = manufacturerPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+    const manufacturerPending = manufacturerPayments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + p.amount, 0);
     
     return {
       totalClient,
@@ -1150,7 +1323,7 @@ export default function Projects() {
 
         {/* ── Tabs ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+          <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="stages">Stages</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
@@ -1400,34 +1573,40 @@ export default function Projects() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Milestone</th>
-                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Amount</th>
-                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Due Date</th>
-                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Status</th>
-                          <th className="text-left p-2 text-xs font-medium text-muted-foreground">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {payments.filter(p => p.payment_type === 'client').map(payment => (
-                          <tr key={payment.id} className="border-b hover:bg-muted/50">
-                            <td className="p-2 text-sm">{payment.milestone}</td>
-                            <td className="p-2 text-sm font-medium">{formatCurrency(payment.amount)}</td>
-                            <td className="p-2 text-sm">{payment.due_date ? format(new Date(payment.due_date), "dd MMM yyyy") : '-'}</td>
-                            <td className="p-2"><StatusBadge status={payment.status} /></td>
-                            <td className="p-2">
-                              <Button variant="ghost" size="sm">Edit</Button>
-                            </td>
-                          </tr>
-                        ))}
-                        {payments.filter(p => p.payment_type === 'client').length === 0 && (
-                          <tr><td colSpan={5} className="text-center py-4 text-muted-foreground">No client payments</td></tr>
-                        )}
-                      </tbody>
-                    </table>
+                  <div className="space-y-3">
+                    {payments.filter(p => p.payment_type === 'client').map(payment => (
+                      <PaymentCard 
+                        key={payment.id} 
+                        payment={payment} 
+                        onStatusChange={updatePaymentStatus}
+                        onDelete={deletePayment}
+                      />
+                    ))}
+                    {payments.filter(p => p.payment_type === 'client').length === 0 && (
+                      <p className="text-center text-muted-foreground py-4">No client payments</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Manufacturer Payments */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Manufacturer Payments</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {payments.filter(p => p.payment_type === 'manufacturer').map(payment => (
+                      <PaymentCard 
+                        key={payment.id} 
+                        payment={payment} 
+                        onStatusChange={updatePaymentStatus}
+                        onDelete={deletePayment}
+                      />
+                    ))}
+                    {payments.filter(p => p.payment_type === 'manufacturer').length === 0 && (
+                      <p className="text-center text-muted-foreground py-4">No manufacturer payments</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1794,7 +1973,7 @@ export default function Projects() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Milestone</Label>
+                <Label>Milestone *</Label>
                 <Input 
                   value={newPayment.milestone} 
                   onChange={(e) => setNewPayment({ ...newPayment, milestone: e.target.value })}
@@ -1802,7 +1981,7 @@ export default function Projects() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Amount (₹)</Label>
+                <Label>Amount (₹) *</Label>
                 <Input 
                   type="number"
                   value={newPayment.amount} 
