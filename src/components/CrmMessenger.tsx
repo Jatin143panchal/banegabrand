@@ -659,6 +659,7 @@ export default function CrmMessenger() {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isCreatingProfiles, setIsCreatingProfiles] = useState(false);
   
   // ── Check if user is authenticated ─────────────────────────
   if (!user) {
@@ -672,11 +673,89 @@ export default function CrmMessenger() {
     );
   }
   
+  // ── Function to ensure profiles exist for all auth users ──
+  const ensureProfilesExist = async () => {
+    try {
+      setIsCreatingProfiles(true);
+      console.log('Checking if profiles exist...');
+      
+      // Get all profiles
+      const { data: existingProfiles, error: fetchError } = await supabase
+        .from("profiles")
+        .select("id");
+      
+      if (fetchError) {
+        console.error('Error fetching profiles:', fetchError);
+        return;
+      }
+      
+      const existingProfileIds = new Set(existingProfiles?.map(p => p.id) || []);
+      
+      // Get all auth users
+      const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
+      
+      if (authError) {
+        console.error('Error fetching auth users:', authError);
+        return;
+      }
+      
+      if (!authUsers || authUsers.users.length === 0) {
+        console.log('No auth users found');
+        return;
+      }
+      
+      // Find users without profiles
+      const usersWithoutProfiles = authUsers.users.filter(
+        (au: any) => !existingProfileIds.has(au.id)
+      );
+      
+      if (usersWithoutProfiles.length === 0) {
+        console.log('All users have profiles');
+        return;
+      }
+      
+      console.log(`Creating ${usersWithoutProfiles.length} profiles...`);
+      
+      // Create profiles for users without them
+      const profilesToInsert = usersWithoutProfiles.map((au: any) => ({
+        id: au.id,
+        display_name: au.user_metadata?.display_name || 
+                      au.email?.split('@')[0] || 
+                      'User',
+        email: au.email,
+        phone: au.phone || null,
+        role: 'user',
+        avatar_url: null,
+        is_online: false,
+        last_seen: null
+      }));
+      
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert(profilesToInsert);
+      
+      if (insertError) {
+        console.error('Error creating profiles:', insertError);
+        toast.error('Failed to create user profiles');
+      } else {
+        console.log('Profiles created successfully');
+        toast.success(`Created ${usersWithoutProfiles.length} user profiles`);
+      }
+    } catch (error) {
+      console.error('Error in ensureProfilesExist:', error);
+    } finally {
+      setIsCreatingProfiles(false);
+    }
+  };
+  
   // ── Fetch All Users from Supabase ──────────────────────────
   const { data: allUsers = [], refetch: refetchUsers } = useQuery({
     queryKey: ["all-users-messenger"],
     queryFn: async () => {
       console.log('Fetching all users from profiles table...');
+      
+      // First, ensure all auth users have profiles
+      await ensureProfilesExist();
       
       const { data, error } = await supabase
         .from("profiles")
@@ -688,50 +767,32 @@ export default function CrmMessenger() {
         throw error;
       }
       
-      // If no profiles found, try to create them from auth users
+      // If still no profiles, try a different approach - fetch from auth directly
       if (!data || data.length === 0) {
-        console.log('No profiles found, checking auth users...');
+        console.log('No profiles found after creation attempt, trying direct auth fetch...');
         
-        // Fetch auth users
-        const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
-        
-        if (authError) {
-          console.error('Error fetching auth users:', authError);
-          return [];
-        }
-        
-        // Create profiles for auth users
-        if (authUsers && authUsers.users.length > 0) {
-          const profilesToInsert = authUsers.users.map((au: any) => ({
-            id: au.id,
-            display_name: au.user_metadata?.display_name || au.email?.split('@')[0] || 'User',
-            email: au.email,
-            phone: au.phone || null,
-            role: 'user',
-            avatar_url: null,
-            is_online: false,
-            last_seen: null
-          }));
+        try {
+          // Try to get users from auth
+          const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
           
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert(profilesToInsert);
-          
-          if (insertError) {
-            console.error('Error creating profiles:', insertError);
-          } else {
-            // Fetch the newly created profiles
-            const { data: newProfiles, error: fetchError } = await supabase
-              .from("profiles")
-              .select("id, display_name, avatar_url, role, email, phone, is_online, last_seen")
-              .order("display_name");
-            
-            if (!fetchError && newProfiles) {
-              console.log('Created and fetched profiles:', newProfiles);
-              return newProfiles as UserProfile[];
-            }
+          if (!authError && authData && authData.users.length > 0) {
+            // Return auth users as UserProfile objects
+            return authData.users.map((au: any) => ({
+              id: au.id,
+              display_name: au.user_metadata?.display_name || au.email?.split('@')[0] || 'User',
+              email: au.email,
+              phone: au.phone || null,
+              role: 'user',
+              avatar_url: null,
+              is_online: false,
+              last_seen: null
+            })) as UserProfile[];
           }
+        } catch (authFetchError) {
+          console.error('Error fetching auth users:', authFetchError);
         }
+        
+        return [];
       }
       
       // Ensure every user has a display_name
@@ -740,7 +801,7 @@ export default function CrmMessenger() {
         display_name: u.display_name || u.email?.split('@')[0] || u.phone || `User_${u.id.slice(0, 8)}`
       }));
       
-      console.log('Fetched users:', users);
+      console.log('Fetched users:', users.length, 'users');
       return users as UserProfile[];
     },
     enabled: !!user,
@@ -1307,7 +1368,7 @@ export default function CrmMessenger() {
                 size="icon" 
                 className="h-8 w-8"
                 onClick={refreshAll}
-                disabled={refreshing}
+                disabled={refreshing || isCreatingProfiles}
               >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
               </Button>
@@ -1378,9 +1439,12 @@ export default function CrmMessenger() {
             
             <TabsContent value="users" className="h-[calc(100%-40px)] m-0">
               <ScrollArea className="h-full p-3">
-                {isLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin" />
+                {isLoading || isCreatingProfiles ? (
+                  <div className="flex flex-col justify-center items-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      {isCreatingProfiles ? 'Creating user profiles...' : 'Loading users...'}
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -1396,24 +1460,38 @@ export default function CrmMessenger() {
                         {onlineUsers.length} online
                       </Badge>
                     </div>
-                    <div className="space-y-2">
-                      {allUsers
-                        .filter(u => u.id !== user?.id)
-                        .map((u: UserProfile) => (
-                          <UserListItem
-                            key={u.id}
-                            user={{
-                              ...u,
-                              is_online: onlineUsers.includes(u.id)
-                            }}
-                            isSelected={false}
-                            onClick={() => {
-                              createConversation('individual', [u.id]);
-                            }}
-                            currentUserId={user?.id || ''}
-                          />
-                        ))}
-                    </div>
+                    {allUsers.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-muted-foreground">No users found</p>
+                        <Button 
+                          variant="outline" 
+                          className="mt-4"
+                          onClick={refreshAll}
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Refresh Users
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {allUsers
+                          .filter(u => u.id !== user?.id)
+                          .map((u: UserProfile) => (
+                            <UserListItem
+                              key={u.id}
+                              user={{
+                                ...u,
+                                is_online: onlineUsers.includes(u.id)
+                              }}
+                              isSelected={false}
+                              onClick={() => {
+                                createConversation('individual', [u.id]);
+                              }}
+                              currentUserId={user?.id || ''}
+                            />
+                          ))}
+                      </div>
+                    )}
                   </>
                 )}
               </ScrollArea>
