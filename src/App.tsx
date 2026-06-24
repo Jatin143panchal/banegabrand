@@ -38,6 +38,7 @@ import { RoleGuard } from "@/components/RoleGuard";
 import ExpoLeads from "./pages/ExpoLeads";
 import WorkshopLeads from "./pages/WorkshopLeads";
 import Projects from "./pages/Projects";
+import CrmMessenger from "@/components/CrmMessenger"; // <-- ADD THIS
 
 const queryClient = new QueryClient();
 
@@ -72,6 +73,7 @@ function ProtectedRoutes() {
         <Route path="/expo-leads" element={<ExpoLeads />} />
         <Route path="/workshop-leads" element={<WorkshopLeads />} />
         <Route path="/projects" element={<Projects />} />
+        <Route path="/messenger" element={<CrmMessenger />} /> {/* <-- ADD THIS */}
         <Route path="/attendance" element={<Attendance />} />
         <Route path="/marketing" element={<Marketing />} />
         <Route path="/quotations" element={<Quotations />} />
