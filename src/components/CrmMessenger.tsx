@@ -27,7 +27,7 @@ import {
   Star, Heart, ThumbsUp, ThumbsDown, Share2,
   Copy, Download, Printer, Archive, Filter,
   Settings, LogOut, Menu, ChevronRight, ChevronDown,
-  Reply
+  Reply, RefreshCw
 } from "lucide-react";
 
 // ============================================================
@@ -316,11 +316,14 @@ function ConversationItem({ conversation, selected, onClick, currentUserId }: {
 }
 
 // ── User List Item ──────────────────────────────────────────
-function UserListItem({ user, onClick, isSelected }: {
+function UserListItem({ user, onClick, isSelected, currentUserId }: {
   user: UserProfile;
   onClick: () => void;
   isSelected: boolean;
+  currentUserId: string;
 }) {
+  if (user.id === currentUserId) return null;
+  
   return (
     <div 
       className={`flex items-center gap-3 p-2 hover:bg-muted/50 cursor-pointer rounded-lg transition-colors ${
@@ -357,12 +360,14 @@ function NewConversationDialog({
   open, 
   onOpenChange, 
   onStartConversation,
-  users 
+  users,
+  currentUserId
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onStartConversation: (type: string, participants: string[], name?: string) => void;
   users: UserProfile[];
+  currentUserId: string;
 }) {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [conversationType, setConversationType] = useState("individual");
@@ -370,6 +375,7 @@ function NewConversationDialog({
   const [search, setSearch] = useState("");
   
   const filteredUsers = users.filter(u => 
+    u.id !== currentUserId &&
     u.display_name.toLowerCase().includes(search.toLowerCase()) &&
     !selectedUsers.includes(u.id)
   );
@@ -501,27 +507,22 @@ function UserSearchDialog({
   open, 
   onOpenChange, 
   onAddUsers,
-  existingParticipants 
+  existingParticipants,
+  users,
+  currentUserId
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAddUsers: (userIds: string[]) => void;
   existingParticipants: string[];
+  users: UserProfile[];
+  currentUserId: string;
 }) {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const { data: users = [] } = useQuery({
-    queryKey: ["all-users"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, display_name, avatar_url, role, email, phone");
-      if (error) throw error;
-      return data as UserProfile[];
-    },
-  });
   
   const filteredUsers = users.filter((u: UserProfile) => 
+    u.id !== currentUserId &&
     u.display_name.toLowerCase().includes(search.toLowerCase()) &&
     !existingParticipants.includes(u.id) &&
     !selectedUsers.includes(u.id)
@@ -634,14 +635,17 @@ export default function CrmMessenger() {
   const [addUsersOpen, setAddUsersOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("chats");
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   
-  // ── Fetch All Users ────────────────────────────────────────
-  const { data: allUsers = [] } = useQuery({
+  // ── Fetch All Users from Supabase ──────────────────────────
+  const { data: allUsers = [], refetch: refetchUsers } = useQuery({
     queryKey: ["all-users-messenger"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, display_name, avatar_url, role, email, phone");
+        .select("id, display_name, avatar_url, role, email, phone, is_online, last_seen")
+        .order("display_name");
+      
       if (error) throw error;
       return data as UserProfile[];
     },
@@ -650,6 +654,7 @@ export default function CrmMessenger() {
   // ── Fetch Conversations ────────────────────────────────────
   const fetchConversations = async () => {
     if (!user) return;
+    setIsLoading(true);
     
     try {
       // Get user's conversations
@@ -682,7 +687,9 @@ export default function CrmMessenger() {
               id,
               display_name,
               avatar_url,
-              role
+              role,
+              is_online,
+              last_seen
             )
           )
         `)
@@ -696,7 +703,15 @@ export default function CrmMessenger() {
         // Get last message
         const { data: lastMsg } = await supabase
           .from("messages")
-          .select("*")
+          .select(`
+            *,
+            sender:profiles!sender_id(
+              id,
+              display_name,
+              avatar_url,
+              role
+            )
+          `)
           .eq("conversation_id", conv.id)
           .order("created_at", { ascending: false })
           .limit(1)
@@ -720,6 +735,7 @@ export default function CrmMessenger() {
       setConversations(convWithDetails);
     } catch (error) {
       console.error("Error fetching conversations:", error);
+      toast.error("Failed to load conversations");
     } finally {
       setIsLoading(false);
     }
@@ -793,8 +809,10 @@ export default function CrmMessenger() {
         .update({ last_message_at: new Date().toISOString() })
         .eq("id", selectedConversation.id);
       
-      // Update messages list
+      // Find sender data
       const senderData = allUsers.find(u => u.id === user.id);
+      
+      // Update messages list
       setMessages(prev => [...prev, { 
         ...data, 
         sender: { 
@@ -829,7 +847,7 @@ export default function CrmMessenger() {
       
       scrollToBottom();
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to send message");
     }
   };
   
@@ -925,7 +943,7 @@ export default function CrmMessenger() {
       fetchMessages(convData.id);
       
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to create conversation");
     }
   };
   
@@ -953,7 +971,7 @@ export default function CrmMessenger() {
       }
       
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to add users");
     }
   };
   
@@ -974,6 +992,17 @@ export default function CrmMessenger() {
     } catch (error: any) {
       toast.error(error.message);
     }
+  };
+  
+  // ── Refresh All Data ────────────────────────────────────────
+  const refreshAll = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchConversations(),
+      refetchUsers(),
+    ]);
+    setRefreshing(false);
+    toast.success("Refreshed!");
   };
   
   // ── Scroll to Bottom ────────────────────────────────────────
@@ -1040,7 +1069,6 @@ export default function CrmMessenger() {
               }
               return c;
             });
-            // Sort by last_message_at
             return updated.sort((a, b) => 
               new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
             );
@@ -1049,7 +1077,7 @@ export default function CrmMessenger() {
       )
       .subscribe();
     
-    // Subscribe to user online status (simplified - using profiles updates)
+    // Subscribe to user online status
     const statusChannel = supabase
       .channel('status-channel')
       .on(
@@ -1058,17 +1086,13 @@ export default function CrmMessenger() {
           event: 'UPDATE',
           schema: 'public',
           table: 'profiles',
+          filter: 'is_online=eq.true',
         },
         (payload) => {
-          // Handle online status updates
-          if (payload.new.is_online !== undefined) {
-            setOnlineUsers(prev => {
-              if (payload.new.is_online) {
-                return [...prev, payload.new.id];
-              } else {
-                return prev.filter(id => id !== payload.new.id);
-              }
-            });
+          if (payload.new.is_online) {
+            setOnlineUsers(prev => [...prev, payload.new.id]);
+          } else {
+            setOnlineUsers(prev => prev.filter(id => id !== payload.new.id));
           }
         }
       )
@@ -1112,10 +1136,21 @@ export default function CrmMessenger() {
               <MessageSquare className="h-5 w-5" />
               Messages
             </CardTitle>
-            <Button size="sm" onClick={() => setNewConversationOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              New
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8"
+                onClick={refreshAll}
+                disabled={refreshing}
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              </Button>
+              <Button size="sm" onClick={() => setNewConversationOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                New
+              </Button>
+            </div>
           </div>
           <div className="relative mt-2">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1184,28 +1219,35 @@ export default function CrmMessenger() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">All Users</span>
-                      <Badge variant="secondary" className="ml-auto">
-                        {allUsers.length}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">All Users</span>
+                        <Badge variant="secondary">
+                          {allUsers.length}
+                        </Badge>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {onlineUsers.length} online
                       </Badge>
                     </div>
                     <div className="space-y-2">
-                      {allUsers.map((u: UserProfile) => (
-                        <UserListItem
-                          key={u.id}
-                          user={{
-                            ...u,
-                            is_online: onlineUsers.includes(u.id)
-                          }}
-                          isSelected={false}
-                          onClick={() => {
-                            // Start conversation with this user
-                            createConversation('individual', [u.id]);
-                          }}
-                        />
-                      ))}
+                      {allUsers
+                        .filter(u => u.id !== user?.id)
+                        .map((u: UserProfile) => (
+                          <UserListItem
+                            key={u.id}
+                            user={{
+                              ...u,
+                              is_online: onlineUsers.includes(u.id)
+                            }}
+                            isSelected={false}
+                            onClick={() => {
+                              createConversation('individual', [u.id]);
+                            }}
+                            currentUserId={user?.id || ''}
+                          />
+                        ))}
                     </div>
                   </>
                 )}
@@ -1359,6 +1401,7 @@ export default function CrmMessenger() {
         onOpenChange={setNewConversationOpen}
         onStartConversation={createConversation}
         users={allUsers}
+        currentUserId={user?.id || ''}
       />
       
       <UserSearchDialog
@@ -1366,6 +1409,8 @@ export default function CrmMessenger() {
         onOpenChange={setAddUsersOpen}
         onAddUsers={addUsersToGroup}
         existingParticipants={selectedConversation?.participants?.map(p => p.user_id) || []}
+        users={allUsers}
+        currentUserId={user?.id || ''}
       />
     </div>
   );
