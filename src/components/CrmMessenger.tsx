@@ -177,11 +177,11 @@ function MessageBubble({ message, isOwn, onDelete, onReply }: {
           <div className="flex items-center gap-2 mb-1">
             <Avatar className="h-6 w-6">
               <AvatarFallback className="text-xs">
-                {getInitials(message.sender.display_name)}
+                {getInitials(message.sender.display_name || 'User')}
               </AvatarFallback>
             </Avatar>
             <span className="text-xs font-medium">
-              {message.sender.display_name}
+              {message.sender.display_name || 'User'}
             </span>
             <Badge variant="outline" className={`text-xs ${getRoleColor(message.sender.role)}`}>
               {getRoleBadge(message.sender.role)}
@@ -255,9 +255,18 @@ function ConversationItem({ conversation, selected, onClick, currentUserId }: {
   currentUserId: string;
 }) {
   const otherParticipants = conversation.participants?.filter(p => p.user_id !== currentUserId) || [];
-  const displayName = conversation.conversation_type === 'group' 
-    ? conversation.conversation_name || 'Group Chat'
-    : otherParticipants[0]?.user?.display_name || 'Unknown User';
+  
+  // Get display name with fallbacks
+  let displayName = 'Unknown User';
+  if (conversation.conversation_type === 'group') {
+    displayName = conversation.conversation_name || 'Group Chat';
+  } else if (otherParticipants.length > 0) {
+    const user = otherParticipants[0]?.user;
+    displayName = user?.display_name || 
+                  user?.email?.split('@')[0] || 
+                  user?.phone || 
+                  'Unknown User';
+  }
   
   const avatarFallback = getInitials(displayName);
   const lastMessage = conversation.last_message;
@@ -324,6 +333,11 @@ function UserListItem({ user, onClick, isSelected, currentUserId }: {
 }) {
   if (user.id === currentUserId) return null;
   
+  const displayName = user.display_name || 
+                     user.email?.split('@')[0] || 
+                     user.phone || 
+                     'Unknown User';
+  
   return (
     <div 
       className={`flex items-center gap-3 p-2 hover:bg-muted/50 cursor-pointer rounded-lg transition-colors ${
@@ -334,7 +348,7 @@ function UserListItem({ user, onClick, isSelected, currentUserId }: {
       <div className="relative">
         <Avatar className="h-8 w-8">
           <AvatarFallback className="text-xs">
-            {getInitials(user.display_name)}
+            {getInitials(displayName)}
           </AvatarFallback>
         </Avatar>
         {user.is_online && (
@@ -342,7 +356,7 @@ function UserListItem({ user, onClick, isSelected, currentUserId }: {
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{user.display_name}</p>
+        <p className="text-sm font-medium truncate">{displayName}</p>
         <p className="text-xs text-muted-foreground">
           {getRoleBadge(user.role)}
           {user.is_online ? ' • Online' : ''}
@@ -374,11 +388,12 @@ function NewConversationDialog({
   const [groupName, setGroupName] = useState("");
   const [search, setSearch] = useState("");
   
-  const filteredUsers = users.filter(u => 
-    u.id !== currentUserId &&
-    u.display_name.toLowerCase().includes(search.toLowerCase()) &&
-    !selectedUsers.includes(u.id)
-  );
+  const filteredUsers = users.filter(u => {
+    const displayName = u.display_name || u.email?.split('@')[0] || u.phone || '';
+    return u.id !== currentUserId &&
+      displayName.toLowerCase().includes(search.toLowerCase()) &&
+      !selectedUsers.includes(u.id);
+  });
   
   const handleStart = () => {
     if (conversationType === 'group' && selectedUsers.length < 2) {
@@ -457,7 +472,7 @@ function NewConversationDialog({
                 const user = users.find(u => u.id === id);
                 return user && (
                   <Badge key={id} variant="secondary" className="gap-1">
-                    {user.display_name}
+                    {user.display_name || user.email?.split('@')[0] || user.phone || 'User'}
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -471,19 +486,22 @@ function NewConversationDialog({
               })}
             </div>
             <div className="max-h-40 overflow-y-auto space-y-1">
-              {filteredUsers.map(user => (
-                <div 
-                  key={user.id}
-                  className="flex items-center gap-2 p-2 hover:bg-muted/50 cursor-pointer rounded"
-                  onClick={() => setSelectedUsers([...selectedUsers, user.id])}
-                >
-                  <Avatar className="h-6 w-6">
-                    <AvatarFallback className="text-xs">{getInitials(user.display_name)}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm flex-1">{user.display_name}</span>
-                  <Badge variant="outline" className="text-xs">{user.role}</Badge>
-                </div>
-              ))}
+              {filteredUsers.map(user => {
+                const displayName = user.display_name || user.email?.split('@')[0] || user.phone || 'User';
+                return (
+                  <div 
+                    key={user.id}
+                    className="flex items-center gap-2 p-2 hover:bg-muted/50 cursor-pointer rounded"
+                    onClick={() => setSelectedUsers([...selectedUsers, user.id])}
+                  >
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback className="text-xs">{getInitials(displayName)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm flex-1">{displayName}</span>
+                    <Badge variant="outline" className="text-xs">{user.role}</Badge>
+                  </div>
+                );
+              })}
               {filteredUsers.length === 0 && search && (
                 <p className="text-sm text-muted-foreground text-center py-4">No users found</p>
               )}
@@ -521,12 +539,13 @@ function UserSearchDialog({
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   
-  const filteredUsers = users.filter((u: UserProfile) => 
-    u.id !== currentUserId &&
-    u.display_name.toLowerCase().includes(search.toLowerCase()) &&
-    !existingParticipants.includes(u.id) &&
-    !selectedUsers.includes(u.id)
-  );
+  const filteredUsers = users.filter((u: UserProfile) => {
+    const displayName = u.display_name || u.email?.split('@')[0] || u.phone || '';
+    return u.id !== currentUserId &&
+      displayName.toLowerCase().includes(search.toLowerCase()) &&
+      !existingParticipants.includes(u.id) &&
+      !selectedUsers.includes(u.id);
+  });
   
   const handleAdd = () => {
     if (selectedUsers.length === 0) {
@@ -570,7 +589,7 @@ function UserSearchDialog({
                 const user = users.find((u: UserProfile) => u.id === id);
                 return user && (
                   <Badge key={id} variant="secondary" className="gap-1">
-                    {user.display_name}
+                    {user.display_name || user.email?.split('@')[0] || user.phone || 'User'}
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -584,19 +603,22 @@ function UserSearchDialog({
               })}
             </div>
             <div className="max-h-40 overflow-y-auto space-y-1">
-              {filteredUsers.map((user: UserProfile) => (
-                <div 
-                  key={user.id}
-                  className="flex items-center gap-2 p-2 hover:bg-muted/50 cursor-pointer rounded"
-                  onClick={() => setSelectedUsers([...selectedUsers, user.id])}
-                >
-                  <Avatar className="h-6 w-6">
-                    <AvatarFallback className="text-xs">{getInitials(user.display_name)}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm flex-1">{user.display_name}</span>
-                  <Badge variant="outline" className="text-xs">{user.role}</Badge>
-                </div>
-              ))}
+              {filteredUsers.map((user: UserProfile) => {
+                const displayName = user.display_name || user.email?.split('@')[0] || user.phone || 'User';
+                return (
+                  <div 
+                    key={user.id}
+                    className="flex items-center gap-2 p-2 hover:bg-muted/50 cursor-pointer rounded"
+                    onClick={() => setSelectedUsers([...selectedUsers, user.id])}
+                  >
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback className="text-xs">{getInitials(displayName)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm flex-1">{displayName}</span>
+                    <Badge variant="outline" className="text-xs">{user.role}</Badge>
+                  </div>
+                );
+              })}
               {filteredUsers.length === 0 && search && (
                 <p className="text-sm text-muted-foreground text-center py-4">No users found</p>
               )}
@@ -654,13 +676,72 @@ export default function CrmMessenger() {
   const { data: allUsers = [], refetch: refetchUsers } = useQuery({
     queryKey: ["all-users-messenger"],
     queryFn: async () => {
+      console.log('Fetching all users from profiles table...');
+      
       const { data, error } = await supabase
         .from("profiles")
         .select("id, display_name, avatar_url, role, email, phone, is_online, last_seen")
         .order("display_name");
       
-      if (error) throw error;
-      return data as UserProfile[];
+      if (error) {
+        console.error('Error fetching users:', error);
+        throw error;
+      }
+      
+      // If no profiles found, try to create them from auth users
+      if (!data || data.length === 0) {
+        console.log('No profiles found, checking auth users...');
+        
+        // Fetch auth users
+        const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
+        
+        if (authError) {
+          console.error('Error fetching auth users:', authError);
+          return [];
+        }
+        
+        // Create profiles for auth users
+        if (authUsers && authUsers.users.length > 0) {
+          const profilesToInsert = authUsers.users.map((au: any) => ({
+            id: au.id,
+            display_name: au.user_metadata?.display_name || au.email?.split('@')[0] || 'User',
+            email: au.email,
+            phone: au.phone || null,
+            role: 'user',
+            avatar_url: null,
+            is_online: false,
+            last_seen: null
+          }));
+          
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert(profilesToInsert);
+          
+          if (insertError) {
+            console.error('Error creating profiles:', insertError);
+          } else {
+            // Fetch the newly created profiles
+            const { data: newProfiles, error: fetchError } = await supabase
+              .from("profiles")
+              .select("id, display_name, avatar_url, role, email, phone, is_online, last_seen")
+              .order("display_name");
+            
+            if (!fetchError && newProfiles) {
+              console.log('Created and fetched profiles:', newProfiles);
+              return newProfiles as UserProfile[];
+            }
+          }
+        }
+      }
+      
+      // Ensure every user has a display_name
+      const users = data.map((u: any) => ({
+        ...u,
+        display_name: u.display_name || u.email?.split('@')[0] || u.phone || `User_${u.id.slice(0, 8)}`
+      }));
+      
+      console.log('Fetched users:', users);
+      return users as UserProfile[];
     },
     enabled: !!user,
   });
@@ -775,7 +856,17 @@ export default function CrmMessenger() {
         .order("created_at", { ascending: true });
       
       if (error) throw error;
-      setMessages(data || []);
+      
+      // Ensure sender display_name has fallback
+      const messagesWithFallback = (data || []).map((msg: any) => ({
+        ...msg,
+        sender: msg.sender ? {
+          ...msg.sender,
+          display_name: msg.sender.display_name || 'User'
+        } : undefined
+      }));
+      
+      setMessages(messagesWithFallback);
       
       // Mark messages as read
       if (data && data.length > 0) {
@@ -831,15 +922,19 @@ export default function CrmMessenger() {
         .update({ last_message_at: new Date().toISOString() })
         .eq("id", selectedConversation.id);
       
-      // Find sender data
+      // Find sender data with fallback
       const senderData = allUsers.find(u => u.id === user.id);
+      const senderName = senderData?.display_name || 
+                         user.email?.split('@')[0] || 
+                         user.phone || 
+                         "User";
       
       // Update messages list
       setMessages(prev => [...prev, { 
         ...data, 
         sender: { 
           id: user.id, 
-          display_name: senderData?.display_name || user.email?.split('@')[0] || "You", 
+          display_name: senderName, 
           role: senderData?.role || "user",
           avatar_url: senderData?.avatar_url || null
         } 
@@ -855,7 +950,7 @@ export default function CrmMessenger() {
                   ...data, 
                   sender: { 
                     id: user.id, 
-                    display_name: senderData?.display_name || user.email?.split('@')[0] || "You", 
+                    display_name: senderName, 
                     role: senderData?.role || "user",
                     avatar_url: senderData?.avatar_url || null
                   } 
@@ -980,8 +1075,12 @@ export default function CrmMessenger() {
               ...p, 
               user: { 
                 id: p.user_id, 
-                display_name: p.user_id === user.id ? (allUsers.find(u => u.id === user.id)?.display_name || "You") : (allUsers.find(u => u.id === p.user_id)?.display_name || "User"),
-                role: p.user_id === user.id ? (allUsers.find(u => u.id === user.id)?.role || "user") : "user",
+                display_name: p.user_id === user.id ? 
+                  (allUsers.find(u => u.id === user.id)?.display_name || user.email?.split('@')[0] || "You") : 
+                  (allUsers.find(u => u.id === p.user_id)?.display_name || "User"),
+                role: p.user_id === user.id ? 
+                  (allUsers.find(u => u.id === user.id)?.role || "user") : 
+                  "user",
                 avatar_url: null,
                 is_online: false,
               } 
@@ -1093,7 +1192,12 @@ export default function CrmMessenger() {
           
           const newMessage = {
             ...payload.new,
-            sender: senderData,
+            sender: senderData || {
+              id: payload.new.sender_id,
+              display_name: 'User',
+              avatar_url: null,
+              role: 'user'
+            },
           };
           
           // Add to messages if in current conversation
@@ -1172,7 +1276,13 @@ export default function CrmMessenger() {
       return conversation.conversation_name || 'Group Chat';
     }
     const other = conversation.participants?.find(p => p.user_id !== user?.id);
-    return other?.user?.display_name || 'Unknown User';
+    if (other?.user) {
+      return other.user.display_name || 
+             other.user.email?.split('@')[0] || 
+             other.user.phone || 
+             'Unknown User';
+    }
+    return 'Unknown User';
   };
   
   // ── Get participants count ──────────────────────────────────
