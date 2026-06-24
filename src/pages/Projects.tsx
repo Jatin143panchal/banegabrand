@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import {
   FileText, CreditCard, ClipboardList, Building2, Send,
   ChevronRight, ArrowLeft, Bell, File, Image, Video,
   Shield, Award, Coffee, Globe, Zap, Target, BarChart3,
-  RefreshCw, Save, Copy
+  RefreshCw, Save, Copy, Upload
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -602,6 +602,7 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
 export default function Projects() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // ── States ──────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -638,6 +639,48 @@ export default function Projects() {
   const [newStage, setNewStage] = useState({
     stage_name: "",
     status: "pending"
+  });
+
+  // ── New Task State ──
+  const [newTask, setNewTask] = useState({
+    task_name: "",
+    description: "",
+    department: "",
+    priority: "medium",
+    due_date: "",
+    stage_id: "",
+  });
+
+  // ── New Manufacturing State ──
+  const [newManufacturing, setNewManufacturing] = useState({
+    stage: "",
+    status: "pending",
+    remarks: "",
+    responsible_person: "",
+    start_date: "",
+  });
+
+  // ── New Branding State ──
+  const [newBranding, setNewBranding] = useState({
+    category: "",
+    item_name: "",
+    status: "pending",
+    notes: "",
+  });
+
+  // ── New Document State ──
+  const [newDocument, setNewDocument] = useState({
+    folder: "",
+    file_name: "",
+    file: null as File | null,
+  });
+
+  // ── New Communication State ──
+  const [newCommunication, setNewCommunication] = useState({
+    type: "comment",
+    subject: "",
+    message: "",
+    next_followup: "",
   });
 
   // ── Fetch Projects ─────────────────────────────────────────
@@ -940,15 +983,6 @@ export default function Projects() {
   };
 
   // ── Add Task ─────────────────────────────────────────────────
-  const [newTask, setNewTask] = useState({
-    task_name: "",
-    description: "",
-    department: "",
-    priority: "medium",
-    due_date: "",
-    stage_id: "",
-  });
-
   const addTask = async () => {
     if (!newTask.task_name || !selectedProject) {
       toast.error("Task name is required");
@@ -1012,36 +1046,31 @@ export default function Projects() {
   };
 
   // ── Update Payment Status ──────────────────────────────────
-// Yeh function payment status update karta hai with paid date
-const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
-  try {
-    const updates: any = { status };
-    
-    // Agar status 'paid' hai toh paid date set karo
-    if (status === 'paid') {
-      updates.paid_date = paidDate || new Date().toISOString().split('T')[0];
-    } else if (status !== 'paid') {
-      // Agar paid nahi hai toh paid date null karo
-      updates.paid_date = null;
+  const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
+    try {
+      const updates: any = { status };
+      
+      if (status === 'paid') {
+        updates.paid_date = paidDate || new Date().toISOString().split('T')[0];
+      } else if (status !== 'paid') {
+        updates.paid_date = null;
+      }
+      
+      const { error } = await supabase
+        .from("payments")
+        .update(updates)
+        .eq("id", paymentId);
+      
+      if (error) throw error;
+      
+      toast.success("Payment status updated successfully!");
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
     }
-    
-    const { error } = await supabase
-      .from("payments")
-      .update(updates)
-      .eq("id", paymentId);
-    
-    if (error) throw error;
-    
-    toast.success("Payment status updated successfully!");
-    
-    // Refresh data
-    if (selectedProject) {
-      fetchProjectDetails(selectedProject.id);
-    }
-  } catch (error: any) {
-    toast.error(error.message);
-  }
-};
+  };
 
   // ── Delete Payment ──────────────────────────────────────────
   const deletePayment = async (paymentId: string) => {
@@ -1140,14 +1169,198 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
     }
   };
 
-  // ── Add Communication ──────────────────────────────────────
-  const [newCommunication, setNewCommunication] = useState({
-    type: "comment",
-    subject: "",
-    message: "",
-    next_followup: "",
-  });
+  // ── Update Manufacturing ──────────────────────────────────
+  const addManufacturing = async () => {
+    if (!newManufacturing.stage || !selectedProject) {
+      toast.error("Stage is required");
+      return;
+    }
 
+    try {
+      // Check if stage already exists
+      const { data: existing } = await supabase
+        .from("manufacturing_tracker")
+        .select("id")
+        .eq("project_id", selectedProject.id)
+        .eq("stage", newManufacturing.stage)
+        .single();
+
+      let result;
+      
+      if (existing) {
+        // Update existing
+        const { data, error } = await supabase
+          .from("manufacturing_tracker")
+          .update({
+            status: newManufacturing.status,
+            remarks: newManufacturing.remarks || null,
+            responsible_person: newManufacturing.responsible_person || null,
+            start_date: newManufacturing.start_date || new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", existing.id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        result = data;
+        toast.success("Manufacturing stage updated successfully!");
+      } else {
+        // Insert new
+        const { data, error } = await supabase
+          .from("manufacturing_tracker")
+          .insert({
+            project_id: selectedProject.id,
+            stage: newManufacturing.stage,
+            status: newManufacturing.status,
+            remarks: newManufacturing.remarks || null,
+            responsible_person: newManufacturing.responsible_person || null,
+            start_date: newManufacturing.start_date || new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        result = data;
+        toast.success("Manufacturing stage added successfully!");
+      }
+
+      setManufacturingDialogOpen(false);
+      setNewManufacturing({
+        stage: "",
+        status: "pending",
+        remarks: "",
+        responsible_person: "",
+        start_date: "",
+      });
+      
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+      
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update manufacturing");
+    }
+  };
+
+  // ── Add Branding Item ──────────────────────────────────────
+  const addBranding = async () => {
+    if (!newBranding.category || !newBranding.item_name || !selectedProject) {
+      toast.error("Category and item name are required");
+      return;
+    }
+
+    try {
+      // Check if item already exists
+      const { data: existing } = await supabase
+        .from("branding_tracker")
+        .select("id")
+        .eq("project_id", selectedProject.id)
+        .eq("category", newBranding.category)
+        .eq("item_name", newBranding.item_name)
+        .single();
+
+      if (existing) {
+        toast.error("This item already exists in this category");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("branding_tracker")
+        .insert({
+          project_id: selectedProject.id,
+          category: newBranding.category,
+          item_name: newBranding.item_name,
+          status: newBranding.status,
+          notes: newBranding.notes || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast.success("Branding item added successfully!");
+      setBrandingDialogOpen(false);
+      setNewBranding({
+        category: "",
+        item_name: "",
+        status: "pending",
+        notes: "",
+      });
+      
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+      
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add branding item");
+    }
+  };
+
+  // ── Upload Document ────────────────────────────────────────
+  const uploadDocument = async () => {
+    if (!newDocument.folder || !newDocument.file || !selectedProject) {
+      toast.error("Folder and file are required");
+      return;
+    }
+
+    try {
+      const file = newDocument.file;
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `projects/${selectedProject.id}/documents/${newDocument.folder}/${fileName}`;
+
+      // Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from('project_files')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('project_files')
+        .getPublicUrl(filePath);
+
+      // Save to database
+      const { data, error } = await supabase
+        .from("project_documents")
+        .insert({
+          project_id: selectedProject.id,
+          folder: newDocument.folder,
+          file_name: file.name,
+          file_url: urlData.publicUrl,
+          file_size: file.size,
+          file_type: file.type,
+          uploaded_by: user?.id,
+          version: 1,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast.success("Document uploaded successfully!");
+      setDocumentDialogOpen(false);
+      setNewDocument({
+        folder: "",
+        file_name: "",
+        file: null,
+      });
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+      
+    } catch (error: any) {
+      toast.error(error.message || "Failed to upload document");
+    }
+  };
+
+  // ── Add Communication ──────────────────────────────────────
   const addCommunication = async () => {
     if (!newCommunication.message || !selectedProject) {
       toast.error("Message is required");
@@ -1155,7 +1368,7 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
     }
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("client_communications")
         .insert({
           project_id: selectedProject.id,
@@ -1164,18 +1377,28 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
           message: newCommunication.message,
           next_followup_date: newCommunication.next_followup || null,
           user_id: user?.id,
-        });
+          communication_date: new Date().toISOString(),
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
       toast.success("Communication added successfully!");
       setCommunicationDialogOpen(false);
-      setNewCommunication({ type: "comment", subject: "", message: "", next_followup: "" });
+      setNewCommunication({ 
+        type: "comment", 
+        subject: "", 
+        message: "", 
+        next_followup: "" 
+      });
+      
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
+      
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to add communication");
     }
   };
 
@@ -1264,6 +1487,29 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
               {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"} 
               {selectedProject.project_type || "N/A"}
             </Badge>
+            
+            {/* ── Action Buttons ── */}
+            <Button size="sm" variant="outline" onClick={() => setTaskDialogOpen(true)}>
+              <ClipboardList className="h-4 w-4 mr-2" />
+              Add Task
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setManufacturingDialogOpen(true)}>
+              <Package className="h-4 w-4 mr-2" />
+              Manufacturing
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setBrandingDialogOpen(true)}>
+              <Award className="h-4 w-4 mr-2" />
+              Branding
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setDocumentDialogOpen(true)}>
+              <FileText className="h-4 w-4 mr-2" />
+              Upload
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setCommunicationDialogOpen(true)}>
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Communicate
+            </Button>
+            
             <Button 
               size="sm" 
               variant="outline"
@@ -1829,9 +2075,11 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
           </TabsContent>
         </Tabs>
 
-        {/* ── DIALOGS ── */}
-        
-        {/* Add Stage Dialog */}
+        {/* ════════════════════════════════════════════════════════════ */}
+        {/* ALL DIALOGS */}
+        {/* ════════════════════════════════════════════════════════════ */}
+
+        {/* ── Add Stage Dialog ── */}
         <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
           <DialogContent>
             <DialogHeader><DialogTitle>Add New Stage</DialogTitle></DialogHeader>
@@ -1868,10 +2116,15 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
           </DialogContent>
         </Dialog>
 
-        {/* Add Task Dialog */}
+        {/* ── Add Task Dialog ── */}
         <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Add New Task</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-blue-500" />
+                Add New Task
+              </DialogTitle>
+            </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid gap-2">
                 <Label>Task Name *</Label>
@@ -1879,6 +2132,7 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
                   value={newTask.task_name} 
                   onChange={(e) => setNewTask({ ...newTask, task_name: e.target.value })}
                   placeholder="Enter task name"
+                  className="focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="grid gap-2">
@@ -1887,26 +2141,38 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
                   value={newTask.description} 
                   onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
                   placeholder="Enter description"
+                  rows={3}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>Department</Label>
-                  <Input 
-                    value={newTask.department} 
-                    onChange={(e) => setNewTask({ ...newTask, department: e.target.value })}
-                    placeholder="e.g., Design"
-                  />
+                  <Select value={newTask.department} onValueChange={(v) => setNewTask({ ...newTask, department: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Design">🎨 Design</SelectItem>
+                      <SelectItem value="Development">💻 Development</SelectItem>
+                      <SelectItem value="Manufacturing">🏭 Manufacturing</SelectItem>
+                      <SelectItem value="Marketing">📢 Marketing</SelectItem>
+                      <SelectItem value="Sales">💼 Sales</SelectItem>
+                      <SelectItem value="Legal">⚖️ Legal</SelectItem>
+                      <SelectItem value="Finance">💰 Finance</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label>Priority</Label>
                   <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
+                      <SelectItem value="low">🟢 Low</SelectItem>
+                      <SelectItem value="medium">🟡 Medium</SelectItem>
+                      <SelectItem value="high">🟠 High</SelectItem>
+                      <SelectItem value="urgent">🔴 Urgent</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1914,7 +2180,9 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
               <div className="grid gap-2">
                 <Label>Stage (Optional)</Label>
                 <Select value={newTask.stage_id} onValueChange={(v) => setNewTask({ ...newTask, stage_id: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select stage" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">None</SelectItem>
                     {projectStages.map(s => (
@@ -1925,17 +2193,24 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
               </div>
               <div className="grid gap-2">
                 <Label>Due Date</Label>
-                <Input type="date" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} />
+                <Input 
+                  type="date" 
+                  value={newTask.due_date} 
+                  onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
+                />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setTaskDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addTask}>Add Task</Button>
+              <Button onClick={addTask} disabled={!newTask.task_name}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Task
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Add Payment Dialog */}
+        {/* ── Add Payment Dialog ── */}
         <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Add Payment</DialogTitle></DialogHeader>
@@ -1990,22 +2265,252 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
           </DialogContent>
         </Dialog>
 
-        {/* Add Communication Dialog */}
+        {/* ── Update Manufacturing Dialog ── */}
+        <Dialog open={manufacturingDialogOpen} onOpenChange={setManufacturingDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-orange-500" />
+                Update Manufacturing
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Stage *</Label>
+                <Select value={newManufacturing.stage} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, stage: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select stage" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MANUFACTURING_STAGES.map(s => (
+                      <SelectItem key={s} value={s}>
+                        {manufacturing.find(m => m.stage === s)?.status === 'completed' ? '✅ ' : ''}
+                        {manufacturing.find(m => m.stage === s)?.status === 'in_progress' ? '⏳ ' : ''}
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={newManufacturing.status} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, status: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">⏸️ Pending</SelectItem>
+                    <SelectItem value="in_progress">⏳ In Progress</SelectItem>
+                    <SelectItem value="completed">✅ Completed</SelectItem>
+                    <SelectItem value="blocked">🚫 Blocked</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Remarks</Label>
+                <Textarea 
+                  value={newManufacturing.remarks} 
+                  onChange={(e) => setNewManufacturing({ ...newManufacturing, remarks: e.target.value })}
+                  placeholder="Enter remarks"
+                  rows={2}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Responsible Person</Label>
+                <Input 
+                  value={newManufacturing.responsible_person} 
+                  onChange={(e) => setNewManufacturing({ ...newManufacturing, responsible_person: e.target.value })}
+                  placeholder="Enter name"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Start Date</Label>
+                <Input 
+                  type="date" 
+                  value={newManufacturing.start_date} 
+                  onChange={(e) => setNewManufacturing({ ...newManufacturing, start_date: e.target.value })}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setManufacturingDialogOpen(false)}>Cancel</Button>
+              <Button onClick={addManufacturing} disabled={!newManufacturing.stage}>
+                <Save className="h-4 w-4 mr-2" />
+                {manufacturing.find(m => m.stage === newManufacturing.stage) ? "Update" : "Add"} Manufacturing
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Add Branding Item Dialog ── */}
+        <Dialog open={brandingDialogOpen} onOpenChange={setBrandingDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-purple-500" />
+                Add Branding Item
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Category *</Label>
+                <Select value={newBranding.category} onValueChange={(v) => setNewBranding({ ...newBranding, category: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BRANDING_CATEGORIES.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Item Name *</Label>
+                <Input 
+                  value={newBranding.item_name} 
+                  onChange={(e) => setNewBranding({ ...newBranding, item_name: e.target.value })}
+                  placeholder="Enter item name"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={newBranding.status} onValueChange={(v) => setNewBranding({ ...newBranding, status: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">⏸️ Pending</SelectItem>
+                    <SelectItem value="in_progress">⏳ In Progress</SelectItem>
+                    <SelectItem value="review">🔍 Review</SelectItem>
+                    <SelectItem value="approved">✅ Approved</SelectItem>
+                    <SelectItem value="completed">🎯 Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Notes</Label>
+                <Textarea 
+                  value={newBranding.notes} 
+                  onChange={(e) => setNewBranding({ ...newBranding, notes: e.target.value })}
+                  placeholder="Enter notes"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setBrandingDialogOpen(false)}>Cancel</Button>
+              <Button onClick={addBranding} disabled={!newBranding.category || !newBranding.item_name}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Item
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Upload Document Dialog ── */}
+        <Dialog open={documentDialogOpen} onOpenChange={setDocumentDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-500" />
+                Upload Document
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Folder *</Label>
+                <Select value={newDocument.folder} onValueChange={(v) => setNewDocument({ ...newDocument, folder: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select folder" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DOCUMENT_FOLDERS.map(f => (
+                      <SelectItem key={f} value={f}>{f}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>File *</Label>
+                <div className="border-2 border-dashed rounded-lg p-4 text-center hover:border-primary transition-colors cursor-pointer">
+                  <input 
+                    ref={fileInputRef}
+                    type="file" 
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setNewDocument({ 
+                          ...newDocument, 
+                          file: file,
+                          file_name: file.name 
+                        });
+                      }
+                    }}
+                    className="hidden" 
+                    id="file-upload"
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer block">
+                    {newDocument.file ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <File className="h-8 w-8 text-green-500" />
+                        <span className="text-sm">{newDocument.file.name}</span>
+                        <Button variant="ghost" size="sm" onClick={(e) => {
+                          e.preventDefault();
+                          setNewDocument({ ...newDocument, file: null, file_name: "" });
+                          if (fileInputRef.current) fileInputRef.current.value = "";
+                        }}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div>
+                        <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground mt-2">
+                          Click to upload or drag and drop
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          PDF, DOC, XLS, JPG, PNG (Max 10MB)
+                        </p>
+                      </div>
+                    )}
+                  </label>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDocumentDialogOpen(false)}>Cancel</Button>
+              <Button onClick={uploadDocument} disabled={!newDocument.folder || !newDocument.file}>
+                <Upload className="h-4 w-4 mr-2" />
+                Upload Document
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Add Communication Dialog ── */}
         <Dialog open={communicationDialogOpen} onOpenChange={setCommunicationDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Add Communication</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-blue-500" />
+                Add Communication
+              </DialogTitle>
+            </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid gap-2">
                 <Label>Type</Label>
                 <Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="call">Call</SelectItem>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="meeting">Meeting</SelectItem>
-                    <SelectItem value="comment">Comment</SelectItem>
-                    <SelectItem value="followup">Follow-up</SelectItem>
+                    <SelectItem value="call">📞 Call</SelectItem>
+                    <SelectItem value="email">✉️ Email</SelectItem>
+                    <SelectItem value="whatsapp">💬 WhatsApp</SelectItem>
+                    <SelectItem value="meeting">📅 Meeting</SelectItem>
+                    <SelectItem value="comment">💭 Comment</SelectItem>
+                    <SelectItem value="followup">🔔 Follow-up</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2023,21 +2528,29 @@ const updatePaymentStatus = async (paymentId: string, status: string, paidDate?:
                   value={newCommunication.message} 
                   onChange={(e) => setNewCommunication({ ...newCommunication, message: e.target.value })}
                   placeholder="Enter message"
+                  rows={3}
                 />
               </div>
               <div className="grid gap-2">
                 <Label>Next Follow-up</Label>
-                <Input type="datetime-local" value={newCommunication.next_followup} onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })} />
+                <Input 
+                  type="datetime-local" 
+                  value={newCommunication.next_followup} 
+                  onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })}
+                />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCommunicationDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addCommunication}>Add Communication</Button>
+              <Button onClick={addCommunication} disabled={!newCommunication.message}>
+                <Send className="h-4 w-4 mr-2" />
+                Add Communication
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Edit Project Dialog */}
+        {/* ── Edit Project Dialog ── */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader><DialogTitle>Edit Project</DialogTitle></DialogHeader>
