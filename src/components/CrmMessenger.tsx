@@ -636,6 +636,19 @@ export default function CrmMessenger() {
   const [activeTab, setActiveTab] = useState("chats");
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  
+  // ── Check if user is authenticated ─────────────────────────
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Please login to access messages</p>
+        </div>
+      </div>
+    );
+  }
   
   // ── Fetch All Users from Supabase ──────────────────────────
   const { data: allUsers = [], refetch: refetchUsers } = useQuery({
@@ -649,6 +662,7 @@ export default function CrmMessenger() {
       if (error) throw error;
       return data as UserProfile[];
     },
+    enabled: !!user,
   });
   
   // ── Fetch Conversations ────────────────────────────────────
@@ -715,7 +729,7 @@ export default function CrmMessenger() {
           .eq("conversation_id", conv.id)
           .order("created_at", { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
         
         // Get unread count
         const { count } = await supabase
@@ -743,6 +757,8 @@ export default function CrmMessenger() {
   
   // ── Fetch Messages ─────────────────────────────────────────
   const fetchMessages = async (conversationId: string) => {
+    if (!user) return;
+    
     try {
       const { data, error } = await supabase
         .from("messages")
@@ -762,21 +778,23 @@ export default function CrmMessenger() {
       setMessages(data || []);
       
       // Mark messages as read
-      await supabase
-        .from("messages")
-        .update({ status: "read", read_at: new Date().toISOString() })
-        .eq("conversation_id", conversationId)
-        .neq("sender_id", user?.id)
-        .neq("status", "read");
-      
-      // Update unread count in UI
-      setConversations(prev => 
-        prev.map(c => 
-          c.id === conversationId 
-            ? { ...c, unread_count: 0 }
-            : c
-        )
-      );
+      if (data && data.length > 0) {
+        await supabase
+          .from("messages")
+          .update({ status: "read", read_at: new Date().toISOString() })
+          .eq("conversation_id", conversationId)
+          .neq("sender_id", user.id)
+          .neq("status", "read");
+        
+        // Update unread count in UI
+        setConversations(prev => 
+          prev.map(c => 
+            c.id === conversationId 
+              ? { ...c, unread_count: 0 }
+              : c
+          )
+        );
+      }
       
       scrollToBottom();
     } catch (error) {
@@ -786,7 +804,11 @@ export default function CrmMessenger() {
   
   // ── Send Message ────────────────────────────────────────────
   const sendMessage = async () => {
-    if (!messageInput.trim() || !selectedConversation || !user) return;
+    if (!messageInput.trim() || !selectedConversation || !user || isSending) return;
+    
+    setIsSending(true);
+    const messageText = messageInput.trim();
+    setMessageInput(""); // Clear input immediately for better UX
     
     try {
       const { data, error } = await supabase
@@ -794,7 +816,7 @@ export default function CrmMessenger() {
         .insert({
           conversation_id: selectedConversation.id,
           sender_id: user.id,
-          message: messageInput.trim(),
+          message: messageText,
           message_type: "text",
           status: "sent",
         })
@@ -817,12 +839,11 @@ export default function CrmMessenger() {
         ...data, 
         sender: { 
           id: user.id, 
-          display_name: senderData?.display_name || "You", 
+          display_name: senderData?.display_name || user.email?.split('@')[0] || "You", 
           role: senderData?.role || "user",
           avatar_url: senderData?.avatar_url || null
         } 
       }]);
-      setMessageInput("");
       
       // Update conversation list
       setConversations(prev => 
@@ -834,7 +855,7 @@ export default function CrmMessenger() {
                   ...data, 
                   sender: { 
                     id: user.id, 
-                    display_name: senderData?.display_name || "You", 
+                    display_name: senderData?.display_name || user.email?.split('@')[0] || "You", 
                     role: senderData?.role || "user",
                     avatar_url: senderData?.avatar_url || null
                   } 
@@ -848,6 +869,10 @@ export default function CrmMessenger() {
       scrollToBottom();
     } catch (error: any) {
       toast.error(error.message || "Failed to send message");
+      // Restore message if send failed
+      setMessageInput(messageText);
+    } finally {
+      setIsSending(false);
     }
   };
   
@@ -865,29 +890,42 @@ export default function CrmMessenger() {
     
     try {
       // Check if individual conversation already exists
-      if (type === 'individual') {
+      if (type === 'individual' && participantIds.length === 1) {
         const otherUserId = participantIds[0];
-        const { data: existing } = await supabase
+        
+        // Get user's conversation IDs
+        const { data: userConvs } = await supabase
           .from("conversation_participants")
           .select("conversation_id")
           .eq("user_id", user.id);
         
-        if (existing && existing.length > 0) {
-          const convIds = existing.map(p => p.conversation_id);
-          const { data: participantCheck } = await supabase
+        if (userConvs && userConvs.length > 0) {
+          const convIds = userConvs.map(p => p.conversation_id);
+          
+          // Check if other user is in any of these conversations
+          const { data: otherParticipant } = await supabase
             .from("conversation_participants")
             .select("conversation_id")
             .in("conversation_id", convIds)
             .eq("user_id", otherUserId);
           
-          if (participantCheck && participantCheck.length > 0) {
-            const existingConv = conversations.find(c => c.id === participantCheck[0].conversation_id);
-            if (existingConv) {
-              setSelectedConversation(existingConv);
-              fetchMessages(existingConv.id);
-              setNewConversationOpen(false);
-              toast.info("Existing conversation opened");
-              return;
+          if (otherParticipant && otherParticipant.length > 0) {
+            // Check if it's an individual conversation
+            const { data: convCheck } = await supabase
+              .from("conversations")
+              .select("id, conversation_type")
+              .in("id", otherParticipant.map(p => p.conversation_id))
+              .eq("conversation_type", "individual");
+            
+            if (convCheck && convCheck.length > 0) {
+              const existingConv = conversations.find(c => c.id === convCheck[0].id);
+              if (existingConv) {
+                setSelectedConversation(existingConv);
+                await fetchMessages(existingConv.id);
+                setNewConversationOpen(false);
+                toast.info("Existing conversation opened");
+                return;
+              }
             }
           }
         }
@@ -913,6 +951,7 @@ export default function CrmMessenger() {
         conversation_id: convData.id,
         user_id: pid,
         role: pid === user.id ? 'admin' : 'member',
+        joined_at: new Date().toISOString(),
       }));
       
       const { error: partError } = await supabase
@@ -923,26 +962,39 @@ export default function CrmMessenger() {
       
       toast.success("Conversation created!");
       setNewConversationOpen(false);
-      fetchConversations();
       
-      // Select the new conversation
-      const newConv = {
-        ...convData,
-        participants: participantInserts.map(p => ({ 
-          ...p, 
-          user: { 
-            id: p.user_id, 
-            display_name: p.user_id === user.id ? user.display_name || "You" : "User", 
-            role: "user",
-            avatar_url: null
-          } 
-        })),
-        unread_count: 0,
-      };
-      setSelectedConversation(newConv as any);
-      fetchMessages(convData.id);
+      // Fetch updated conversations
+      await fetchConversations();
+      
+      // Find and select the new conversation
+      setTimeout(() => {
+        const newConv = conversations.find(c => c.id === convData.id);
+        if (newConv) {
+          setSelectedConversation(newConv);
+          fetchMessages(convData.id);
+        } else {
+          // If not found in state, construct it manually
+          const constructedConv = {
+            ...convData,
+            participants: participantInserts.map(p => ({ 
+              ...p, 
+              user: { 
+                id: p.user_id, 
+                display_name: p.user_id === user.id ? (allUsers.find(u => u.id === user.id)?.display_name || "You") : (allUsers.find(u => u.id === p.user_id)?.display_name || "User"),
+                role: p.user_id === user.id ? (allUsers.find(u => u.id === user.id)?.role || "user") : "user",
+                avatar_url: null,
+                is_online: false,
+              } 
+            })),
+            unread_count: 0,
+          };
+          setSelectedConversation(constructedConv as any);
+          fetchMessages(convData.id);
+        }
+      }, 300);
       
     } catch (error: any) {
+      console.error("Create conversation error:", error);
       toast.error(error.message || "Failed to create conversation");
     }
   };
@@ -956,6 +1008,7 @@ export default function CrmMessenger() {
         conversation_id: selectedConversation.id,
         user_id: uid,
         role: 'member',
+        joined_at: new Date().toISOString(),
       }));
       
       const { error } = await supabase
@@ -965,12 +1018,14 @@ export default function CrmMessenger() {
       if (error) throw error;
       
       toast.success(`${userIds.length} users added to group!`);
-      fetchConversations();
+      await fetchConversations();
       if (selectedConversation) {
-        fetchMessages(selectedConversation.id);
+        await fetchMessages(selectedConversation.id);
       }
+      setAddUsersOpen(false);
       
     } catch (error: any) {
+      console.error("Add users error:", error);
       toast.error(error.message || "Failed to add users");
     }
   };
@@ -1047,11 +1102,12 @@ export default function CrmMessenger() {
             scrollToBottom();
             
             // Mark as read
-            await supabase
-              .from("messages")
-              .update({ status: "read", read_at: new Date().toISOString() })
-              .eq("id", payload.new.id)
-              .neq("sender_id", user.id);
+            if (payload.new.sender_id !== user.id) {
+              await supabase
+                .from("messages")
+                .update({ status: "read", read_at: new Date().toISOString() })
+                .eq("id", payload.new.id);
+            }
           }
           
           // Update conversation list
@@ -1086,7 +1142,6 @@ export default function CrmMessenger() {
           event: 'UPDATE',
           schema: 'public',
           table: 'profiles',
-          filter: 'is_online=eq.true',
         },
         (payload) => {
           if (payload.new.is_online) {
@@ -1102,7 +1157,7 @@ export default function CrmMessenger() {
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(statusChannel);
     };
-  }, [user]);
+  }, [user, selectedConversation?.id]);
   
   // ── Load messages when conversation changes ────────────────
   useEffect(() => {
@@ -1288,7 +1343,7 @@ export default function CrmMessenger() {
                       {selectedConversation.conversation_type === 'group' ? (
                         `${getParticipantCount(selectedConversation)} members`
                       ) : (
-                        'Online'
+                        onlineUsers.includes(selectedConversation.participants?.find(p => p.user_id !== user?.id)?.user_id || '') ? 'Online' : 'Offline'
                       )}
                     </p>
                   </div>
@@ -1372,6 +1427,7 @@ export default function CrmMessenger() {
                   className="hidden" 
                   onChange={(e) => {
                     // Handle file upload
+                    toast.info("File upload coming soon!");
                   }}
                 />
                 <Textarea 
@@ -1381,13 +1437,18 @@ export default function CrmMessenger() {
                   placeholder="Type a message..."
                   className="min-h-[44px] max-h-32 resize-none"
                   rows={1}
+                  disabled={isSending}
                 />
                 <Button 
                   onClick={sendMessage}
-                  disabled={!messageInput.trim()}
+                  disabled={!messageInput.trim() || isSending}
                   className="h-9 w-9 flex-shrink-0"
                 >
-                  <Send className="h-4 w-4" />
+                  {isSending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </CardHeader>
