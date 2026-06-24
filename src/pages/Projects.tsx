@@ -508,14 +508,14 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState(payment.status);
   const [paidDate, setPaidDate] = useState(payment.paid_date || "");
-  
+
   const statusColors: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
     paid: "bg-green-100 text-green-700 border-green-200",
     overdue: "bg-red-100 text-red-700 border-red-200",
     partial: "bg-orange-100 text-orange-700 border-orange-200",
   };
-  
+
   const handleStatusChange = (newStatus: string) => {
     setStatus(newStatus);
     if (newStatus === 'paid' && !paidDate) {
@@ -523,7 +523,7 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
     }
     onStatusChange(payment.id, newStatus, newStatus === 'paid' ? paidDate : undefined);
   };
-  
+
   return (
     <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
       <div className="flex items-start justify-between">
@@ -545,9 +545,6 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
             {payment.paid_date && (
               <span>✅ Paid: {format(new Date(payment.paid_date), "dd MMM yyyy")}</span>
             )}
-            {payment.invoice_number && (
-              <span>🧾 {payment.invoice_number}</span>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -559,7 +556,7 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
           </Button>
         </div>
       </div>
-      
+
       {expanded && (
         <div className="mt-3 pt-3 border-t">
           <div className="grid grid-cols-2 gap-3">
@@ -582,37 +579,14 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
               <Input 
                 type="date" 
                 value={paidDate} 
-                onChange={(e) => setPaidDate(e.target.value)}
+                onChange={(e) => {
+                  setPaidDate(e.target.value);
+                  if (status === 'paid') {
+                    onStatusChange(payment.id, status, e.target.value);
+                  }
+                }}
                 className="h-8 text-sm"
                 disabled={status !== 'paid'}
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Payment Mode</Label>
-              <Select value={payment.payment_mode || ""} onValueChange={async (v) => {
-                // Update payment mode
-              }}>
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                  <SelectItem value="upi">UPI</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="card">Card</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Invoice Number</Label>
-              <Input 
-                placeholder="INV-001" 
-                defaultValue={payment.invoice_number || ""}
-                className="h-8 text-sm"
-                onBlur={async (e) => {
-                  // Update invoice number
-                }}
               />
             </div>
           </div>
@@ -1038,32 +1012,36 @@ export default function Projects() {
   };
 
   // ── Update Payment Status ──────────────────────────────────
-  const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
-    try {
-      const updates: any = { status };
-      if (status === 'paid' && paidDate) {
-        updates.paid_date = paidDate;
-      } else if (status === 'paid') {
-        updates.paid_date = new Date().toISOString();
-      } else if (status !== 'paid') {
-        updates.paid_date = null;
-      }
-      
-      const { error } = await supabase
-        .from("payments")
-        .update(updates)
-        .eq("id", paymentId);
-      
-      if (error) throw error;
-      
-      toast.success("Payment status updated successfully!");
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
+// Yeh function payment status update karta hai with paid date
+const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
+  try {
+    const updates: any = { status };
+    
+    // Agar status 'paid' hai toh paid date set karo
+    if (status === 'paid') {
+      updates.paid_date = paidDate || new Date().toISOString().split('T')[0];
+    } else if (status !== 'paid') {
+      // Agar paid nahi hai toh paid date null karo
+      updates.paid_date = null;
     }
-  };
+    
+    const { error } = await supabase
+      .from("payments")
+      .update(updates)
+      .eq("id", paymentId);
+    
+    if (error) throw error;
+    
+    toast.success("Payment status updated successfully!");
+    
+    // Refresh data
+    if (selectedProject) {
+      fetchProjectDetails(selectedProject.id);
+    }
+  } catch (error: any) {
+    toast.error(error.message);
+  }
+};
 
   // ── Delete Payment ──────────────────────────────────────────
   const deletePayment = async (paymentId: string) => {
