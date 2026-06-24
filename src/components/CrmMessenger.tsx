@@ -1,4 +1,4 @@
-
+// components/CrmMessenger.tsx
 import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,8 @@ import {
   AlertCircle, CheckCircle, Info, Ban, Flag,
   Star, Heart, ThumbsUp, ThumbsDown, Share2,
   Copy, Download, Printer, Archive, Filter,
-  Settings, LogOut, Menu, ChevronRight, ChevronDown
+  Settings, LogOut, Menu, ChevronRight, ChevronDown,
+  Reply
 } from "lucide-react";
 
 // ============================================================
@@ -105,6 +106,9 @@ function getRoleColor(role: string) {
     manager: "bg-blue-100 text-blue-700 border-blue-200",
     user: "bg-gray-100 text-gray-700 border-gray-200",
     lead: "bg-purple-100 text-purple-700 border-purple-200",
+    owner: "bg-amber-100 text-amber-700 border-amber-200",
+    tl: "bg-green-100 text-green-700 border-green-200",
+    hr_manager: "bg-pink-100 text-pink-700 border-pink-200",
   };
   return colors[role] || colors.user;
 }
@@ -115,6 +119,9 @@ function getRoleBadge(role: string) {
     manager: "📋 Manager",
     user: "👤 User",
     lead: "⭐ Lead",
+    owner: "💎 Owner",
+    tl: "📌 TL",
+    hr_manager: "🤝 HR",
   };
   return labels[role] || role;
 }
@@ -508,13 +515,13 @@ function UserSearchDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, display_name, avatar_url, role");
+        .select("id, display_name, avatar_url, role, email, phone");
       if (error) throw error;
-      return data;
+      return data as UserProfile[];
     },
   });
   
-  const filteredUsers = users.filter((u: any) => 
+  const filteredUsers = users.filter((u: UserProfile) => 
     u.display_name.toLowerCase().includes(search.toLowerCase()) &&
     !existingParticipants.includes(u.id) &&
     !selectedUsers.includes(u.id)
@@ -559,7 +566,7 @@ function UserSearchDialog({
             </p>
             <div className="flex flex-wrap gap-2 mb-2">
               {selectedUsers.map(id => {
-                const user = users.find((u: any) => u.id === id);
+                const user = users.find((u: UserProfile) => u.id === id);
                 return user && (
                   <Badge key={id} variant="secondary" className="gap-1">
                     {user.display_name}
@@ -576,7 +583,7 @@ function UserSearchDialog({
               })}
             </div>
             <div className="max-h-40 overflow-y-auto space-y-1">
-              {filteredUsers.map((user: any) => (
+              {filteredUsers.map((user: UserProfile) => (
                 <div 
                   key={user.id}
                   className="flex items-center gap-2 p-2 hover:bg-muted/50 cursor-pointer rounded"
@@ -607,7 +614,9 @@ function UserSearchDialog({
   );
 }
 
-// ── Main Messenger Component ─────────────────────────────────
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 export default function CrmMessenger() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -625,6 +634,18 @@ export default function CrmMessenger() {
   const [addUsersOpen, setAddUsersOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("chats");
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  
+  // ── Fetch All Users ────────────────────────────────────────
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ["all-users-messenger"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, display_name, avatar_url, role, email, phone");
+      if (error) throw error;
+      return data as UserProfile[];
+    },
+  });
   
   // ── Fetch Conversations ────────────────────────────────────
   const fetchConversations = async () => {
@@ -773,7 +794,16 @@ export default function CrmMessenger() {
         .eq("id", selectedConversation.id);
       
       // Update messages list
-      setMessages(prev => [...prev, { ...data, sender: { id: user.id, display_name: user.display_name || "You", role: "user" } }]);
+      const senderData = allUsers.find(u => u.id === user.id);
+      setMessages(prev => [...prev, { 
+        ...data, 
+        sender: { 
+          id: user.id, 
+          display_name: senderData?.display_name || "You", 
+          role: senderData?.role || "user",
+          avatar_url: senderData?.avatar_url || null
+        } 
+      }]);
       setMessageInput("");
       
       // Update conversation list
@@ -782,7 +812,15 @@ export default function CrmMessenger() {
           c.id === selectedConversation.id 
             ? { 
                 ...c, 
-                last_message: { ...data, sender: { id: user.id, display_name: user.display_name || "You", role: "user" } },
+                last_message: { 
+                  ...data, 
+                  sender: { 
+                    id: user.id, 
+                    display_name: senderData?.display_name || "You", 
+                    role: senderData?.role || "user",
+                    avatar_url: senderData?.avatar_url || null
+                  } 
+                },
                 last_message_at: new Date().toISOString()
               }
             : c
@@ -816,7 +854,7 @@ export default function CrmMessenger() {
           .select("conversation_id")
           .eq("user_id", user.id);
         
-        if (existing) {
+        if (existing && existing.length > 0) {
           const convIds = existing.map(p => p.conversation_id);
           const { data: participantCheck } = await supabase
             .from("conversation_participants")
@@ -872,7 +910,15 @@ export default function CrmMessenger() {
       // Select the new conversation
       const newConv = {
         ...convData,
-        participants: participantInserts.map(p => ({ ...p, user: { id: p.user_id, display_name: p.user_id === user.id ? user.display_name : "User", role: "user" } })),
+        participants: participantInserts.map(p => ({ 
+          ...p, 
+          user: { 
+            id: p.user_id, 
+            display_name: p.user_id === user.id ? user.display_name || "You" : "User", 
+            role: "user",
+            avatar_url: null
+          } 
+        })),
         unread_count: 0,
       };
       setSelectedConversation(newConv as any);
@@ -1109,10 +1155,11 @@ export default function CrmMessenger() {
                   </div>
                 ) : (
                   conversations
-                    .filter(c => 
-                      c.conversation_name?.toLowerCase().includes(search.toLowerCase()) ||
-                      getConversationDisplayName(c).toLowerCase().includes(search.toLowerCase())
-                    )
+                    .filter(c => {
+                      const name = getConversationDisplayName(c);
+                      return name.toLowerCase().includes(search.toLowerCase()) ||
+                        (c.conversation_name || "").toLowerCase().includes(search.toLowerCase());
+                    })
                     .map(conv => (
                       <ConversationItem
                         key={conv.id}
@@ -1139,16 +1186,19 @@ export default function CrmMessenger() {
                   <>
                     <div className="flex items-center gap-2 mb-4">
                       <Users className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Online Users</span>
+                      <span className="text-sm font-medium">All Users</span>
                       <Badge variant="secondary" className="ml-auto">
-                        {onlineUsers.length}
+                        {allUsers.length}
                       </Badge>
                     </div>
                     <div className="space-y-2">
-                      {users.map((u: UserProfile) => (
+                      {allUsers.map((u: UserProfile) => (
                         <UserListItem
                           key={u.id}
-                          user={u}
+                          user={{
+                            ...u,
+                            is_online: onlineUsers.includes(u.id)
+                          }}
                           isSelected={false}
                           onClick={() => {
                             // Start conversation with this user
@@ -1308,7 +1358,7 @@ export default function CrmMessenger() {
         open={newConversationOpen}
         onOpenChange={setNewConversationOpen}
         onStartConversation={createConversation}
-        users={[]}
+        users={allUsers}
       />
       
       <UserSearchDialog
