@@ -864,10 +864,8 @@ export default function Leads() {
     };
   }, []);
 
-  const insertLead = useCrmInsert("leads");
-  const updateLead = useCrmUpdate<Record<string, unknown>>("leads");
-  const deleteLead = useCrmDelete("leads");
-
+  // ── NO RPC FUNCTIONS - Using direct queries only ──
+  
   const [search, setSearch]                 = useState("");
   const [filterStatus, setFilterStatus]     = useState("all");
   const [filterStage, setFilterStage]       = useState("all");
@@ -909,28 +907,32 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── FIXED: Check for duplicate using direct query - NO RPC ──
+  // ── FIXED: Direct duplicate check - NO RPC ──
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
-      // Build query to check for duplicates
+      // Build query conditions
+      const conditions = [];
+      
+      if (leadData.email && leadData.email.trim()) {
+        conditions.push(`email.eq.${leadData.email.trim()}`);
+      }
+      if (leadData.phone && leadData.phone.trim()) {
+        conditions.push(`phone.eq.${leadData.phone.trim()}`);
+      }
+      if (leadData.name && leadData.name.trim()) {
+        conditions.push(`name.ilike.%${leadData.name.trim()}%`);
+      }
+      
+      // If no conditions, return false
+      if (conditions.length === 0) {
+        return { is_duplicate: false };
+      }
+      
+      // Build the query
       let query = supabase
         .from("leads")
-        .select("id, name, email, phone");
-      
-      // Check by email if provided
-      if (leadData.email) {
-        query = query.or(`email.eq.${leadData.email}`);
-      }
-      
-      // Check by phone if provided
-      if (leadData.phone) {
-        query = query.or(`phone.eq.${leadData.phone}`);
-      }
-      
-      // Check by name (partial match)
-      if (leadData.name) {
-        query = query.or(`name.ilike.%${leadData.name}%`);
-      }
+        .select("id, name, email, phone")
+        .or(conditions.join(','));
       
       if (excludeId) {
         query = query.neq("id", excludeId);
@@ -1198,7 +1200,7 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   }, [profiles]);
 
-  // ── FIXED: Update Stage from Detail with proper status updates ──
+  // ── FIXED: Update Stage from Detail - NO RPC ──
   const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
     try {
       const updateData: any = { 
@@ -1261,7 +1263,7 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   }, [logActivity]);
 
-  // ── FIXED: Add Lead using direct insert ──
+  // ── FIXED: Add Lead using direct insert - NO RPC ──
   const handleAddLead = useCallback(async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
@@ -1431,7 +1433,7 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── FIXED: Bulk Import with duplicate check using direct query ──
+  // ── FIXED: Bulk Import with duplicate check - NO RPC ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1508,7 +1510,7 @@ export default function Leads() {
     }
   }, [uploadPreview, checkForDuplicate, fetchLeads]);
 
-  // ── Handle Update ──
+  // ── Handle Update - NO RPC ──
   const handleUpdate = useCallback(async () => {
     if (!editLead) return;
     
@@ -1520,46 +1522,57 @@ export default function Leads() {
         return;
       }
       
-      await updateLead.mutateAsync({
-        id: editLead.id, 
-        name: editLead.name, 
-        email: editLead.email, 
-        phone: editLead.phone,
-        company: editLead.company, 
-        source: editLead.source, 
-        value: editLead.value,
-        status: editLead.status as any, 
-        business_status: editLead.business_status,
-        lead_type: editLead.lead_type, 
-        address: editLead.address, 
-        cx_comment: editLead.cx_comment,
-        budget: editLead.budget, 
-        stage: editLead.stage, 
-        sub_stage: editLead.sub_stage,
-        remark: editLead.remark, 
-        temperature: editLead.temperature,
-      } as any);
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          name: editLead.name, 
+          email: editLead.email, 
+          phone: editLead.phone,
+          company: editLead.company, 
+          source: editLead.source, 
+          value: editLead.value,
+          status: editLead.status, 
+          business_status: editLead.business_status,
+          lead_type: editLead.lead_type, 
+          address: editLead.address, 
+          cx_comment: editLead.cx_comment,
+          budget: editLead.budget, 
+          stage: editLead.stage, 
+          sub_stage: editLead.sub_stage,
+          remark: editLead.remark, 
+          temperature: editLead.temperature,
+        })
+        .eq("id", editLead.id);
+      
+      if (error) throw error;
       
       logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
       setEditLead(null);
       toast.success("Lead updated");
       await fetchLeads();
     } catch (error: any) {
+      console.error("Update error:", error);
       toast.error(error.message || "Failed to update lead");
     }
-  }, [editLead, updateLead, logActivity, fetchLeads, checkForDuplicate]);
+  }, [editLead, logActivity, fetchLeads, checkForDuplicate]);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
     try {
-      await deleteLead.mutateAsync(id);
+      const { error } = await supabase
+        .from("leads")
+        .delete()
+        .eq("id", id);
+      
+      if (error) throw error;
+      
       setDetailLead(null);
       toast.success("Lead deleted");
       await fetchLeads();
     } catch (error: any) {
       toast.error(error.message || "Failed to delete lead");
     }
-  }, [deleteLead, fetchLeads]);
+  }, [fetchLeads]);
 
   const handleExport = useCallback(() => {
     const exportData = leads.map(l => ({
@@ -1817,8 +1830,8 @@ export default function Leads() {
                   <Label>CX Comment</Label>
                   <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
-                <Button onClick={handleAddLead} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
-                  {insertLead.isPending ? "Adding..." : "Add Lead"}
+                <Button onClick={handleAddLead} className="mt-2 sm:col-span-2">
+                  Add Lead
                 </Button>
               </div>
             </DialogContent>
@@ -2302,7 +2315,7 @@ export default function Leads() {
               <div className="grid gap-2"><Label>Source</Label><Select value={editLead.source || "Website"} onValueChange={v => setEditLead({ ...editLead, source: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2 sm:col-span-2"><Label>Remark (for call scheduling)</Label><Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} placeholder="e.g., call at 2:30 PM" /></div>
               <div className="grid gap-2 sm:col-span-2"><Label>CX Comment</Label><Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} /></div>
-              <Button onClick={handleUpdate} disabled={updateLead.isPending} className="sm:col-span-2">{updateLead.isPending ? "Saving..." : "Save Changes"}</Button>
+              <Button onClick={handleUpdate} className="sm:col-span-2">Save Changes</Button>
             </div>
           )}
         </DialogContent>
