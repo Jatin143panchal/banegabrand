@@ -909,18 +909,33 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
+  // ── FIXED: Check for duplicate without using RPC that might have column issues ──
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
-      const { data, error } = await supabase.rpc('check_duplicate_lead', {
-        p_email: leadData.email || null,
-        p_phone: leadData.phone || null,
-        p_name: leadData.name,
-        p_company: leadData.company || null,
-        p_exclude_id: excludeId || null
-      });
+      // Instead of using RPC, do a direct query
+      let query = supabase
+        .from("leads")
+        .select("id, name, email, phone")
+        .or(`email.eq.${leadData.email || ''},phone.eq.${leadData.phone || ''}`)
+        .or(`name.ilike.%${leadData.name}%`);
+      
+      if (excludeId) {
+        query = query.neq("id", excludeId);
+      }
+      
+      const { data, error } = await query.limit(1);
       
       if (error) throw error;
-      return data;
+      
+      if (data && data.length > 0) {
+        return {
+          is_duplicate: true,
+          existing_lead_name: data[0].name,
+          existing_lead_id: data[0].id
+        };
+      }
+      
+      return { is_duplicate: false };
     } catch (error) {
       console.error("Error checking duplicate:", error);
       return null;
@@ -1086,7 +1101,7 @@ export default function Leads() {
     }
   }, [detailLead?.id, fetchAgreementStatus]);
 
-  // ── Mark Lead as Lost ──
+  // ── FIXED: Mark Lead as Lost with proper error handling ──
   const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
     try {
       const lostDate = new Date().toISOString();
@@ -1115,7 +1130,7 @@ export default function Leads() {
       toast.success("Lead marked as lost");
       setLostLeadDialog(null);
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to mark lead as lost");
     }
   }, [fetchLeads, detailLead, logActivity]);
 
@@ -1167,7 +1182,7 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   }, [profiles]);
 
-  // ── Update Stage from Detail ──
+  // ── FIXED: Update Stage from Detail with proper status updates ──
   const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
     try {
       const updateData: any = { 
@@ -1175,13 +1190,19 @@ export default function Leads() {
         sub_stage: subStage,
       };
       
-      // Auto-update status based on stage
+      // Auto-update status and business_status based on stage
       if (stage === "converted") {
         updateData.status = "converted";
         updateData.business_status = "done";
       } else if (stage === "lost") {
         updateData.status = "lost";
         updateData.business_status = "no-go";
+      } else {
+        // For other stages, keep existing status or set default
+        const lead = leads.find(l => l.id === id);
+        if (lead) {
+          updateData.status = lead.status || stage;
+        }
       }
       
       const { error } = await supabase
@@ -1189,7 +1210,10 @@ export default function Leads() {
         .update(updateData)
         .eq("id", id);
       
-      if (error) throw error;
+      if (error) {
+        console.error("Update error:", error);
+        throw error;
+      }
       
       // Refresh data
       await fetchLeads();
@@ -1200,7 +1224,6 @@ export default function Leads() {
         if (updatedLead) {
           setDetailLead(updatedLead);
         } else {
-          // If lead not found in refreshed list, close detail
           setDetailLead(null);
         }
       }
@@ -1208,7 +1231,8 @@ export default function Leads() {
       toast.success(`Stage updated to ${formatStageLabel(stage)}`);
       logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
     } catch (error: any) {
-      toast.error(error.message);
+      console.error("Stage update error:", error);
+      toast.error(error.message || "Failed to update stage");
     }
   }, [fetchLeads, detailLead, leads, logActivity]);
 
@@ -1236,7 +1260,7 @@ export default function Leads() {
       toast.success("Lead added successfully");
       await fetchLeads();
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to add lead");
     }
   }, [form, insertLead, fetchLeads]);
 
@@ -1355,12 +1379,15 @@ export default function Leads() {
         setUploadPreview(mapped);
         if (mapped.length === 0)
           toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature");
-      } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
+      } catch (error) {
+        console.error("File parse error:", error);
+        toast.error("Failed to parse file. Please upload a valid Excel or CSV file.");
+      }
     };
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── Bulk Import with duplicate check ──
+  // ── FIXED: Bulk Import with duplicate check using direct query ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1369,30 +1396,49 @@ export default function Leads() {
     let duplicateList: any[] = [];
     
     for (const lead of uploadPreview) {
-      const duplicate = await checkForDuplicate(lead);
-      
-      if (duplicate && duplicate.is_duplicate) {
-        duplicates++;
-        duplicateList.push({
-          name: lead.name,
-          email: lead.email,
-          phone: lead.phone,
-          existing_lead: duplicate.existing_lead_name
-        });
-        continue;
-      }
-      
       try {
-        await insertLead.mutateAsync({
-          name: lead.name, email: lead.email, phone: lead.phone, company: lead.company,
-          source: lead.source, value: lead.value, status: "new" as any,
-          lead_type: lead.lead_type, address: lead.address, cx_comment: lead.cx_comment,
-          budget: lead.budget, stage: lead.stage || "ringing", sub_stage: lead.sub_stage, remark: lead.remark,
-          temperature: lead.temperature || "warm",
-        } as any);
+        // Check for duplicates using direct query
+        const duplicate = await checkForDuplicate(lead);
+        
+        if (duplicate && duplicate.is_duplicate) {
+          duplicates++;
+          duplicateList.push({
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            existing_lead: duplicate.existing_lead_name
+          });
+          continue;
+        }
+        
+        // Insert lead
+        const { error } = await supabase
+          .from("leads")
+          .insert({
+            name: lead.name, 
+            email: lead.email, 
+            phone: lead.phone, 
+            company: lead.company,
+            source: lead.source, 
+            value: lead.value || 0, 
+            status: "new",
+            lead_type: lead.lead_type, 
+            address: lead.address, 
+            cx_comment: lead.cx_comment,
+            budget: lead.budget, 
+            stage: lead.stage || "ringing", 
+            sub_stage: lead.sub_stage, 
+            remark: lead.remark,
+            temperature: lead.temperature || "warm",
+          });
+        
+        if (error) {
+          console.error("Insert error for lead:", lead.name, error);
+          continue;
+        }
         success++;
       } catch (error) {
-        console.error("Error importing lead:", error);
+        console.error("Error importing lead:", lead.name, error);
       }
     }
     
@@ -1416,7 +1462,7 @@ export default function Leads() {
     } else {
       toast.success(`${success} leads imported successfully!`);
     }
-  }, [uploadPreview, checkForDuplicate, insertLead, fetchLeads]);
+  }, [uploadPreview, checkForDuplicate, fetchLeads]);
 
   // ── Handle Update ──
   const handleUpdate = useCallback(async () => {
@@ -1448,16 +1494,20 @@ export default function Leads() {
       toast.success("Lead updated");
       await fetchLeads();
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to update lead");
     }
   }, [editLead, updateLead, logActivity, fetchLeads]);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
-    await deleteLead.mutateAsync(id);
-    setDetailLead(null);
-    toast.success("Lead deleted");
-    await fetchLeads();
+    try {
+      await deleteLead.mutateAsync(id);
+      setDetailLead(null);
+      toast.success("Lead deleted");
+      await fetchLeads();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete lead");
+    }
   }, [deleteLead, fetchLeads]);
 
   const handleExport = useCallback(() => {
@@ -1516,7 +1566,7 @@ export default function Leads() {
       logActivity(leadId, "updated", `Temperature changed to: ${temperature}`);
       toast.success(`Temperature updated to ${temperature.toUpperCase()}`);
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to update temperature");
     }
   }, [fetchLeads, detailLead, leads, logActivity]);
 
