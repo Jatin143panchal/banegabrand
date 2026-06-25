@@ -799,7 +799,6 @@ export default function Leads() {
   const canAssign = useCanAssignTasks();
   const { data: profiles = [] } = useAllProfiles();
   const logActivity = useLeadActivityLogger();
-  const queryClient = useQueryClient();
   
   // ── State ──
   const [leads, setLeads] = useState<DbLead[]>([]);
@@ -845,7 +844,6 @@ export default function Leads() {
           table: 'leads'
         },
         (payload) => {
-          // Optimized real-time updates
           if (payload.eventType === 'INSERT') {
             setLeads(prev => [payload.new as DbLead, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
@@ -864,7 +862,7 @@ export default function Leads() {
     };
   }, []);
 
-  // ── NO RPC FUNCTIONS - Using direct queries only ──
+  // ── REMOVED: useCrmInsert, useCrmUpdate, useCrmDelete - we'll use direct queries ──
   
   const [search, setSearch]                 = useState("");
   const [filterStatus, setFilterStatus]     = useState("all");
@@ -884,7 +882,6 @@ export default function Leads() {
   const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set());
   const [bulkAssignTo, setBulkAssignTo]     = useState("");
   const [empModalOpen, setEmpModalOpen]     = useState(false);
-  const bulkAssign = useBulkAssignLeads();
   const [uploadPreview, setUploadPreview]   = useState<any[]>([]);
   const [uploading, setUploading]           = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -907,7 +904,7 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── FIXED: Direct duplicate check - NO RPC ──
+  // ── DIRECT DUPLICATE CHECK - NO RPC ──
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
       // Build query conditions
@@ -923,12 +920,10 @@ export default function Leads() {
         conditions.push(`name.ilike.%${leadData.name.trim()}%`);
       }
       
-      // If no conditions, return false
       if (conditions.length === 0) {
         return { is_duplicate: false };
       }
       
-      // Build the query
       let query = supabase
         .from("leads")
         .select("id, name, email, phone")
@@ -993,7 +988,6 @@ export default function Leads() {
       if (result.success && result.sign_url) {
         setAgreementData(prev => ({ ...prev, [lead.id]: result.agreement }));
         toast.success(`Signing link generated for ${lead.email}`);
-        console.log("Signing link:", result.sign_url);
         logActivity(lead.id, "agreement_sent", `Signing link sent to ${lead.email}`);
       } else {
         toast.error(result.error || "Failed to send agreement");
@@ -1052,7 +1046,6 @@ export default function Leads() {
       
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) {
-        console.error("VITE_SUPABASE_URL is not set!");
         toast.error("Configuration error. Please contact support.");
         setLeegalityLoading(null);
         return;
@@ -1077,7 +1070,6 @@ export default function Leads() {
       const result = await response.json();
       
       if (result.success && result.sign_url) {
-        // Update local state
         const updatedLead = { ...lead, leegality_status: "pending", leegality_document_id: result.document_id };
         setDetailLead(prev => prev?.id === lead.id ? updatedLead : prev);
         setLeads(prev => prev.map(l => l.id === lead.id ? updatedLead : l));
@@ -1136,10 +1128,8 @@ export default function Leads() {
       
       if (error) throw error;
       
-      // Refresh data and update local state
       await fetchLeads();
       
-      // Update detail lead if it's the same
       if (detailLead && detailLead.id === leadId) {
         setDetailLead(null);
       }
@@ -1152,10 +1142,9 @@ export default function Leads() {
     }
   }, [fetchLeads, detailLead, logActivity]);
 
+  // ── Assign Lead ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
-      console.log("🔄 Assigning lead:", id, "to:", assigned_to);
-      
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
       const assign_date = finalAssignedTo ? new Date().toISOString() : null;
       
@@ -1167,17 +1156,10 @@ export default function Leads() {
         })
         .eq("id", id);
         
-      if (error) {
-        console.error("❌ Assignment error:", error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log("✅ Lead assigned successfully:", id, "to:", finalAssignedTo);
-      
-      // Refresh data after assignment
       await fetchLeads();
       
-      // Update detail lead if it's the same
       if (detailLead && detailLead.id === id) {
         const updatedLead = leads.find(l => l.id === id);
         if (updatedLead) setDetailLead(updatedLead);
@@ -1189,7 +1171,6 @@ export default function Leads() {
       toast.success("Lead assigned successfully");
     },
     onError: (e: Error) => {
-      console.error("❌ Assignment mutation error:", e);
       toast.error(e.message || "Failed to assign lead");
     },
   });
@@ -1200,7 +1181,7 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   }, [profiles]);
 
-  // ── FIXED: Update Stage from Detail - NO RPC ──
+  // ── UPDATE STAGE - DIRECT QUERY ──
   const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
     try {
       const updateData: any = { 
@@ -1208,7 +1189,6 @@ export default function Leads() {
         sub_stage: subStage,
       };
       
-      // Auto-update status and business_status based on stage
       if (stage === "converted") {
         updateData.status = "converted";
         updateData.business_status = "done";
@@ -1216,31 +1196,21 @@ export default function Leads() {
         updateData.status = "lost";
         updateData.business_status = "no-go";
       } else {
-        // For other stages, keep existing status or set default
         const lead = leads.find(l => l.id === id);
         if (lead) {
           updateData.status = lead.status || stage;
         }
       }
       
-      console.log("🔄 Updating lead stage:", id, "to:", stage, "with data:", updateData);
-      
       const { error } = await supabase
         .from("leads")
         .update(updateData)
         .eq("id", id);
       
-      if (error) {
-        console.error("❌ Update error:", error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log("✅ Stage updated successfully");
-      
-      // Refresh data
       await fetchLeads();
       
-      // Update detail lead if it's the same
       if (detailLead && detailLead.id === id) {
         const updatedLead = leads.find(l => l.id === id);
         if (updatedLead) {
@@ -1253,7 +1223,7 @@ export default function Leads() {
       toast.success(`Stage updated to ${formatStageLabel(stage)}`);
       logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
     } catch (error: any) {
-      console.error("❌ Stage update error:", error);
+      console.error("Stage update error:", error);
       toast.error(error.message || "Failed to update stage");
     }
   }, [fetchLeads, detailLead, leads, logActivity]);
@@ -1263,7 +1233,7 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   }, [logActivity]);
 
-  // ── FIXED: Add Lead using direct insert - NO RPC ──
+  // ── ADD LEAD - DIRECT QUERY ──
   const handleAddLead = useCallback(async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
@@ -1271,10 +1241,9 @@ export default function Leads() {
     }
     
     try {
-      // Check for duplicate first
       const duplicate = await checkForDuplicate(form);
       if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists with same email/phone`);
+        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists`);
         return;
       }
       
@@ -1310,7 +1279,7 @@ export default function Leads() {
     }
   }, [form, fetchLeads, checkForDuplicate]);
 
-  // ── Filtered leads with useMemo for performance ──
+  // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
     return leads.filter(l => {
       const matchSearch =
@@ -1362,7 +1331,6 @@ export default function Leads() {
     return filtered.slice(start, end);
   }, [filtered, currentPage, itemsPerPage]);
 
-  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [filtered.length]);
@@ -1424,16 +1392,15 @@ export default function Leads() {
         })).filter((r: any) => r.name);
         setUploadPreview(mapped);
         if (mapped.length === 0)
-          toast.error("No valid leads found. Ensure columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature");
+          toast.error("No valid leads found");
       } catch (error) {
-        console.error("File parse error:", error);
-        toast.error("Failed to parse file. Please upload a valid Excel or CSV file.");
+        toast.error("Failed to parse file");
       }
     };
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── FIXED: Bulk Import with duplicate check - NO RPC ──
+  // ── Bulk Import ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1443,7 +1410,6 @@ export default function Leads() {
     
     for (const lead of uploadPreview) {
       try {
-        // Check for duplicates using direct query
         const duplicate = await checkForDuplicate(lead);
         
         if (duplicate && duplicate.is_duplicate) {
@@ -1457,7 +1423,6 @@ export default function Leads() {
           continue;
         }
         
-        // Insert lead
         const { error } = await supabase
           .from("leads")
           .insert({
@@ -1510,15 +1475,14 @@ export default function Leads() {
     }
   }, [uploadPreview, checkForDuplicate, fetchLeads]);
 
-  // ── Handle Update - NO RPC ──
+  // ── UPDATE LEAD - DIRECT QUERY ──
   const handleUpdate = useCallback(async () => {
     if (!editLead) return;
     
     try {
-      // Check for duplicates first
       const duplicate = await checkForDuplicate(editLead, editLead.id);
       if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists with same email/phone`);
+        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists`);
         return;
       }
       
@@ -1556,6 +1520,7 @@ export default function Leads() {
     }
   }, [editLead, logActivity, fetchLeads, checkForDuplicate]);
 
+  // ── DELETE LEAD - DIRECT QUERY ──
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
     try {
@@ -1609,7 +1574,7 @@ export default function Leads() {
     setCurrentPage(1);
   }, []);
 
-  // ── Temperature update in detail view ──
+  // ── Temperature update ──
   const handleTemperatureUpdate = useCallback(async (leadId: string, temperature: string) => {
     try {
       const { error } = await supabase
@@ -1621,7 +1586,6 @@ export default function Leads() {
       
       await fetchLeads();
       
-      // Update detail lead if it's the same
       if (detailLead && detailLead.id === leadId) {
         const updatedLead = leads.find(l => l.id === leadId);
         if (updatedLead) setDetailLead(updatedLead);
@@ -1634,7 +1598,7 @@ export default function Leads() {
     }
   }, [fetchLeads, detailLead, leads, logActivity]);
 
-  // ── Memoized stats ──
+  // ── Stats ──
   const stats = useMemo(() => {
     const totalLeads = leads.length;
     const totalValue = leads.reduce((s, l) => s + (l.value || 0), 0);
@@ -1704,7 +1668,7 @@ export default function Leads() {
                     Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
                   </p>
                   <p className="text-xs text-amber-600 mb-2">
-                    ⚠️ Duplicate leads (based on email/phone/name) will be automatically skipped
+                    ⚠️ Duplicate leads will be automatically skipped
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
@@ -1738,7 +1702,7 @@ export default function Leads() {
               </div>
               <DialogFooter>
                 <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads (Duplicates will be skipped)`}
+                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1830,15 +1794,14 @@ export default function Leads() {
                   <Label>CX Comment</Label>
                   <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
-                <Button onClick={handleAddLead} className="mt-2 sm:col-span-2">
-                  Add Lead
-                </Button>
+                <Button onClick={handleAddLead} className="mt-2 sm:col-span-2">Add Lead</Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
+      {/* Stats Cards */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
           <CardContent className="p-4">
@@ -1852,7 +1815,6 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{stats.totalLeads}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
               </div>
             </div>
           </CardContent>
@@ -1870,7 +1832,6 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.hotCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Hot Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>High priority</p>
               </div>
             </div>
           </CardContent>
@@ -1888,7 +1849,6 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.warmCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Warm Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>Medium priority</p>
               </div>
             </div>
           </CardContent>
@@ -1906,7 +1866,6 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.coldCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Cold Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>Low priority</p>
               </div>
             </div>
           </CardContent>
@@ -1971,6 +1930,7 @@ export default function Leads() {
         onTemperatureFilterChange={setTemperatureFilter}
       />
 
+      {/* Stage Filter */}
       <Card>
         <CardContent className="p-4">
           <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: "#374151" }}>Stages</p>
@@ -2003,6 +1963,7 @@ export default function Leads() {
         </CardContent>
       </Card>
 
+      {/* Main Table */}
       <Card className="sticky top-0 z-20 shadow-md">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap gap-2">
@@ -2077,7 +2038,7 @@ export default function Leads() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" onClick={handleBulkAssign} disabled={bulkAssign.isPending}>
+              <Button size="sm" onClick={handleBulkAssign}>
                 <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
@@ -2215,6 +2176,7 @@ export default function Leads() {
 
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
 
+      {/* Lead Detail Dialog */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -2298,6 +2260,7 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Dialog */}
       <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
