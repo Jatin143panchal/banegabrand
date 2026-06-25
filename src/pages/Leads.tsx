@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
   Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
   MessageCircle, Calendar, TrendingUp, BarChart3, AlarmClock, Flag, XCircle,
-  AlertTriangle, FileSignature, Flame, Snowflake, Sun
+  AlertTriangle, FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -42,7 +42,6 @@ const LEAD_STAGES = [
   { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
 
-// ── Lead Temperature Status ──────────────────────────────────────────────────
 const LEAD_TEMPERATURE = [
   { value: "hot",   label: "🔥 Hot",   color: "#ef4444", bg: "#fef2f2" },
   { value: "warm",  label: "☀️ Warm",  color: "#f97316", bg: "#fff7ed" },
@@ -805,9 +804,11 @@ export default function Leads() {
   // ── State ──
   const [leads, setLeads] = useState<DbLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(50);
   
   // ── Fetch leads function ──
-  const fetchLeads = async () => {
+  const fetchLeads = useCallback(async () => {
     try {
       setIsLoading(true);
       const { data, error } = await supabase
@@ -825,14 +826,14 @@ export default function Leads() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
   
   // ── Initial fetch ──
   useEffect(() => {
     fetchLeads();
-  }, []);
+  }, [fetchLeads]);
   
-  // ── Real-time subscription ──
+  // ── Real-time subscription with optimized updates ──
   useEffect(() => {
     const channel = supabase
       .channel('leads-changes')
@@ -843,9 +844,17 @@ export default function Leads() {
           schema: 'public',
           table: 'leads'
         },
-        () => {
-          // Refetch leads when any change occurs
-          fetchLeads();
+        (payload) => {
+          // Optimized real-time updates
+          if (payload.eventType === 'INSERT') {
+            setLeads(prev => [payload.new as DbLead, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setLeads(prev => prev.map(lead => 
+              lead.id === payload.new.id ? payload.new as DbLead : lead
+            ));
+          } else if (payload.eventType === 'DELETE') {
+            setLeads(prev => prev.filter(lead => lead.id !== payload.old.id));
+          }
         }
       )
       .subscribe();
@@ -900,7 +909,7 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  const checkForDuplicate = async (leadData: any, excludeId?: string) => {
+  const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
       const { data, error } = await supabase.rpc('check_duplicate_lead', {
         p_email: leadData.email || null,
@@ -916,9 +925,9 @@ export default function Leads() {
       console.error("Error checking duplicate:", error);
       return null;
     }
-  };
+  }, []);
 
-  const handleSendAgreement = async (lead: DbLead) => {
+  const handleSendAgreement = useCallback(async (lead: DbLead) => {
     if (!lead.email) {
       toast.error("Client email is required to send agreement");
       return;
@@ -962,9 +971,9 @@ export default function Leads() {
     } finally {
       setSendingAgreement(null);
     }
-  };
+  }, [logActivity]);
 
-  const fetchAgreementStatus = async (leadId: string) => {
+  const fetchAgreementStatus = useCallback(async (leadId: string) => {
     try {
       const { data, error } = await supabase
         .from("agreements")
@@ -980,9 +989,9 @@ export default function Leads() {
     } catch (error) {
       // No agreement found - ignore
     }
-  };
+  }, []);
 
-  const handleLeegalitySign = async (leadId: string) => {
+  const handleLeegalitySign = useCallback(async (leadId: string) => {
     const lead = leads.find(l => l.id === leadId);
     if (!lead) {
       toast.error("Lead not found");
@@ -1056,7 +1065,7 @@ export default function Leads() {
       setLeegalityLoading(null);
       setLeegalitySignDialog(null);
     }
-  };
+  }, [leads, logActivity]);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -1069,16 +1078,16 @@ export default function Leads() {
       }
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, []);
+  }, [fetchLeads, fetchAgreementStatus]);
 
   useEffect(() => {
     if (detailLead?.id) {
       fetchAgreementStatus(detailLead.id);
     }
-  }, [detailLead?.id]);
+  }, [detailLead?.id, fetchAgreementStatus]);
 
-  // ── FIXED: Mark Lead as Lost ──
-  const markLeadAsLost = async (leadId: string, reason: string) => {
+  // ── Mark Lead as Lost ──
+  const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
     try {
       const lostDate = new Date().toISOString();
       const { error } = await supabase
@@ -1108,7 +1117,7 @@ export default function Leads() {
     } catch (error: any) {
       toast.error(error.message);
     }
-  };
+  }, [fetchLeads, detailLead, logActivity]);
 
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
@@ -1152,25 +1161,32 @@ export default function Leads() {
     },
   });
 
-  const getProfileName = (userId: string | null) => {
+  const getProfileName = useCallback((userId: string | null) => {
     if (!userId) return "Unassigned";
     const p = (profiles as { user_id: string; display_name: string | null }[]).find(p => p.user_id === userId);
     return p?.display_name || "Unknown";
-  };
+  }, [profiles]);
 
-  // ── FIXED: Update Stage from Detail ──
-  const handleUpdateStageFromDetail = async (id: string, stage: string, subStage: string) => {
+  // ── Update Stage from Detail ──
+  const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
     try {
+      const updateData: any = { 
+        stage, 
+        sub_stage: subStage,
+      };
+      
+      // Auto-update status based on stage
+      if (stage === "converted") {
+        updateData.status = "converted";
+        updateData.business_status = "done";
+      } else if (stage === "lost") {
+        updateData.status = "lost";
+        updateData.business_status = "no-go";
+      }
+      
       const { error } = await supabase
         .from("leads")
-        .update({ 
-          stage, 
-          sub_stage: subStage,
-          // If stage is converted, update status too
-          ...(stage === "converted" ? { status: "converted" } : {}),
-          // If stage is lost, update status too
-          ...(stage === "lost" ? { status: "lost" } : {})
-        })
+        .update(updateData)
         .eq("id", id);
       
       if (error) throw error;
@@ -1189,19 +1205,19 @@ export default function Leads() {
         }
       }
       
-      toast.success("Stage updated");
+      toast.success(`Stage updated to ${formatStageLabel(stage)}`);
       logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
     } catch (error: any) {
       toast.error(error.message);
     }
-  };
+  }, [fetchLeads, detailLead, leads, logActivity]);
 
-  const openLeadDetail = (lead: DbLead) => {
+  const openLeadDetail = useCallback((lead: DbLead) => {
     setDetailLead(lead);
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
-  };
+  }, [logActivity]);
 
-  const handleAddLead = async () => {
+  const handleAddLead = useCallback(async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
       return; 
@@ -1222,57 +1238,75 @@ export default function Leads() {
     } catch (error: any) {
       toast.error(error.message);
     }
-  };
+  }, [form, insertLead, fetchLeads]);
 
-  const filtered = leads.filter(l => {
-    const matchSearch =
-      l.name.toLowerCase().includes(search.toLowerCase()) ||
-      (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
-      (l.phone || "").includes(search) ||
-      (l.email || "").toLowerCase().includes(search.toLowerCase());
-    const matchStatus     = filterStatus === "all"     || l.status === filterStatus;
-    const matchStage      = filterStage === "all"      || l.stage === filterStage;
-    const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
-    const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
-    const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature;
-    const matchTemperatureFilter = temperatureFilter === "all" || l.temperature === temperatureFilter;
-    const matchAssignment =
-      filterAssignment === "all" ||
-      (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
-      (filterAssignment === "unassigned" && !l.assigned_to);
-    const matchEmployee =
-      employeeFilter === null ||
-      (employeeFilter === "unassigned" && !l.assigned_to) ||
-      l.assigned_to === employeeFilter;
-    const matchEmployeeFilter2 =
-      filterEmployee === "all" ||
-      (filterEmployee === "unassigned" && !l.assigned_to) ||
-      l.assigned_to === filterEmployee;
-    const matchStatusFilter = statusFilter === null || l.status === statusFilter;
-    const matchPreset =
-      filterPreset === "all" ||
-      (filterPreset === "today"    && isToday(new Date(l.created_at))) ||
-      (filterPreset === "fresh"    && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
-      (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
-    const createdAt = new Date(l.created_at);
-    const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
-    const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
-    return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
-           matchAssignment && matchEmployee && matchEmployeeFilter2 && matchPreset && 
-           matchDateFrom && matchDateTo && matchTemperature && matchStatusFilter &&
-           matchTemperatureFilter;
-  });
+  // ── Filtered leads with useMemo for performance ──
+  const filtered = useMemo(() => {
+    return leads.filter(l => {
+      const matchSearch =
+        l.name.toLowerCase().includes(search.toLowerCase()) ||
+        (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
+        (l.phone || "").includes(search) ||
+        (l.email || "").toLowerCase().includes(search.toLowerCase());
+      const matchStatus     = filterStatus === "all"     || l.status === filterStatus;
+      const matchStage      = filterStage === "all"      || l.stage === filterStage;
+      const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
+      const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
+      const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature;
+      const matchTemperatureFilter = temperatureFilter === "all" || l.temperature === temperatureFilter;
+      const matchAssignment =
+        filterAssignment === "all" ||
+        (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
+        (filterAssignment === "unassigned" && !l.assigned_to);
+      const matchEmployee =
+        employeeFilter === null ||
+        (employeeFilter === "unassigned" && !l.assigned_to) ||
+        l.assigned_to === employeeFilter;
+      const matchEmployeeFilter2 =
+        filterEmployee === "all" ||
+        (filterEmployee === "unassigned" && !l.assigned_to) ||
+        l.assigned_to === filterEmployee;
+      const matchStatusFilter = statusFilter === null || l.status === statusFilter;
+      const matchPreset =
+        filterPreset === "all" ||
+        (filterPreset === "today"    && isToday(new Date(l.created_at))) ||
+        (filterPreset === "fresh"    && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
+        (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
+      const createdAt = new Date(l.created_at);
+      const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
+      const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
+      return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
+             matchAssignment && matchEmployee && matchEmployeeFilter2 && matchPreset && 
+             matchDateFrom && matchDateTo && matchTemperature && matchStatusFilter &&
+             matchTemperatureFilter;
+    });
+  }, [leads, search, filterStatus, filterStage, filterAssignment, filterEmployee, 
+      filterLeadType, filterBudget, filterTemperature, dateFrom, dateTo, 
+      filterPreset, employeeFilter, statusFilter, temperatureFilter, user]);
 
-  const toggleSelect = (id: string) => {
+  // ── Pagination ──
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const currentItems = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return filtered.slice(start, end);
+  }, [filtered, currentPage, itemsPerPage]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtered.length]);
+
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  // ── FIXED: Bulk Assign ──
-  const handleBulkAssign = async () => {
+  // ── Bulk Assign ──
+  const handleBulkAssign = useCallback(async () => {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     try {
       const assign_date = new Date().toISOString();
@@ -1290,9 +1324,9 @@ export default function Leads() {
     } catch (e: unknown) { 
       toast.error(e instanceof Error ? e.message : "Assign failed"); 
     }
-  };
+  }, [selectedIds, bulkAssignTo, fetchLeads]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1324,10 +1358,10 @@ export default function Leads() {
       } catch { toast.error("Failed to parse file. Please upload a valid Excel or CSV file."); }
     };
     reader.readAsBinaryString(file);
-  };
+  }, []);
 
-  // ── FIXED: Bulk Import with duplicate check ──
-  const handleBulkImport = async () => {
+  // ── Bulk Import with duplicate check ──
+  const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
     let success = 0;
@@ -1382,10 +1416,10 @@ export default function Leads() {
     } else {
       toast.success(`${success} leads imported successfully!`);
     }
-  };
+  }, [uploadPreview, checkForDuplicate, insertLead, fetchLeads]);
 
-  // ── FIXED: Handle Update ──
-  const handleUpdate = async () => {
+  // ── Handle Update ──
+  const handleUpdate = useCallback(async () => {
     if (!editLead) return;
     
     try {
@@ -1416,17 +1450,17 @@ export default function Leads() {
     } catch (error: any) {
       toast.error(error.message);
     }
-  };
+  }, [editLead, updateLead, logActivity, fetchLeads]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
     await deleteLead.mutateAsync(id);
     setDetailLead(null);
     toast.success("Lead deleted");
     await fetchLeads();
-  };
+  }, [deleteLead, fetchLeads]);
 
-  const handleExport = () => {
+  const handleExport = useCallback(() => {
     const exportData = leads.map(l => ({
       Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
       "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
@@ -1447,9 +1481,9 @@ export default function Leads() {
     XLSX.utils.book_append_sheet(wb, ws, "Leads");
     XLSX.writeFile(wb, "leads_export.xlsx");
     toast.success("Leads exported!");
-  };
+  }, [leads, getProfileName]);
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSearch(""); setFilterStatus("all"); setFilterStage("all");
     setFilterAssignment("all"); setFilterEmployee("all");
     setFilterLeadType("all"); setFilterBudget("all");
@@ -1458,10 +1492,11 @@ export default function Leads() {
     setEmployeeFilter(null);
     setStatusFilter(null);
     setTemperatureFilter("all");
-  };
+    setCurrentPage(1);
+  }, []);
 
-  // ── FIXED: Temperature update in detail view ──
-  const handleTemperatureUpdate = async (leadId: string, temperature: string) => {
+  // ── Temperature update in detail view ──
+  const handleTemperatureUpdate = useCallback(async (leadId: string, temperature: string) => {
     try {
       const { error } = await supabase
         .from("leads")
@@ -1483,7 +1518,19 @@ export default function Leads() {
     } catch (error: any) {
       toast.error(error.message);
     }
-  };
+  }, [fetchLeads, detailLead, leads, logActivity]);
+
+  // ── Memoized stats ──
+  const stats = useMemo(() => {
+    const totalLeads = leads.length;
+    const totalValue = leads.reduce((s, l) => s + (l.value || 0), 0);
+    const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
+    const lostCount = leads.filter(l => l.stage === "lost").length;
+    const hotCount = leads.filter(l => l.temperature === "hot").length;
+    const warmCount = leads.filter(l => l.temperature === "warm").length;
+    const coldCount = leads.filter(l => l.temperature === "cold").length;
+    return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount };
+  }, [leads]);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -1492,14 +1539,6 @@ export default function Leads() {
   );
 
   const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
-
-  const totalLeads = leads.length;
-  const totalValue    = leads.reduce((s, l) => s + (l.value || 0), 0);
-  const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
-  const lostCount = leads.filter(l => l.stage === "lost").length;
-  const hotCount = leads.filter(l => l.temperature === "hot").length;
-  const warmCount = leads.filter(l => l.temperature === "warm").length;
-  const coldCount = leads.filter(l => l.temperature === "cold").length;
 
   return (
     <div className="space-y-5">
@@ -1697,7 +1736,7 @@ export default function Leads() {
                 <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{totalLeads}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{stats.totalLeads}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
               </div>
@@ -1715,7 +1754,7 @@ export default function Leads() {
                 <Flame style={{ color: "#ef4444", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{hotCount}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.hotCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Hot Leads</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>High priority</p>
               </div>
@@ -1733,7 +1772,7 @@ export default function Leads() {
                 <Sun style={{ color: "#f97316", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{warmCount}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.warmCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Warm Leads</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>Medium priority</p>
               </div>
@@ -1751,7 +1790,7 @@ export default function Leads() {
                 <Snowflake style={{ color: "#3b82f6", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{coldCount}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.coldCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Cold Leads</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>Low priority</p>
               </div>
@@ -1769,10 +1808,10 @@ export default function Leads() {
                 <TrendingUp style={{ color: "#10b981", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{convertedCount}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{stats.convertedCount}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Converted</p>
                 <p style={{ fontSize: 11, color: "#94a3b8" }}>
-                  {totalLeads > 0 ? ((convertedCount / totalLeads) * 100).toFixed(1) : 0}% rate
+                  {stats.totalLeads > 0 ? ((stats.convertedCount / stats.totalLeads) * 100).toFixed(1) : 0}% rate
                 </p>
               </div>
             </div>
@@ -1948,84 +1987,115 @@ export default function Leads() {
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-12">No leads found. Add your first lead or import from Excel!</p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
-                    <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
-                    <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
-                    <TableHead>Temperature</TableHead><TableHead>Assigned To</TableHead>
-                    <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
-                    <TableHead className="hidden lg:table-cell">Budget</TableHead><TableHead>Lead Score</TableHead>
-                    <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead><TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map(lead => {
-                    const score = getLeadScore(lead);
-                    const assignee = getProfileName(lead.assigned_to);
-                    const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
-                    return (
-                      <TableRow key={lead.id} style={{ verticalAlign: "middle" }}>
-                        <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>
-                        <TableCell><div style={{ display: "flex", alignItems: "center", gap: 8 }}><p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details"><Eye className="h-3 w-3" /></Button></div></TableCell>
-                        <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
-                        <TableCell>{lead.phone ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a> : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a> : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}</TableCell>
-                        <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
-                        <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2 min-w-[140px]">
-                            {lead.assigned_to && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
-                                  {getInitials(assignee)}
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
+                      <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
+                      <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
+                      <TableHead>Temperature</TableHead><TableHead>Assigned To</TableHead>
+                      <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
+                      <TableHead className="hidden lg:table-cell">Budget</TableHead><TableHead>Lead Score</TableHead>
+                      <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead><TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {currentItems.map(lead => {
+                      const score = getLeadScore(lead);
+                      const assignee = getProfileName(lead.assigned_to);
+                      const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
+                      return (
+                        <TableRow key={lead.id} style={{ verticalAlign: "middle" }}>
+                          <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>
+                          <TableCell><div style={{ display: "flex", alignItems: "center", gap: 8 }}><p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details"><Eye className="h-3 w-3" /></Button></div></TableCell>
+                          <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
+                          <TableCell>{lead.phone ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a> : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}</TableCell>
+                          <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a> : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}</TableCell>
+                          <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
+                          <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 min-w-[140px]">
+                              {lead.assigned_to && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                                    {getInitials(assignee)}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                            <Select 
-                              value={lead.assigned_to || "unassigned"} 
-                              onValueChange={(v) => {
-                                assignLead.mutate({ id: lead.id, assigned_to: v });
-                              }}
-                            >
-                              <SelectTrigger className="w-[120px] h-7 text-xs">
-                                <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
-                                  {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {typedProfiles.map(p => (
-                                  <SelectItem key={p.user_id} value={p.user_id}>
-                                    {p.display_name || "Unknown"}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
-                        <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>{lead.budget || "-"}</TableCell>
-                        <TableCell><ScoreBadge score={score} /></TableCell>
-                        <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
-                        <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>{lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}</TableCell>
-                        <TableCell><div style={{ display: "flex", gap: 2 }}>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
-                          {lead.stage !== "lost" && lead.stage !== "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setLostLeadDialog(lead)} title="Mark as Lost"><Flag className="h-3.5 w-3.5" /></Button>)}
-                          {lead.stage === "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-green-600" onClick={() => setLeegalitySignDialog(lead)} title="eSign via Leegality" disabled={leegalityLoading === lead.id}>{leegalityLoading === lead.id ? (<Loader2 className="h-3.5 w-3.5 animate-spin" />) : (<FileSignature className="h-3.5 w-3.5" />)}</Button>)}
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete"><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div></TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                              )}
+                              <Select 
+                                value={lead.assigned_to || "unassigned"} 
+                                onValueChange={(v) => {
+                                  assignLead.mutate({ id: lead.id, assigned_to: v });
+                                }}
+                              >
+                                <SelectTrigger className="w-[120px] h-7 text-xs">
+                                  <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
+                                    {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                                  {typedProfiles.map(p => (
+                                    <SelectItem key={p.user_id} value={p.user_id}>
+                                      {p.display_name || "Unknown"}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
+                          <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>{lead.budget || "-"}</TableCell>
+                          <TableCell><ScoreBadge score={score} /></TableCell>
+                          <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
+                          <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>{lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}</TableCell>
+                          <TableCell><div style={{ display: "flex", gap: 2 }}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
+                            {lead.stage !== "lost" && lead.stage !== "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setLostLeadDialog(lead)} title="Mark as Lost"><Flag className="h-3.5 w-3.5" /></Button>)}
+                            {lead.stage === "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-green-600" onClick={() => setLeegalitySignDialog(lead)} title="eSign via Leegality" disabled={leegalityLoading === lead.id}>{leegalityLoading === lead.id ? (<Loader2 className="h-3.5 w-3.5 animate-spin" />) : (<FileSignature className="h-3.5 w-3.5" />)}</Button>)}
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete"><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div></TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length} leads
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm font-medium">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
-          {filtered.length > 0 && (<p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>Showing 1 to {Math.min(filtered.length, 50)} of {filtered.length} leads</p>)}
         </CardContent>
       </Card>
 
