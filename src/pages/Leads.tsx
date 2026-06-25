@@ -504,7 +504,8 @@ function EmployeeFilterSection({
   onSelectStatus,
   selectedStatus,
   temperatureFilter,
-  onTemperatureFilterChange
+  onTemperatureFilterChange,
+  isAdmin // 👈 New prop
 }: {
   profiles: { user_id: string; display_name: string | null }[];
   leads: DbLead[];
@@ -516,6 +517,7 @@ function EmployeeFilterSection({
   selectedStatus: string | null;
   temperatureFilter: string;
   onTemperatureFilterChange: (value: string) => void;
+  isAdmin: boolean; // 👈 New prop
 }) {
   const [searchEmployee, setSearchEmployee] = useState("");
   
@@ -802,6 +804,11 @@ export default function Leads() {
   const logActivity = useLeadActivityLogger();
   const queryClient = useQueryClient();
   
+  // 👇 Check if current user is admin (check by email or role)
+  const isAdmin = user?.email !== "lavika.banegabrand@gmail.com";// Update with Lavika's email
+  // OR if you have a role field:
+  // const isAdmin = user?.role === "admin";
+  
   // ── FIX: Use a direct query with proper cache management ──
   const [leads, setLeads] = useState<DbLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -854,9 +861,7 @@ export default function Leads() {
         },
         (payload) => {
           console.log("📡 Real-time update received:", payload);
-          // Refetch leads when any change occurs
           fetchLeads();
-          // Also show a toast notification for updates
           if (payload.eventType === 'INSERT') {
             toast.info(`New lead added: ${(payload.new as any)?.name || 'Unknown'}`, {
               duration: 3000,
@@ -1200,7 +1205,6 @@ export default function Leads() {
       setForm(emptyForm);
       setDialogOpen(false);
       toast.success(`✅ Lead "${form.name}" added successfully!`);
-      // Force refresh
       refreshLeads();
     } catch (error: any) {
       console.error("❌ Error adding lead:", error);
@@ -1256,6 +1260,12 @@ export default function Leads() {
   };
 
   const handleBulkAssign = async () => {
+    // 👇 Only admin can bulk assign
+    if (!isAdmin) {
+      toast.error("You don't have permission to bulk assign leads");
+      return;
+    }
+    
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     try {
       const assign_date = new Date().toISOString();
@@ -1271,6 +1281,12 @@ export default function Leads() {
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 👇 Only admin can upload
+    if (!isAdmin) {
+      toast.error("You don't have permission to import leads");
+      return;
+    }
+    
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1305,6 +1321,12 @@ export default function Leads() {
   };
 
   const handleBulkImport = async () => {
+    // 👇 Only admin can import
+    if (!isAdmin) {
+      toast.error("You don't have permission to import leads");
+      return;
+    }
+    
     if (uploadPreview.length === 0) return;
     setUploading(true);
     let success = 0;
@@ -1379,6 +1401,12 @@ export default function Leads() {
   };
 
   const handleDelete = async (id: string) => {
+    // 👇 Only admin can delete
+    if (!isAdmin) {
+      toast.error("You don't have permission to delete leads");
+      return;
+    }
+    
     if (!confirm("Delete this lead?")) return;
     await deleteLead.mutateAsync(id);
     setDetailLead(null);
@@ -1461,71 +1489,76 @@ export default function Leads() {
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />Export Excel
           </Button>
-          <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <FileSpreadsheet className="h-5 w-5" />
-                    Import Leads from Excel/CSV
-                  </span>
-                  <Button variant="outline" size="sm" onClick={downloadExcelTemplate}>
-                    <Download className="mr-2 h-3 w-3" />
-                    Download Template
-                  </Button>
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                  <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
-                  </p>
-                  <p className="text-xs text-amber-600 mb-2">
-                    ⚠️ Duplicate leads (based on email/phone/name) will be automatically skipped
-                  </p>
-                  <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
-                </div>
-                {uploadPreview.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium">{uploadPreview.length} leads found in file</p>
-                      <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
-                    </div>
-                    <div className="max-h-60 overflow-auto rounded border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Temperature</TableHead></TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {uploadPreview.slice(0, 10).map((r, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="text-sm">{r.name}</TableCell>
-                              <TableCell className="text-sm">{r.email}</TableCell>
-                              <TableCell className="text-sm">{r.phone}</TableCell>
-                              <TableCell className="text-sm">{r.company}</TableCell>
-                              <TableCell className="text-sm">{r.temperature || "Warm"}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                      {uploadPreview.length > 10 && <p className="text-xs text-muted-foreground text-center py-2">...and {uploadPreview.length - 10} more</p>}
-                    </div>
+          
+          {/* 👇 Import button - only for admin */}
+          {isAdmin && (
+            <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <FileSpreadsheet className="h-5 w-5" />
+                      Import Leads from Excel/CSV
+                    </span>
+                    <Button variant="outline" size="sm" onClick={downloadExcelTemplate}>
+                      <Download className="mr-2 h-3 w-3" />
+                      Download Template
+                    </Button>
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                    <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
+                    </p>
+                    <p className="text-xs text-amber-600 mb-2">
+                      ⚠️ Duplicate leads (based on email/phone/name) will be automatically skipped
+                    </p>
+                    <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                   </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads (Duplicates will be skipped)`}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                  {uploadPreview.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-medium">{uploadPreview.length} leads found in file</p>
+                        <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
+                      </div>
+                      <div className="max-h-60 overflow-auto rounded border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Temperature</TableHead></TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {uploadPreview.slice(0, 10).map((r, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="text-sm">{r.name}</TableCell>
+                                <TableCell className="text-sm">{r.email}</TableCell>
+                                <TableCell className="text-sm">{r.phone}</TableCell>
+                                <TableCell className="text-sm">{r.company}</TableCell>
+                                <TableCell className="text-sm">{r.temperature || "Warm"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                        {uploadPreview.length > 10 && <p className="text-xs text-muted-foreground text-center py-2">...and {uploadPreview.length - 10} more</p>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
+                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads (Duplicates will be skipped)`}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
 
+          {/* 👇 Add Lead button - visible to all */}
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm"><Plus className="mr-2 h-4 w-4" />+ Add Lead</Button>
@@ -1627,9 +1660,7 @@ export default function Leads() {
           style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer" }} 
           className="hover:shadow-md transition-shadow hover:border-primary"
           onClick={() => {
-            // Clear all filters to show all leads
             clearFilters();
-            // Scroll to the table
             document.querySelector('.sticky')?.scrollIntoView({ behavior: 'smooth' });
             toast.info(`Showing all ${totalLeads} leads`);
           }}
@@ -1725,7 +1756,8 @@ export default function Leads() {
           </CardContent>
         </Card>
 
-        {canAssign && typedProfiles.length > 0 && (
+        {/* 👇 Employee leads section - only for admin */}
+        {isAdmin && canAssign && typedProfiles.length > 0 && (
           <Card style={{ flex: 1, minWidth: 300 }}>
             <CardContent className="p-4">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1762,6 +1794,7 @@ export default function Leads() {
         selectedStatus={statusFilter}
         temperatureFilter={temperatureFilter}
         onTemperatureFilterChange={setTemperatureFilter}
+        isAdmin={isAdmin}
       />
 
       <Card>
@@ -1859,7 +1892,8 @@ export default function Leads() {
             </Select>
           </div>
 
-          {selectedIds.size > 0 && (
+          {/* 👇 Bulk assign - only for admin */}
+          {isAdmin && selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
               <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
               <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
@@ -1898,13 +1932,29 @@ export default function Leads() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
+                    {/* 👇 Checkbox - only for admin */}
+                    {isAdmin && (
+                      <TableHead className="w-10">
+                        <Checkbox 
+                          checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} 
+                          onCheckedChange={() => { 
+                            const all = filtered.every(l => selectedIds.has(l.id)); 
+                            setSelectedIds(prev => { 
+                              const next = new Set(prev); 
+                              filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); 
+                              return next; 
+                            }); 
+                          }} 
+                        />
+                      </TableHead>
+                    )}
                     <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
                     <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
                     <TableHead>Temperature</TableHead><TableHead>Assigned To</TableHead>
                     <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
                     <TableHead className="hidden lg:table-cell">Budget</TableHead><TableHead>Lead Score</TableHead>
-                    <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead><TableHead>Actions</TableHead>
+                    <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1914,56 +1964,136 @@ export default function Leads() {
                     const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
                     return (
                       <TableRow key={lead.id} style={{ verticalAlign: "middle" }}>
-                        <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>
-                        <TableCell><div style={{ display: "flex", alignItems: "center", gap: 8 }}><p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details"><Eye className="h-3 w-3" /></Button></div></TableCell>
+                        {/* 👇 Checkbox - only for admin */}
+                        {isAdmin && (
+                          <TableCell>
+                            <Checkbox 
+                              checked={selectedIds.has(lead.id)} 
+                              onCheckedChange={() => toggleSelect(lead.id)} 
+                            />
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <p style={{ fontWeight: 600, fontSize: 13 }}>{lead.name}</p>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details">
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
                         <TableCell style={{ fontSize: 13, color: "#374151" }}>{lead.company || "-"}</TableCell>
-                        <TableCell>{lead.phone ? <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>{lead.phone}</a> : <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>}</TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>{lead.email}</a> : <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>}</TableCell>
+                        <TableCell>
+                          {lead.phone ? (
+                            <a href={`tel:${lead.phone}`} style={{ fontSize: 13, color: "#3b82f6", textDecoration: "none" }}>
+                              {lead.phone}
+                            </a>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontSize: 13 }}>-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {lead.email ? (
+                            <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: "#64748b", textDecoration: "none" }}>
+                              {lead.email}
+                            </a>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontSize: 12 }}>-</span>
+                          )}
+                        </TableCell>
                         <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                         <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2 min-w-[140px]">
                             {lead.assigned_to && (
                               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: assigneeColor, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                                <div style={{ 
+                                  width: 24, height: 24, borderRadius: "50%", 
+                                  background: assigneeColor, display: "flex", 
+                                  alignItems: "center", justifyContent: "center", 
+                                  color: "white", fontSize: 9, fontWeight: 700, flexShrink: 0 
+                                }}>
                                   {getInitials(assignee)}
                                 </div>
                               </div>
                             )}
-                            <Select 
-                              value={lead.assigned_to || "unassigned"} 
-                              onValueChange={(v) => {
-                                assignLead.mutate({ id: lead.id, assigned_to: v });
-                              }}
-                            >
-                              <SelectTrigger className="w-[120px] h-7 text-xs">
-                                <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
-                                  {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {typedProfiles.map(p => (
-                                  <SelectItem key={p.user_id} value={p.user_id}>
-                                    {p.display_name || "Unknown"}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {/* 👇 Assignment dropdown - only for admin */}
+                            {isAdmin ? (
+                              <Select 
+                                value={lead.assigned_to || "unassigned"} 
+                                onValueChange={(v) => {
+                                  assignLead.mutate({ id: lead.id, assigned_to: v });
+                                }}
+                              >
+                                <SelectTrigger className="w-[120px] h-7 text-xs">
+                                  <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
+                                    {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                                  {typedProfiles.map(p => (
+                                    <SelectItem key={p.user_id} value={p.user_id}>
+                                      {p.display_name || "Unknown"}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {assignee}
+                              </span>
+                            )}
                           </div>
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 8, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}>{lead.lead_type}</span>) : "-"}</TableCell>
-                        <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>{lead.budget || "-"}</TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {lead.lead_type ? (
+                            <span style={{ 
+                              fontSize: 11, padding: "2px 8px", borderRadius: 8, 
+                              background: "#f1f5f9", color: "#475569", fontWeight: 500 
+                            }}>
+                              {lead.lead_type}
+                            </span>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell" style={{ fontSize: 13, color: "#374151" }}>
+                          {lead.budget || "-"}
+                        </TableCell>
                         <TableCell><ScoreBadge score={score} /></TableCell>
-                        <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
-                        <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>{lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}</TableCell>
-                        <TableCell><div style={{ display: "flex", gap: 2 }}>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
-                          {lead.stage !== "lost" && lead.stage !== "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setLostLeadDialog(lead)} title="Mark as Lost"><Flag className="h-3.5 w-3.5" /></Button>)}
-                          {lead.stage === "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-green-600" onClick={() => setLeegalitySignDialog(lead)} title="eSign via Leegality" disabled={leegalityLoading === lead.id}>{leegalityLoading === lead.id ? (<Loader2 className="h-3.5 w-3.5 animate-spin" />) : (<FileSignature className="h-3.5 w-3.5" />)}</Button>)}
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete"><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div></TableCell>
+                        <TableCell style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                          {format(new Date(lead.created_at), "dd MMM yyyy")}
+                        </TableCell>
+                        <TableCell className="hidden xl:table-cell" style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                          {lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <div style={{ display: "flex", gap: 2 }}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View">
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            {/* 👇 Edit button - only for admin */}
+                            {isAdmin && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit">
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {lead.stage !== "lost" && lead.stage !== "converted" && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => setLostLeadDialog(lead)} title="Mark as Lost">
+                                <Flag className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {lead.stage === "converted" && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600" onClick={() => setLeegalitySignDialog(lead)} title="eSign via Leegality" disabled={leegalityLoading === lead.id}>
+                                {leegalityLoading === lead.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSignature className="h-3.5 w-3.5" />}
+                              </Button>
+                            )}
+                            {/* 👇 Delete button - only for admin */}
+                            {isAdmin && (
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -1971,133 +2101,55 @@ export default function Leads() {
               </Table>
             </div>
           )}
-          {filtered.length > 0 && (<p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>Showing 1 to {Math.min(filtered.length, 50)} of {filtered.length} leads</p>)}
+          {filtered.length > 0 && (
+            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12 }}>
+              Showing 1 to {Math.min(filtered.length, 50)} of {filtered.length} leads
+            </p>
+          )}
         </CardContent>
       </Card>
 
-      <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} />
+      {/* 👇 Employee modal - only for admin */}
+      {isAdmin && (
+        <EmployeeLeadCountModal 
+          leads={leads} 
+          profiles={typedProfiles} 
+          open={empModalOpen} 
+          onClose={() => setEmpModalOpen(false)} 
+          onFilterByEmployee={(userId) => { setFilterEmployee(userId); setFilterAssignment("all"); }} 
+        />
+      )}
 
-      <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <span>Lead Details</span>
-              <div className="flex items-center gap-2">
-                <TemperatureBadge temperature={detailLead?.temperature} />
-                <ScoreBadge score={detailLead ? getLeadScore(detailLead) : 0} />
+      {/* 👇 Edit dialog - only for admin */}
+      {isAdmin && (
+        <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
+            {editLead && (
+              <div className="grid gap-4 py-4 sm:grid-cols-2">
+                {[{ label: "Name", key: "name" }, { label: "Email", key: "email" }, { label: "Number", key: "phone" }, { label: "Company", key: "company" }, { label: "Address", key: "address" }].map(f => (
+                  <div key={f.key} className="grid gap-2">
+                    <Label>{f.label}</Label>
+                    <Input value={(editLead as any)[f.key] || ""} onChange={e => setEditLead({ ...editLead, [f.key]: e.target.value } as DbLead)} />
+                  </div>
+                ))}
+                <div className="grid gap-2"><Label>Value (₹)</Label><Input type="number" value={editLead.value || 0} onChange={e => setEditLead({ ...editLead, value: Number(e.target.value) })} /></div>
+                <div className="grid gap-2"><Label>Lead Type</Label><Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Budget</Label><Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Lead Temperature</Label><Select value={editLead.temperature || "warm"} onValueChange={v => setEditLead({ ...editLead, temperature: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TEMPERATURE.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Brand Stage</Label><Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Sub Stage</Label><Select value={editLead.sub_stage || "none"} onValueChange={v => setEditLead({ ...editLead, sub_stage: v === "none" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Status</Label><Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Business Status</Label><Select value={editLead.business_status || "active"} onValueChange={v => setEditLead({ ...editLead, business_status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["active", "no-go", "done"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Source</Label><Select value={editLead.source || "Website"} onValueChange={v => setEditLead({ ...editLead, source: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2 sm:col-span-2"><Label>Remark (for call scheduling)</Label><Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} placeholder="e.g., call at 2:30 PM" /></div>
+                <div className="grid gap-2 sm:col-span-2"><Label>CX Comment</Label><Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} /></div>
+                <Button onClick={handleUpdate} disabled={updateLead.isPending} className="sm:col-span-2">{updateLead.isPending ? "Saving..." : "Save Changes"}</Button>
               </div>
-            </DialogTitle>
-          </DialogHeader>
-          {detailLead && (
-            <div className="space-y-4 py-2">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: avatarColor(detailLead.name), display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: 16 }}>{getInitials(detailLead.name)}</div>
-                  <div><h3 style={{ fontWeight: 700, fontSize: 16, margin: 0 }}>{detailLead.name}</h3>{detailLead.company && <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>{detailLead.company}</p>}</div>
-                </div>
-              </div>
-              <Progress value={getLeadScore(detailLead)} className="h-2" />
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-muted-foreground text-xs">Email</p><p className="font-medium break-all">{detailLead.email || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium">{detailLead.phone || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Company</p><p className="font-medium">{detailLead.company || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
-                
-                <div className="grid gap-1">
-                  <p className="text-muted-foreground text-xs flex items-center gap-1">
-                    <span>Temperature</span>
-                    <span className="text-[10px] text-muted-foreground">(click to change)</span>
-                  </p>
-                  <Select 
-                    value={detailLead.temperature || "warm"} 
-                    onValueChange={async (v) => {
-                      try {
-                        const { error } = await supabase
-                          .from("leads")
-                          .update({ temperature: v })
-                          .eq("id", detailLead.id);
-                        
-                        if (error) throw error;
-                        
-                        fetchLeads();
-                        setDetailLead({ ...detailLead, temperature: v });
-                        logActivity(detailLead.id, "updated", `Temperature changed to: ${v}`);
-                        toast.success(`Temperature updated to ${v.toUpperCase()}`);
-                      } catch (error: any) {
-                        toast.error(error.message);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Select temperature" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {LEAD_TEMPERATURE.map(t => (
-                        <SelectItem key={t.value} value={t.value}>
-                          <span className="flex items-center gap-2">
-                            <span>{t.label}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              ({t.value === "hot" ? "High Priority" : t.value === "warm" ? "Medium Priority" : "Low Priority"})
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Brand Stage</p><Select value={detailLead.stage || "ringing"} onValueChange={async (v) => { const updated = { ...detailLead, stage: v, sub_stage: "" }; setDetailLead(updated); await handleUpdateStageFromDetail(detailLead.id, v, ""); logActivity(detailLead.id, "updated", `Stage: ${v}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Sub Stage</p><Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => { const val = v === "none" ? "" : v; setDetailLead({ ...detailLead, sub_stage: val }); await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val); logActivity(detailLead.id, "updated", `Sub Stage: ${val}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Status</p><span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: detailLead.stage === "lost" ? "#fef2f2" : "#f0fdf4", color: detailLead.stage === "lost" ? "#dc2626" : "#16a34a", border: `1px solid ${detailLead.stage === "lost" ? "#fecaca" : "#bbf7d0"}`, fontWeight: 600 }}>{formatStageLabel(detailLead.status)}</span></div>
-                <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Business Status</p><p className="font-medium">{detailLead.business_status || "Active"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Assigned To</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Assign Date</p><p className="font-medium">{detailLead.assign_date ? format(new Date(detailLead.assign_date), "dd MMM yyyy") : "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Created At</p><p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p></div>
-                {detailLead.lost_reason && (<div className="col-span-2"><p className="text-muted-foreground text-xs">Lost Reason</p><p className="font-medium text-red-600">{formatStageLabel(detailLead.lost_reason)}</p></div>)}
-                {detailLead.leegality_status && (<div className="col-span-2"><p className="text-muted-foreground text-xs">eSign Status</p><span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: detailLead.leegality_status === "completed" ? "#ecfdf5" : "#fef3c7", color: detailLead.leegality_status === "completed" ? "#16a34a" : "#d97706", border: `1px solid ${detailLead.leegality_status === "completed" ? "#bbf7d0" : "#fde68a"}`, fontWeight: 500 }}>{detailLead.leegality_status === "completed" ? "✓ Signed" : detailLead.leegality_status === "pending" ? "⏳ Pending" : "Not Started"}</span></div>)}
-                {agreementData[detailLead.id] && (<div className="col-span-2 mt-2 p-3 rounded-lg border bg-muted/20"><p className="text-muted-foreground text-xs font-semibold mb-2">Agreement Status</p><div className="flex items-center gap-2 flex-wrap"><Badge className={agreementData[detailLead.id].status === 'signed' ? 'bg-green-100 text-green-800 hover:bg-green-100' : agreementData[detailLead.id].status === 'sent' ? 'bg-blue-100 text-blue-800 hover:bg-blue-100' : 'bg-gray-100 text-gray-800 hover:bg-gray-100'}>{agreementData[detailLead.id].status === 'signed' && '✓ Signed'}{agreementData[detailLead.id].status === 'sent' && '📤 Sent'}{agreementData[detailLead.id].status === 'not_sent' && 'Not Sent'}{agreementData[detailLead.id].status === 'rejected' && '❌ Rejected'}</Badge>{agreementData[detailLead.id].signed_date && (<span className="text-xs text-muted-foreground">Signed: {format(new Date(agreementData[detailLead.id].signed_date), "dd MMM yyyy, hh:mm a")}</span>)}{agreementData[detailLead.id].leegality_sign_url && agreementData[detailLead.id].status !== 'signed' && (<Button variant="link" size="sm" className="p-0 h-auto text-xs" asChild><a href={agreementData[detailLead.id].leegality_sign_url} target="_blank" rel="noopener noreferrer">View Signing Link</a></Button>)}{agreementData[detailLead.id].signed_pdf_url && (<Button variant="link" size="sm" className="p-0 h-auto text-xs" asChild><a href={agreementData[detailLead.id].signed_pdf_url} target="_blank" rel="noopener noreferrer">📄 Download Signed PDF</a></Button>)}</div></div>)}
-                <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
-                <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
-              </div>
-              <div className="flex gap-2 pt-2 flex-wrap">
-                {detailLead.phone && (<Button size="sm" variant="outline" asChild><a href={`tel:${detailLead.phone}`} onClick={() => logActivity(detailLead.id, "called", detailLead.phone || undefined)}><Phone className="mr-1 h-3 w-3" />Call</a></Button>)}
-                {detailLead.email && (<Button size="sm" variant="outline" asChild><a href={`mailto:${detailLead.email}`} onClick={() => logActivity(detailLead.id, "emailed", detailLead.email || undefined)}><Mail className="mr-1 h-3 w-3" />Email</a></Button>)}
-                {detailLead.phone && (<Button size="sm" variant="outline" asChild><a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer" onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}><MessageCircle className="mr-1 h-3 w-3" />WhatsApp</a></Button>)}
-                {detailLead.stage !== "lost" && detailLead.stage !== "converted" && (<Button size="sm" variant="destructive" onClick={() => setLostLeadDialog(detailLead)}><Flag className="mr-1 h-3 w-3" />Mark as Lost</Button>)}
-                {detailLead.stage === "converted" && (<><Button size="sm" variant="default" onClick={() => handleSendAgreement(detailLead)} disabled={sendingAgreement === detailLead.id} className="bg-blue-600 hover:bg-blue-700">{sendingAgreement === detailLead.id ? (<Loader2 className="mr-1 h-3 w-3 animate-spin" />) : (<FileSignature className="mr-1 h-3 w-3" />)}Send Agreement</Button><Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => setLeegalitySignDialog(detailLead)} disabled={leegalityLoading === detailLead.id}>{leegalityLoading === detailLead.id ? (<Loader2 className="mr-1 h-3 w-3 animate-spin" />) : (<FileSignature className="mr-1 h-3 w-3" />)}eSign via Leegality</Button></>)}
-              </div>
-              <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
-          {editLead && (
-            <div className="grid gap-4 py-4 sm:grid-cols-2">
-              {[{ label: "Name", key: "name" }, { label: "Email", key: "email" }, { label: "Number", key: "phone" }, { label: "Company", key: "company" }, { label: "Address", key: "address" }].map(f => (<div key={f.key} className="grid gap-2"><Label>{f.label}</Label><Input value={(editLead as any)[f.key] || ""} onChange={e => setEditLead({ ...editLead, [f.key]: e.target.value } as DbLead)} /></div>))}
-              <div className="grid gap-2"><Label>Value (₹)</Label><Input type="number" value={editLead.value || 0} onChange={e => setEditLead({ ...editLead, value: Number(e.target.value) })} /></div>
-              <div className="grid gap-2"><Label>Lead Type</Label><Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Budget</Label><Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Lead Temperature</Label><Select value={editLead.temperature || "warm"} onValueChange={v => setEditLead({ ...editLead, temperature: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TEMPERATURE.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Brand Stage</Label><Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Sub Stage</Label><Select value={editLead.sub_stage || "none"} onValueChange={v => setEditLead({ ...editLead, sub_stage: v === "none" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Status</Label><Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Business Status</Label><Select value={editLead.business_status || "active"} onValueChange={v => setEditLead({ ...editLead, business_status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["active", "no-go", "done"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Source</Label><Select value={editLead.source || "Website"} onValueChange={v => setEditLead({ ...editLead, source: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2 sm:col-span-2"><Label>Remark (for call scheduling)</Label><Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} placeholder="e.g., call at 2:30 PM" /></div>
-              <div className="grid gap-2 sm:col-span-2"><Label>CX Comment</Label><Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} /></div>
-              <Button onClick={handleUpdate} disabled={updateLead.isPending} className="sm:col-span-2">{updateLead.isPending ? "Saving..." : "Save Changes"}</Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
