@@ -9,22 +9,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { useCrmQuery, useCrmInsert, useCrmUpdate, useCrmDelete } from "@/hooks/useCrm";
 import { useCanAssignTasks, useAllProfiles } from "@/hooks/useAdmin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Plus, Search, Filter, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
-  Star, Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
-  MessageCircle, Calendar, TrendingUp, BarChart3, AlarmClock, Flag, XCircle,
-  AlertTriangle, FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight
+  Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
+  Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
+  MessageCircle, Calendar, TrendingUp, Flag, XCircle,
+  FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
 import { useBulkAssignLeads } from "@/hooks/useLeadComments";
-import { isToday, subDays, format, parseISO, differenceInMinutes } from "date-fns";
+import { isToday, subDays, format } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -862,8 +861,6 @@ export default function Leads() {
     };
   }, []);
 
-  // ── REMOVED: useCrmInsert, useCrmUpdate, useCrmDelete - we'll use direct queries ──
-  
   const [search, setSearch]                 = useState("");
   const [filterStatus, setFilterStatus]     = useState("all");
   const [filterStage, setFilterStage]       = useState("all");
@@ -907,7 +904,6 @@ export default function Leads() {
   // ── DIRECT DUPLICATE CHECK - NO RPC ──
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
-      // Build query conditions
       const conditions = [];
       
       if (leadData.email && leadData.email.trim()) {
@@ -1801,7 +1797,7 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - Same as before */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
           <CardContent className="p-4">
