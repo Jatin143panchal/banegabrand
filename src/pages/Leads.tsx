@@ -909,15 +909,28 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── FIXED: Check for duplicate without using RPC that might have column issues ──
+  // ── FIXED: Check for duplicate using direct query - NO RPC ──
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
-      // Instead of using RPC, do a direct query
+      // Build query to check for duplicates
       let query = supabase
         .from("leads")
-        .select("id, name, email, phone")
-        .or(`email.eq.${leadData.email || ''},phone.eq.${leadData.phone || ''}`)
-        .or(`name.ilike.%${leadData.name}%`);
+        .select("id, name, email, phone");
+      
+      // Check by email if provided
+      if (leadData.email) {
+        query = query.or(`email.eq.${leadData.email}`);
+      }
+      
+      // Check by phone if provided
+      if (leadData.phone) {
+        query = query.or(`phone.eq.${leadData.phone}`);
+      }
+      
+      // Check by name (partial match)
+      if (leadData.name) {
+        query = query.or(`name.ilike.%${leadData.name}%`);
+      }
       
       if (excludeId) {
         query = query.neq("id", excludeId);
@@ -925,7 +938,10 @@ export default function Leads() {
       
       const { data, error } = await query.limit(1);
       
-      if (error) throw error;
+      if (error) {
+        console.error("Duplicate check error:", error);
+        return { is_duplicate: false };
+      }
       
       if (data && data.length > 0) {
         return {
@@ -938,7 +954,7 @@ export default function Leads() {
       return { is_duplicate: false };
     } catch (error) {
       console.error("Error checking duplicate:", error);
-      return null;
+      return { is_duplicate: false };
     }
   }, []);
 
@@ -1101,7 +1117,7 @@ export default function Leads() {
     }
   }, [detailLead?.id, fetchAgreementStatus]);
 
-  // ── FIXED: Mark Lead as Lost with proper error handling ──
+  // ── Mark Lead as Lost ──
   const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
     try {
       const lostDate = new Date().toISOString();
@@ -1205,15 +1221,19 @@ export default function Leads() {
         }
       }
       
+      console.log("🔄 Updating lead stage:", id, "to:", stage, "with data:", updateData);
+      
       const { error } = await supabase
         .from("leads")
         .update(updateData)
         .eq("id", id);
       
       if (error) {
-        console.error("Update error:", error);
+        console.error("❌ Update error:", error);
         throw error;
       }
+      
+      console.log("✅ Stage updated successfully");
       
       // Refresh data
       await fetchLeads();
@@ -1231,7 +1251,7 @@ export default function Leads() {
       toast.success(`Stage updated to ${formatStageLabel(stage)}`);
       logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
     } catch (error: any) {
-      console.error("Stage update error:", error);
+      console.error("❌ Stage update error:", error);
       toast.error(error.message || "Failed to update stage");
     }
   }, [fetchLeads, detailLead, leads, logActivity]);
@@ -1241,6 +1261,7 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   }, [logActivity]);
 
+  // ── FIXED: Add Lead using direct insert ──
   const handleAddLead = useCallback(async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
@@ -1248,21 +1269,44 @@ export default function Leads() {
     }
     
     try {
-      await insertLead.mutateAsync({
-        name: form.name, email: form.email, phone: form.phone, company: form.company,
-        source: form.source, value: Number(form.value) || 0, status: "new" as any,
-        lead_type: form.lead_type, address: form.address, cx_comment: form.cx_comment,
-        budget: form.budget, stage: form.stage, sub_stage: form.sub_stage, remark: form.remark,
-        temperature: form.temperature,
-      } as any);
+      // Check for duplicate first
+      const duplicate = await checkForDuplicate(form);
+      if (duplicate && duplicate.is_duplicate) {
+        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists with same email/phone`);
+        return;
+      }
+      
+      const { error } = await supabase
+        .from("leads")
+        .insert({
+          name: form.name, 
+          email: form.email, 
+          phone: form.phone, 
+          company: form.company,
+          source: form.source, 
+          value: Number(form.value) || 0, 
+          status: "new",
+          lead_type: form.lead_type, 
+          address: form.address, 
+          cx_comment: form.cx_comment,
+          budget: form.budget, 
+          stage: form.stage, 
+          sub_stage: form.sub_stage, 
+          remark: form.remark,
+          temperature: form.temperature,
+        });
+      
+      if (error) throw error;
+      
       setForm(emptyForm);
       setDialogOpen(false);
       toast.success("Lead added successfully");
       await fetchLeads();
     } catch (error: any) {
+      console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
     }
-  }, [form, insertLead, fetchLeads]);
+  }, [form, fetchLeads, checkForDuplicate]);
 
   // ── Filtered leads with useMemo for performance ──
   const filtered = useMemo(() => {
@@ -1469,6 +1513,13 @@ export default function Leads() {
     if (!editLead) return;
     
     try {
+      // Check for duplicates first
+      const duplicate = await checkForDuplicate(editLead, editLead.id);
+      if (duplicate && duplicate.is_duplicate) {
+        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists with same email/phone`);
+        return;
+      }
+      
       await updateLead.mutateAsync({
         id: editLead.id, 
         name: editLead.name, 
@@ -1496,7 +1547,7 @@ export default function Leads() {
     } catch (error: any) {
       toast.error(error.message || "Failed to update lead");
     }
-  }, [editLead, updateLead, logActivity, fetchLeads]);
+  }, [editLead, updateLead, logActivity, fetchLeads, checkForDuplicate]);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
