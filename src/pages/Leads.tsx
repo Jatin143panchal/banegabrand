@@ -802,26 +802,24 @@ export default function Leads() {
   const logActivity = useLeadActivityLogger();
   const queryClient = useQueryClient();
   
-  // ── FIX: Use a direct query with proper cache management ──
+  // ── State ──
   const [leads, setLeads] = useState<DbLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
   
   // ── Fetch leads function ──
   const fetchLeads = async () => {
     try {
-      console.log("🔄 Fetching leads...");
+      setIsLoading(true);
       const { data, error } = await supabase
         .from("leads")
         .select("*")
         .order("created_at", { ascending: false });
       
       if (error) throw error;
-      console.log(`✅ Fetched ${data?.length || 0} leads`);
       setLeads(data as DbLead[]);
       return data;
     } catch (error) {
-      console.error("❌ Error fetching leads:", error);
+      console.error("Error fetching leads:", error);
       toast.error("Failed to fetch leads");
       return [];
     } finally {
@@ -829,20 +827,13 @@ export default function Leads() {
     }
   };
   
-  // ── Force refresh function ──
-  const refreshLeads = () => {
-    setRefreshKey(prev => prev + 1);
-    fetchLeads();
-  };
-  
   // ── Initial fetch ──
   useEffect(() => {
     fetchLeads();
-  }, [refreshKey]);
+  }, []);
   
   // ── Real-time subscription ──
   useEffect(() => {
-    console.log("🔔 Setting up real-time subscription for leads...");
     const channel = supabase
       .channel('leads-changes')
       .on(
@@ -852,32 +843,14 @@ export default function Leads() {
           schema: 'public',
           table: 'leads'
         },
-        (payload) => {
-          console.log("📡 Real-time update received:", payload);
+        () => {
           // Refetch leads when any change occurs
           fetchLeads();
-          // Also show a toast notification for updates
-          if (payload.eventType === 'INSERT') {
-            toast.info(`New lead added: ${(payload.new as any)?.name || 'Unknown'}`, {
-              duration: 3000,
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            toast.info(`Lead updated: ${(payload.new as any)?.name || 'Unknown'}`, {
-              duration: 3000,
-            });
-          } else if (payload.eventType === 'DELETE') {
-            toast.info('A lead was deleted', {
-              duration: 3000,
-            });
-          }
         }
       )
-      .subscribe((status) => {
-        console.log("📡 Subscription status:", status);
-      });
+      .subscribe();
 
     return () => {
-      console.log("🔔 Cleaning up real-time subscription...");
       supabase.removeChannel(channel);
     };
   }, []);
@@ -1062,7 +1035,10 @@ export default function Leads() {
       const result = await response.json();
       
       if (result.success && result.sign_url) {
-        setDetailLead(prev => prev ? { ...prev, leegality_status: "pending", leegality_document_id: result.document_id } : prev);
+        // Update local state
+        const updatedLead = { ...lead, leegality_status: "pending", leegality_document_id: result.document_id };
+        setDetailLead(prev => prev?.id === lead.id ? updatedLead : prev);
+        setLeads(prev => prev.map(l => l.id === lead.id ? updatedLead : l));
         
         toast.success("eSign request created! Redirecting to Leegality...");
         logActivity(lead.id, "leegality_initiated", `Document ID: ${result.document_id}`);
@@ -1101,10 +1077,11 @@ export default function Leads() {
     }
   }, [detailLead?.id]);
 
+  // ── FIXED: Mark Lead as Lost ──
   const markLeadAsLost = async (leadId: string, reason: string) => {
     try {
       const lostDate = new Date().toISOString();
-      await supabase
+      const { error } = await supabase
         .from("leads")
         .update({ 
           stage: "lost", 
@@ -1115,11 +1092,19 @@ export default function Leads() {
         })
         .eq("id", leadId);
       
-      fetchLeads();
+      if (error) throw error;
+      
+      // Refresh data and update local state
+      await fetchLeads();
+      
+      // Update detail lead if it's the same
+      if (detailLead && detailLead.id === leadId) {
+        setDetailLead(null);
+      }
+      
       logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
       toast.success("Lead marked as lost");
       setLostLeadDialog(null);
-      setDetailLead(null);
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -1146,10 +1131,19 @@ export default function Leads() {
       }
       
       console.log("✅ Lead assigned successfully:", id, "to:", finalAssignedTo);
+      
+      // Refresh data after assignment
+      await fetchLeads();
+      
+      // Update detail lead if it's the same
+      if (detailLead && detailLead.id === id) {
+        const updatedLead = leads.find(l => l.id === id);
+        if (updatedLead) setDetailLead(updatedLead);
+      }
+      
       return { id, assigned_to: finalAssignedTo };
     },
     onSuccess: () => {
-      fetchLeads();
       toast.success("Lead assigned successfully");
     },
     onError: (e: Error) => {
@@ -1164,14 +1158,39 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   };
 
+  // ── FIXED: Update Stage from Detail ──
   const handleUpdateStageFromDetail = async (id: string, stage: string, subStage: string) => {
     try {
-      await supabase.from("leads").update({ stage, sub_stage: subStage }).eq("id", id);
-      fetchLeads();
+      const { error } = await supabase
+        .from("leads")
+        .update({ 
+          stage, 
+          sub_stage: subStage,
+          // If stage is converted, update status too
+          ...(stage === "converted" ? { status: "converted" } : {}),
+          // If stage is lost, update status too
+          ...(stage === "lost" ? { status: "lost" } : {})
+        })
+        .eq("id", id);
+      
+      if (error) throw error;
+      
+      // Refresh data
+      await fetchLeads();
+      
+      // Update detail lead if it's the same
       if (detailLead && detailLead.id === id) {
-        setDetailLead({ ...detailLead, stage, sub_stage: subStage });
+        const updatedLead = leads.find(l => l.id === id);
+        if (updatedLead) {
+          setDetailLead(updatedLead);
+        } else {
+          // If lead not found in refreshed list, close detail
+          setDetailLead(null);
+        }
       }
+      
       toast.success("Stage updated");
+      logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -1189,7 +1208,6 @@ export default function Leads() {
     }
     
     try {
-      console.log("➕ Adding lead:", form);
       await insertLead.mutateAsync({
         name: form.name, email: form.email, phone: form.phone, company: form.company,
         source: form.source, value: Number(form.value) || 0, status: "new" as any,
@@ -1199,12 +1217,10 @@ export default function Leads() {
       } as any);
       setForm(emptyForm);
       setDialogOpen(false);
-      toast.success(`✅ Lead "${form.name}" added successfully!`);
-      // Force refresh
-      refreshLeads();
+      toast.success("Lead added successfully");
+      await fetchLeads();
     } catch (error: any) {
-      console.error("❌ Error adding lead:", error);
-      toast.error(error.message || "Failed to add lead");
+      toast.error(error.message);
     }
   };
 
@@ -1255,19 +1271,25 @@ export default function Leads() {
     });
   };
 
+  // ── FIXED: Bulk Assign ──
   const handleBulkAssign = async () => {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     try {
       const assign_date = new Date().toISOString();
-      await supabase.from("leads")
+      const { error } = await supabase
+        .from("leads")
         .update({ assigned_to: bulkAssignTo, assign_date })
         .in("id", Array.from(selectedIds));
-      const count = await bulkAssign.mutateAsync({ leadIds: Array.from(selectedIds), assignedTo: bulkAssignTo });
-      toast.success(`${count} leads assigned successfully`);
+      
+      if (error) throw error;
+      
+      toast.success(`${selectedIds.size} leads assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
-      fetchLeads();
-    } catch (e: unknown) { toast.error(e instanceof Error ? e.message : "Assign failed"); }
+      await fetchLeads();
+    } catch (e: unknown) { 
+      toast.error(e instanceof Error ? e.message : "Assign failed"); 
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1304,6 +1326,7 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   };
 
+  // ── FIXED: Bulk Import with duplicate check ──
   const handleBulkImport = async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1344,7 +1367,7 @@ export default function Leads() {
     setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
     
-    fetchLeads();
+    await fetchLeads();
     
     if (duplicates > 0) {
       if (success > 0) {
@@ -1361,21 +1384,38 @@ export default function Leads() {
     }
   };
 
+  // ── FIXED: Handle Update ──
   const handleUpdate = async () => {
     if (!editLead) return;
     
-    await updateLead.mutateAsync({
-      id: editLead.id, name: editLead.name, email: editLead.email, phone: editLead.phone,
-      company: editLead.company, source: editLead.source, value: editLead.value,
-      status: editLead.status as any, business_status: editLead.business_status,
-      lead_type: editLead.lead_type, address: editLead.address, cx_comment: editLead.cx_comment,
-      budget: editLead.budget, stage: editLead.stage, sub_stage: editLead.sub_stage,
-      remark: editLead.remark, temperature: editLead.temperature,
-    } as any);
-    logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
-    setEditLead(null);
-    toast.success("Lead updated");
-    fetchLeads();
+    try {
+      await updateLead.mutateAsync({
+        id: editLead.id, 
+        name: editLead.name, 
+        email: editLead.email, 
+        phone: editLead.phone,
+        company: editLead.company, 
+        source: editLead.source, 
+        value: editLead.value,
+        status: editLead.status as any, 
+        business_status: editLead.business_status,
+        lead_type: editLead.lead_type, 
+        address: editLead.address, 
+        cx_comment: editLead.cx_comment,
+        budget: editLead.budget, 
+        stage: editLead.stage, 
+        sub_stage: editLead.sub_stage,
+        remark: editLead.remark, 
+        temperature: editLead.temperature,
+      } as any);
+      
+      logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
+      setEditLead(null);
+      toast.success("Lead updated");
+      await fetchLeads();
+    } catch (error: any) {
+      toast.error(error.message);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -1383,7 +1423,7 @@ export default function Leads() {
     await deleteLead.mutateAsync(id);
     setDetailLead(null);
     toast.success("Lead deleted");
-    fetchLeads();
+    await fetchLeads();
   };
 
   const handleExport = () => {
@@ -1418,6 +1458,31 @@ export default function Leads() {
     setEmployeeFilter(null);
     setStatusFilter(null);
     setTemperatureFilter("all");
+  };
+
+  // ── FIXED: Temperature update in detail view ──
+  const handleTemperatureUpdate = async (leadId: string, temperature: string) => {
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update({ temperature })
+        .eq("id", leadId);
+      
+      if (error) throw error;
+      
+      await fetchLeads();
+      
+      // Update detail lead if it's the same
+      if (detailLead && detailLead.id === leadId) {
+        const updatedLead = leads.find(l => l.id === leadId);
+        if (updatedLead) setDetailLead(updatedLead);
+      }
+      
+      logActivity(leadId, "updated", `Temperature changed to: ${temperature}`);
+      toast.success(`Temperature updated to ${temperature.toUpperCase()}`);
+    } catch (error: any) {
+      toast.error(error.message);
+    }
   };
 
   if (isLoading) return (
@@ -1613,7 +1678,7 @@ export default function Leads() {
                   <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
                 </div>
                 <Button onClick={handleAddLead} disabled={insertLead.isPending} className="mt-2 sm:col-span-2">
-                  {insertLead.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Add Lead"}
+                  {insertLead.isPending ? "Adding..." : "Add Lead"}
                 </Button>
               </div>
             </DialogContent>
@@ -1622,18 +1687,7 @@ export default function Leads() {
       </div>
 
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {/* ── TOTAL LEADS CARD - NOW CLICKABLE ── */}
-        <Card 
-          style={{ minWidth: 160, flex: "0 0 auto", cursor: "pointer" }} 
-          className="hover:shadow-md transition-shadow hover:border-primary"
-          onClick={() => {
-            // Clear all filters to show all leads
-            clearFilters();
-            // Scroll to the table
-            document.querySelector('.sticky')?.scrollIntoView({ behavior: 'smooth' });
-            toast.info(`Showing all ${totalLeads} leads`);
-          }}
-        >
+        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
           <CardContent className="p-4">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
@@ -1645,7 +1699,7 @@ export default function Leads() {
               <div>
                 <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{totalLeads}</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>Click to view all</p>
+                <p style={{ fontSize: 11, color: "#94a3b8" }}>All time</p>
               </div>
             </div>
           </CardContent>
@@ -1756,7 +1810,7 @@ export default function Leads() {
         leads={leads}
         onSelectEmployee={setEmployeeFilter}
         selectedEmployee={employeeFilter}
-        onSelectStage={setFilterStage}
+        onSelectStage={(stage) => setFilterStage(stage || "all")}
         selectedStage={filterStage === "all" ? null : filterStage}
         onSelectStatus={setStatusFilter}
         selectedStatus={statusFilter}
@@ -2012,23 +2066,7 @@ export default function Leads() {
                   </p>
                   <Select 
                     value={detailLead.temperature || "warm"} 
-                    onValueChange={async (v) => {
-                      try {
-                        const { error } = await supabase
-                          .from("leads")
-                          .update({ temperature: v })
-                          .eq("id", detailLead.id);
-                        
-                        if (error) throw error;
-                        
-                        fetchLeads();
-                        setDetailLead({ ...detailLead, temperature: v });
-                        logActivity(detailLead.id, "updated", `Temperature changed to: ${v}`);
-                        toast.success(`Temperature updated to ${v.toUpperCase()}`);
-                      } catch (error: any) {
-                        toast.error(error.message);
-                      }
-                    }}
+                    onValueChange={(v) => handleTemperatureUpdate(detailLead.id, v)}
                   >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder="Select temperature" />
@@ -2048,8 +2086,8 @@ export default function Leads() {
                   </Select>
                 </div>
                 
-                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Brand Stage</p><Select value={detailLead.stage || "ringing"} onValueChange={async (v) => { const updated = { ...detailLead, stage: v, sub_stage: "" }; setDetailLead(updated); await handleUpdateStageFromDetail(detailLead.id, v, ""); logActivity(detailLead.id, "updated", `Stage: ${v}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Sub Stage</p><Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => { const val = v === "none" ? "" : v; setDetailLead({ ...detailLead, sub_stage: val }); await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val); logActivity(detailLead.id, "updated", `Sub Stage: ${val}`); }}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Brand Stage</p><Select value={detailLead.stage || "ringing"} onValueChange={async (v) => { await handleUpdateStageFromDetail(detailLead.id, v, detailLead.sub_stage || ""); }}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Sub Stage</p><Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => { const val = v === "none" ? "" : v; await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val); }}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
                 <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Status</p><span style={{ fontSize: 11, padding: "2px 10px", borderRadius: 10, background: detailLead.stage === "lost" ? "#fef2f2" : "#f0fdf4", color: detailLead.stage === "lost" ? "#dc2626" : "#16a34a", border: `1px solid ${detailLead.stage === "lost" ? "#fecaca" : "#bbf7d0"}`, fontWeight: 600 }}>{formatStageLabel(detailLead.status)}</span></div>
                 <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
