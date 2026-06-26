@@ -2081,8 +2081,10 @@ export default function Projects() {
 
         {/* ── Add Stage Dialog ── */}
         <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Add New Stage</DialogTitle></DialogHeader>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add New Stage</DialogTitle>
+            </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid gap-2">
                 <Label>Stage Name *</Label>
