@@ -258,15 +258,17 @@ interface EmployeeLeadCountModalProps {
 }
 
 function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmployee }: EmployeeLeadCountModalProps) {
-  const employeeStats = profiles.map(p => {
-    const empLeads = leads.filter(l => l.assigned_to === p.user_id);
-    const stageBreakdown = LEAD_STAGES.map(s => ({
-      ...s, count: empLeads.filter(l => l.stage === s.value).length,
-    }));
-    return { ...p, total: empLeads.length, converted: empLeads.filter(l => l.stage === "converted").length, stageBreakdown };
-  }).sort((a, b) => b.total - a.total);
+  const employeeStats = useMemo(() => {
+    return profiles.map(p => {
+      const empLeads = leads.filter(l => l.assigned_to === p.user_id);
+      const stageBreakdown = LEAD_STAGES.map(s => ({
+        ...s, count: empLeads.filter(l => l.stage === s.value).length,
+      }));
+      return { ...p, total: empLeads.length, converted: empLeads.filter(l => l.stage === "converted").length, stageBreakdown };
+    }).sort((a, b) => b.total - a.total);
+  }, [leads, profiles]);
 
-  const unassigned = leads.filter(l => !l.assigned_to).length;
+  const unassigned = useMemo(() => leads.filter(l => !l.assigned_to).length, [leads]);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -517,37 +519,41 @@ function EmployeeFilterSection({
 }) {
   const [searchEmployee, setSearchEmployee] = useState("");
   
-  const filteredProfiles = profiles.filter(p => 
-    (p.display_name || "").toLowerCase().includes(searchEmployee.toLowerCase())
-  );
+  const filteredProfiles = useMemo(() => {
+    return profiles.filter(p => 
+      (p.display_name || "").toLowerCase().includes(searchEmployee.toLowerCase())
+    );
+  }, [profiles, searchEmployee]);
   
-  const employeeStats = filteredProfiles.map(p => {
-    const empLeads = leads.filter(l => l.assigned_to === p.user_id);
-    const stageCounts = LEAD_STAGES.map(s => ({
-      ...s,
-      count: empLeads.filter(l => l.stage === s.value).length
-    }));
-    const statusCounts = LEAD_STATUSES.map(s => ({
-      ...s,
-      count: empLeads.filter(l => l.status === s.value).length
-    }));
-    return {
-      ...p,
-      total: empLeads.length,
-      converted: empLeads.filter(l => l.stage === "converted").length,
-      lost: empLeads.filter(l => l.stage === "lost").length,
-      stageCounts,
-      statusCounts,
-      hot: empLeads.filter(l => l.temperature === "hot").length,
-      warm: empLeads.filter(l => l.temperature === "warm").length,
-      cold: empLeads.filter(l => l.temperature === "cold").length,
-    };
-  }).sort((a, b) => b.total - a.total);
+  const employeeStats = useMemo(() => {
+    return filteredProfiles.map(p => {
+      const empLeads = leads.filter(l => l.assigned_to === p.user_id);
+      const stageCounts = LEAD_STAGES.map(s => ({
+        ...s,
+        count: empLeads.filter(l => l.stage === s.value).length
+      }));
+      const statusCounts = LEAD_STATUSES.map(s => ({
+        ...s,
+        count: empLeads.filter(l => l.status === s.value).length
+      }));
+      return {
+        ...p,
+        total: empLeads.length,
+        converted: empLeads.filter(l => l.stage === "converted").length,
+        lost: empLeads.filter(l => l.stage === "lost").length,
+        stageCounts,
+        statusCounts,
+        hot: empLeads.filter(l => l.temperature === "hot").length,
+        warm: empLeads.filter(l => l.temperature === "warm").length,
+        cold: empLeads.filter(l => l.temperature === "cold").length,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [filteredProfiles, leads]);
   
-  const unassignedCount = leads.filter(l => !l.assigned_to).length;
-  const hotCount = leads.filter(l => l.temperature === "hot").length;
-  const warmCount = leads.filter(l => l.temperature === "warm").length;
-  const coldCount = leads.filter(l => l.temperature === "cold").length;
+  const unassignedCount = useMemo(() => leads.filter(l => !l.assigned_to).length, [leads]);
+  const hotCount = useMemo(() => leads.filter(l => l.temperature === "hot").length, [leads]);
+  const warmCount = useMemo(() => leads.filter(l => l.temperature === "warm").length, [leads]);
+  const coldCount = useMemo(() => leads.filter(l => l.temperature === "cold").length, [leads]);
 
   return (
     <Card className="mb-4">
@@ -804,6 +810,7 @@ export default function Leads() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
+  const [isInitialFetch, setIsInitialFetch] = useState(true);
   
   // ── Fetch leads function ──
   const fetchLeads = useCallback(async () => {
@@ -828,11 +835,16 @@ export default function Leads() {
   
   // ── Initial fetch ──
   useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
+    if (isInitialFetch) {
+      fetchLeads();
+      setIsInitialFetch(false);
+    }
+  }, [fetchLeads, isInitialFetch]);
   
   // ── Real-time subscription with optimized updates ──
   useEffect(() => {
+    let isMounted = true;
+    
     const channel = supabase
       .channel('leads-changes')
       .on(
@@ -843,6 +855,8 @@ export default function Leads() {
           table: 'leads'
         },
         (payload) => {
+          if (!isMounted) return;
+          
           if (payload.eventType === 'INSERT') {
             setLeads(prev => [payload.new as DbLead, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
@@ -857,6 +871,7 @@ export default function Leads() {
       .subscribe();
 
     return () => {
+      isMounted = false;
       supabase.removeChannel(channel);
     };
   }, []);
@@ -1273,7 +1288,7 @@ export default function Leads() {
       console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
     }
-  }, [form, fetchLeads, checkForDuplicate]);
+  }, [form, fetchLeads, checkForDuplicate, emptyForm]);
 
   // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
