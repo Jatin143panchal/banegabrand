@@ -1,223 +1,125 @@
-import {
-  LayoutDashboard,
-  Users,
-  UserPlus,
-  Handshake,
-  CalendarCheck,
-  BarChart3,
-  Settings,
-  Building2,
-  Shield,
-  CalendarDays,
-  ClipboardList,
-  TicketCheck,
-  Clock,
-  Megaphone,
-  FileText,
-  UserCog,
-  Users2,
-  ClipboardCheck,
-  CalendarRange,
-  Phone,
-  UserCircle,
-  Tent,
-  GraduationCap,
-  Briefcase,
-  DollarSign,
-} from "lucide-react";
-import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
-import { useIsOwnerOrAdmin, useIsManager, useHasRole } from "@/hooks/useAdmin";
-import { ShieldCheck, ListTodo, BarChart2, Megaphone as MegaphoneIcon } from "lucide-react";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarHeader,
-  SidebarFooter,
-  useSidebar,
-} from "@/components/ui/sidebar";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { CrmLayout } from "@/components/CrmLayout";
+import Dashboard from "./pages/Dashboard";
+import Leads from "./pages/Leads";
+import LeadDashboard from "./pages/LeadDashboard";
+import Contacts from "./pages/Contacts";
+import Deals from "./pages/Deals";
+import Activities from "./pages/Activities";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
+import Holidays from "./pages/Holidays";
+import AdminDashboard from "./pages/AdminDashboard";
+import TaskAssignment from "./pages/TaskAssignment";
+import TeamRoles from "./pages/TeamRoles";
+import TeamAttendance from "./pages/TeamAttendance";
+import Helpdesk from "./pages/Helpdesk";
+import Attendance from "./pages/Attendance";
+import Marketing from "./pages/Marketing";
+import Quotations from "./pages/Quotations";
+import Profile from "./pages/Profile";
+import DailyReports from "./pages/DailyReports";
+import WeeklyReports from "./pages/WeeklyReports";
+import MyTasks from "./pages/MyTasks";
+import TeamTaskReport from "./pages/TeamTaskReport";
+import DigiLocker from "./pages/DigiLocker";
+import BroadcastNotifications from "./pages/BroadcastNotifications";
+import EmployeeDirectory from "./pages/EmployeeDirectory";
+import Auth from "./pages/Auth";
+import Landing from "./pages/Landing";
+import NotFound from "./pages/NotFound";
+import AllUsers from "./pages/AllUsers";
+import { RoleGuard } from "@/components/RoleGuard";
+import ExpoLeads from "./pages/ExpoLeads";
+import WorkshopLeads from "./pages/WorkshopLeads";
+import Projects from "./pages/Projects";
+import CrmMessenger from "@/components/CrmMessenger"; // <-- ADD THIS
 
-const mainItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Lead Dashboard", url: "/leads/dashboard", icon: Phone },
-  { title: "Leads", url: "/leads", icon: UserPlus },
-  { title: "Expo Leads", url: "/expo-leads", icon: Tent },
-  { title: "Workshop Leads", url: "/workshop-leads", icon: GraduationCap },
-  { title: "Contacts", url: "/contacts", icon: Users },
-  { title: "Deals", url: "/deals", icon: Handshake },
-  { title: "Activities", url: "/activities", icon: CalendarCheck },
-  { title: "Helpdesk", url: "/helpdesk", icon: TicketCheck },
-  { title: "Attendance", url: "/attendance", icon: Clock },
-  { title: "Marketing", url: "/marketing", icon: Megaphone },
-  { title: "Quotations", url: "/quotations", icon: FileText },
-  { title: "My Tasks", url: "/my-tasks", icon: ListTodo },
-  { title: "Daily Reports", url: "/daily-reports", icon: ClipboardCheck },
-  { title: "Weekly Reports", url: "/weekly-reports", icon: CalendarRange },
-  { title: "DigiLocker", url: "/digilocker", icon: ShieldCheck },
-  { title: "PLOS", url: "/plos", icon: FileText },
-  { title: "Projects", url: "/projects", icon: Briefcase },
-  { title: "Holidays", url: "/holidays", icon: CalendarDays },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Sales Punch", url: "/sales-punch", icon: DollarSign },
-];
+const queryClient = new QueryClient();
 
-const fullAdminItems = [
-  { title: "Admin Dashboard", url: "/admin", icon: Shield },
-  { title: "All Users", url: "/admin/users", icon: Users },
-  { title: "Task Assignment", url: "/admin/tasks", icon: ClipboardList },
-  { title: "Team Roles", url: "/admin/roles", icon: UserCog },
-  { title: "Team Attendance", url: "/admin/attendance", icon: Users2 },
-  { title: "Team Task Report", url: "/team-tasks", icon: BarChart2 },
-  { title: "Send Notifications", url: "/admin/notifications", icon: MegaphoneIcon },
-  { title: "Employee Directory", url: "/admin/employees", icon: Users },
-];
+const fullAccessRoles = ["owner", "admin"] as const;
+const managerRoles = ["owner", "admin", "tl"] as const;
+const hrRoles = ["owner", "admin", "hr_manager"] as const;
 
-const managerItems = [
-  { title: "Task Assignment", url: "/admin/tasks", icon: ClipboardList },
-  { title: "Team Task Report", url: "/team-tasks", icon: BarChart2 },
-];
+function ProtectedRoutes() {
+  const { user, loading } = useAuth();
 
-const hrItems = [
-  { title: "Team Attendance", url: "/admin/attendance", icon: Users2 },
-  { title: "Send Notifications", url: "/admin/notifications", icon: MegaphoneIcon },
-  { title: "Employee Directory", url: "/admin/employees", icon: Users },
-];
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
-const settingsItems = [
-  { title: "My Profile", url: "/profile", icon: UserCircle },
-  { title: "Settings", url: "/settings", icon: Settings },
-];
+  if (!user) return <Landing />;
 
-function SidebarNavGroup({ label, items, collapsed, isActive }: any) {
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>{label}</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {items.map((item: any) => (
-            <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                <NavLink
-                  to={item.url}
-                  end
-                  className="hover:bg-sidebar-accent/50"
-                  activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                >
-                  <item.icon className="mr-2 h-4 w-4" />
-                  {!collapsed && <span>{item.title}</span>}
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
+    <CrmLayout>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/leads" element={<Leads />} />
+        <Route path="/leads/dashboard" element={<LeadDashboard />} />
+        <Route path="/contacts" element={<Contacts />} />
+        <Route path="/deals" element={<Deals />} />
+        <Route path="/activities" element={<Activities />} />
+        <Route path="/holidays" element={<Holidays />} />
+        <Route path="/helpdesk" element={<Helpdesk />} />
+        <Route path="/expo-leads" element={<ExpoLeads />} />
+        <Route path="/workshop-leads" element={<WorkshopLeads />} />
+        <Route path="/projects" element={<Projects />} />
+        <Route path="/messenger" element={<CrmMessenger />} /> {/* <-- ADD THIS */}
+        <Route path="/attendance" element={<Attendance />} />
+        <Route path="/marketing" element={<Marketing />} />
+        <Route path="/quotations" element={<Quotations />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/daily-reports" element={<DailyReports />} />
+        <Route path="/weekly-reports" element={<WeeklyReports />} />
+        <Route path="/my-tasks" element={<MyTasks />} />
+        <Route path="/team-tasks" element={<RoleGuard allowed={[...managerRoles]}><TeamTaskReport /></RoleGuard>} />
+        <Route path="/digilocker" element={<DigiLocker />} />
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/admin" element={<RoleGuard allowed={[...fullAccessRoles]}><AdminDashboard /></RoleGuard>} />
+        <Route path="/admin/tasks" element={<RoleGuard allowed={[...managerRoles]}><TaskAssignment /></RoleGuard>} />
+        <Route path="/admin/users" element={<RoleGuard allowed={[...fullAccessRoles]}><AllUsers /></RoleGuard>} />
+        <Route path="/admin/roles" element={<RoleGuard allowed={[...fullAccessRoles]}><TeamRoles /></RoleGuard>} />
+        <Route path="/admin/attendance" element={<RoleGuard allowed={[...hrRoles, "tl"]}><TeamAttendance /></RoleGuard>} />
+        <Route path="/admin/notifications" element={<RoleGuard allowed={[...hrRoles]}><BroadcastNotifications /></RoleGuard>} />
+        <Route path="/admin/employees" element={<RoleGuard allowed={[...hrRoles]}><EmployeeDirectory /></RoleGuard>} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </CrmLayout>
   );
 }
 
-export function CrmSidebar() {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
-  const location = useLocation();
-  const currentPath = location.pathname;
-  const isActive = (path: string) => currentPath === path;
-  const isOwnerOrAdmin = useIsOwnerOrAdmin();
-  const isManager = useIsManager();
-  const isHR = useHasRole("hr_manager");
-
-  return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
-            <Building2 className="h-5 w-5 text-sidebar-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-sidebar-accent-foreground">BanegaBrand</span>
-              <span className="text-xs text-sidebar-foreground/60">Sales CRM</span>
-            </div>
-          )}
-        </div>
-      </SidebarHeader>
-
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <NavLink
-                      to={item.url}
-                      end
-                      className="hover:bg-sidebar-accent/50"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <item.icon className="mr-2 h-4 w-4" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="Admin (Full Access)"
-            items={fullAdminItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
-        )}
-
-        {isManager && !isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="Manager"
-            items={managerItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
-        )}
-
-        {isHR && !isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="HR"
-            items={hrItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
-        )}
-      </SidebarContent>
-
-      <SidebarFooter>
-        <SidebarMenu>
-          {settingsItems.map((item) => (
-            <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                <NavLink
-                  to={item.url}
-                  end
-                  className="hover:bg-sidebar-accent/50"
-                  activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                >
-                  <item.icon className="mr-2 h-4 w-4" />
-                  {!collapsed && <span>{item.title}</span>}
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarFooter>
-    </Sidebar>
-  );
+function AuthRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user) return <Navigate to="/" replace />;
+  return <Auth />;
 }
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
+        <AuthProvider>
+          <Routes>
+            <Route path="/auth" element={<AuthRoute />} />
+            <Route path="/*" element={<ProtectedRoutes />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
+
+export default App;
