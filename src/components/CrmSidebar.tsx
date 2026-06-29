@@ -23,7 +23,7 @@ import {
   Tent,
   GraduationCap,
   Briefcase,
-  DollarSign, // 👈 Add this
+  MessageSquare, // <-- ADD THIS
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -43,7 +43,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-// ==================== MAIN MENU ====================
 const mainItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Lead Dashboard", url: "/leads/dashboard", icon: Phone },
@@ -61,20 +60,12 @@ const mainItems = [
   { title: "Daily Reports", url: "/daily-reports", icon: ClipboardCheck },
   { title: "Weekly Reports", url: "/weekly-reports", icon: CalendarRange },
   { title: "DigiLocker", url: "/digilocker", icon: ShieldCheck },
-  { title: "PLOS", url: "/plos", icon: FileText },
   { title: "Projects", url: "/projects", icon: Briefcase },
+  { title: "Messenger", url: "/messenger", icon: MessageSquare }, // <-- ADD THIS
   { title: "Holidays", url: "/holidays", icon: CalendarDays },
   { title: "Reports", url: "/reports", icon: BarChart3 },
-   { title: "Sales Punch", url: "/sales-punch", icon: DollarSign },
 ];
 
-
-
- 
-
-
-
-// ==================== ADMIN ITEMS ====================
 const fullAdminItems = [
   { title: "Admin Dashboard", url: "/admin", icon: Shield },
   { title: "All Users", url: "/admin/users", icon: Users },
@@ -86,11 +77,13 @@ const fullAdminItems = [
   { title: "Employee Directory", url: "/admin/employees", icon: Users },
 ];
 
+/** Manager (TL) — assign tasks & see team progress only */
 const managerItems = [
   { title: "Task Assignment", url: "/admin/tasks", icon: ClipboardList },
   { title: "Team Task Report", url: "/team-tasks", icon: BarChart2 },
 ];
 
+/** HR Manager — people ops, not full admin */
 const hrItems = [
   { title: "Team Attendance", url: "/admin/attendance", icon: Users2 },
   { title: "Send Notifications", url: "/admin/notifications", icon: MegaphoneIcon },
@@ -102,7 +95,6 @@ const settingsItems = [
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
-// ==================== SIDEBAR NAV GROUP ====================
 function SidebarNavGroup({
   label,
   items,
@@ -122,12 +114,7 @@ function SidebarNavGroup({
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                <NavLink
-                  to={item.url}
-                  end
-                  className="hover:bg-sidebar-accent/50"
-                  activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                >
+                <NavLink to={item.url} end className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-primary font-medium">
                   <item.icon className="mr-2 h-4 w-4" />
                   {!collapsed && <span>{item.title}</span>}
                 </NavLink>
@@ -140,7 +127,6 @@ function SidebarNavGroup({
   );
 }
 
-// ==================== MAIN SIDEBAR ====================
 export function CrmSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
@@ -153,7 +139,6 @@ export function CrmSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      {/* HEADER */}
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
@@ -168,9 +153,7 @@ export function CrmSidebar() {
         </div>
       </SidebarHeader>
 
-      {/* CONTENT */}
       <SidebarContent>
-        {/* Main Menu */}
         <SidebarGroup>
           <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -178,12 +161,7 @@ export function CrmSidebar() {
               {mainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <NavLink
-                      to={item.url}
-                      end
-                      className="hover:bg-sidebar-accent/50"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
+                    <NavLink to={item.url} end className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-primary font-medium">
                       <item.icon className="mr-2 h-4 w-4" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
@@ -194,56 +172,25 @@ export function CrmSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* 👇 SALES PUNCH GROUP */}
-        <SidebarNavGroup
-          label="💰 Sales"
-          items={salesItems}
-          collapsed={collapsed}
-          isActive={isActive}
-        />
-
-
-        {/* Admin Groups */}
         {isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="Admin (Full Access)"
-            items={fullAdminItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
+          <SidebarNavGroup label="Admin (Full Access)" items={fullAdminItems} collapsed={collapsed} isActive={isActive} />
         )}
 
         {isManager && !isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="Manager"
-            items={managerItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
+          <SidebarNavGroup label="Manager" items={managerItems} collapsed={collapsed} isActive={isActive} />
         )}
 
         {isHR && !isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="HR"
-            items={hrItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
+          <SidebarNavGroup label="HR" items={hrItems} collapsed={collapsed} isActive={isActive} />
         )}
       </SidebarContent>
 
-      {/* FOOTER */}
       <SidebarFooter>
         <SidebarMenu>
           {settingsItems.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                <NavLink
-                  to={item.url}
-                  end
-                  className="hover:bg-sidebar-accent/50"
-                  activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                >
+                <NavLink to={item.url} end className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-primary font-medium">
                   <item.icon className="mr-2 h-4 w-4" />
                   {!collapsed && <span>{item.title}</span>}
                 </NavLink>
