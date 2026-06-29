@@ -13,7 +13,7 @@ import {
   TicketCheck,
   Clock,
   Megaphone,
-
+  FileText,
   UserCog,
   Users2,
   ClipboardCheck,
@@ -23,7 +23,7 @@ import {
   Tent,
   GraduationCap,
   Briefcase,
- 
+  DollarSign, // 👈 Add this
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -61,12 +61,18 @@ const mainItems = [
   { title: "Daily Reports", url: "/daily-reports", icon: ClipboardCheck },
   { title: "Weekly Reports", url: "/weekly-reports", icon: CalendarRange },
   { title: "DigiLocker", url: "/digilocker", icon: ShieldCheck },
-
+  { title: "PLOS", url: "/plos", icon: FileText },
   { title: "Projects", url: "/projects", icon: Briefcase },
   { title: "Holidays", url: "/holidays", icon: CalendarDays },
   { title: "Reports", url: "/reports", icon: BarChart3 },
- 
+   { title: "Sales Punch", url: "/sales-punch", icon: DollarSign },
 ];
+
+
+
+ 
+
+
 
 // ==================== ADMIN ITEMS ====================
 const fullAdminItems = [
@@ -188,7 +194,16 @@ export function CrmSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Admin Groups - Only show if user has access */}
+        {/* 👇 SALES PUNCH GROUP */}
+        <SidebarNavGroup
+          label="💰 Sales"
+          items={salesItems}
+          collapsed={collapsed}
+          isActive={isActive}
+        />
+
+
+        {/* Admin Groups */}
         {isOwnerOrAdmin && (
           <SidebarNavGroup
             label="Admin (Full Access)"
