@@ -89,18 +89,17 @@ function ProtectedRoutes() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
 
-      
+        {/* ===== SALES PUNCH ROUTE ===== */}
         <Route
           path="/sales-punch"
           element={
             <RoleGuard allowed={[...managerRoles]}>
               <SalesPunch />
             </RoleGuard>
-        
+          }
         />
-       
 
-     
+        {/* ===== TEAM TASKS ROUTE ===== */}
         <Route 
           path="/team-tasks" 
           element={
