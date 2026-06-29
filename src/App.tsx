@@ -38,7 +38,10 @@ import { RoleGuard } from "@/components/RoleGuard";
 import ExpoLeads from "./pages/ExpoLeads";
 import WorkshopLeads from "./pages/WorkshopLeads";
 import Projects from "./pages/Projects";
-import CrmMessenger from "@/components/CrmMessenger"; // <-- ADD THIS
+import PLOS from "./pages/Plos";
+
+// ==================== 👇 IMPORT SALES PUNCH ====================
+import SalesPunch from "./pages/SalesPunch";
 
 const queryClient = new QueryClient();
 
@@ -62,9 +65,11 @@ function ProtectedRoutes() {
   return (
     <CrmLayout>
       <Routes>
+        {/* ===== MAIN ROUTES ===== */}
         <Route path="/" element={<Dashboard />} />
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/dashboard" element={<LeadDashboard />} />
+        <Route path="/plos" element={<PLOS />} />
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/deals" element={<Deals />} />
         <Route path="/activities" element={<Activities />} />
@@ -73,7 +78,6 @@ function ProtectedRoutes() {
         <Route path="/expo-leads" element={<ExpoLeads />} />
         <Route path="/workshop-leads" element={<WorkshopLeads />} />
         <Route path="/projects" element={<Projects />} />
-        <Route path="/messenger" element={<CrmMessenger />} /> {/* <-- ADD THIS */}
         <Route path="/attendance" element={<Attendance />} />
         <Route path="/marketing" element={<Marketing />} />
         <Route path="/quotations" element={<Quotations />} />
@@ -81,17 +85,96 @@ function ProtectedRoutes() {
         <Route path="/daily-reports" element={<DailyReports />} />
         <Route path="/weekly-reports" element={<WeeklyReports />} />
         <Route path="/my-tasks" element={<MyTasks />} />
-        <Route path="/team-tasks" element={<RoleGuard allowed={[...managerRoles]}><TeamTaskReport /></RoleGuard>} />
         <Route path="/digilocker" element={<DigiLocker />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/admin" element={<RoleGuard allowed={[...fullAccessRoles]}><AdminDashboard /></RoleGuard>} />
-        <Route path="/admin/tasks" element={<RoleGuard allowed={[...managerRoles]}><TaskAssignment /></RoleGuard>} />
-        <Route path="/admin/users" element={<RoleGuard allowed={[...fullAccessRoles]}><AllUsers /></RoleGuard>} />
-        <Route path="/admin/roles" element={<RoleGuard allowed={[...fullAccessRoles]}><TeamRoles /></RoleGuard>} />
-        <Route path="/admin/attendance" element={<RoleGuard allowed={[...hrRoles, "tl"]}><TeamAttendance /></RoleGuard>} />
-        <Route path="/admin/notifications" element={<RoleGuard allowed={[...hrRoles]}><BroadcastNotifications /></RoleGuard>} />
-        <Route path="/admin/employees" element={<RoleGuard allowed={[...hrRoles]}><EmployeeDirectory /></RoleGuard>} />
+
+      
+        <Route
+          path="/sales-punch"
+          element={
+            <RoleGuard allowed={[...managerRoles]}>
+              <SalesPunch />
+            </RoleGuard>
+        
+        />
+       
+
+     
+        <Route 
+          path="/team-tasks" 
+          element={
+            <RoleGuard allowed={[...managerRoles]}>
+              <TeamTaskReport />
+            </RoleGuard>
+          } 
+        />
+
+        {/* ===== ADMIN ROUTES ===== */}
+        <Route 
+          path="/admin" 
+          element={
+            <RoleGuard allowed={[...fullAccessRoles]}>
+              <AdminDashboard />
+            </RoleGuard>
+          } 
+        />
+        
+        <Route 
+          path="/admin/tasks" 
+          element={
+            <RoleGuard allowed={[...managerRoles]}>
+              <TaskAssignment />
+            </RoleGuard>
+          } 
+        />
+        
+        <Route 
+          path="/admin/users" 
+          element={
+            <RoleGuard allowed={[...fullAccessRoles]}>
+              <AllUsers />
+            </RoleGuard>
+          } 
+        />
+        
+        <Route 
+          path="/admin/roles" 
+          element={
+            <RoleGuard allowed={[...fullAccessRoles]}>
+              <TeamRoles />
+            </RoleGuard>
+          } 
+        />
+        
+        <Route 
+          path="/admin/attendance" 
+          element={
+            <RoleGuard allowed={[...hrRoles, "tl"]}>
+              <TeamAttendance />
+            </RoleGuard>
+          } 
+        />
+        
+        <Route 
+          path="/admin/notifications" 
+          element={
+            <RoleGuard allowed={[...hrRoles]}>
+              <BroadcastNotifications />
+            </RoleGuard>
+          } 
+        />
+        
+        <Route 
+          path="/admin/employees" 
+          element={
+            <RoleGuard allowed={[...hrRoles]}>
+              <EmployeeDirectory />
+            </RoleGuard>
+          } 
+        />
+
+        {/* ===== 404 ===== */}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </CrmLayout>
