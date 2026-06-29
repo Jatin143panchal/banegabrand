@@ -188,7 +188,7 @@ export function CrmSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Admin Groups */}
+        {/* Admin Groups - Only show if user has access */}
         {isOwnerOrAdmin && (
           <SidebarNavGroup
             label="Admin (Full Access)"
