@@ -12,9 +12,31 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Calendar, Clock, CheckCircle, AlertCircle, User, Plus, RefreshCw, Filter, Search } from "lucide-react";
-import { format, isToday, isTomorrow, isAfter, parseISO } from "date-fns";
+import { 
+  Plus, 
+  RefreshCw, 
+  Search, 
+  Filter, 
+  User, 
+  Calendar, 
+  Clock, 
+  CheckCircle, 
+  AlertCircle,
+  Edit,
+  Trash2,
+  Eye,
+  Send,
+  Bell,
+  FileText,
+  Download,
+  Upload,
+  Users,
+  Tag,
+  Link
+} from "lucide-react";
+import { format, isToday, isTomorrow, isAfter, parseISO, differenceInDays } from "date-fns";
 
 // Status Badge Component
 const StatusBadge = ({ status }: { status: string }) => {
@@ -41,7 +63,48 @@ const PriorityBadge = ({ priority }: { priority: string }) => {
   return <Badge className={v.className}>{v.label}</Badge>;
 };
 
-// Task Form Modal
+// Employee Select Component
+const EmployeeSelect = ({ value, onChange, employees, multiple = false }: any) => {
+  if (multiple) {
+    return (
+      <div className="space-y-2">
+        {employees.map((emp: any) => (
+          <div key={emp.user_id} className="flex items-center space-x-2">
+            <Checkbox
+              id={emp.user_id}
+              checked={value?.includes(emp.user_id)}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  onChange([...(value || []), emp.user_id]);
+                } else {
+                  onChange(value?.filter((id: string) => id !== emp.user_id));
+                }
+              }}
+            />
+            <Label htmlFor={emp.user_id}>{emp.display_name || emp.email}</Label>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger>
+        <SelectValue placeholder="Select employee" />
+      </SelectTrigger>
+      <SelectContent>
+        {employees.map((emp: any) => (
+          <SelectItem key={emp.user_id} value={emp.user_id}>
+            {emp.display_name || emp.email}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};
+
+// Create/Edit Task Modal
 const TaskFormModal = ({ 
   open, 
   onOpenChange, 
@@ -55,72 +118,93 @@ const TaskFormModal = ({
     description: task?.description || "",
     assigned_to: task?.assigned_to || "",
     due_date: task?.due_date || new Date().toISOString().slice(0, 10),
+    start_date: task?.start_date || new Date().toISOString().slice(0, 10),
     priority: task?.priority || "medium",
+    estimated_hours: task?.estimated_hours || "",
     notes: task?.notes || "",
+    tags: task?.tags?.join(", ") || "",
+    is_daily: task?.is_daily !== undefined ? task.is_daily : true,
+    recurring: task?.recurring || false,
+    recurring_pattern: task?.recurring_pattern || "daily",
   });
+
+  const [assignMultiple, setAssignMultiple] = useState(false);
+  const [selectedEmployees, setSelectedEmployees] = useState<string[]>(
+    task?.assigned_to ? [task.assigned_to] : []
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSave({ ...formData, id: task?.id });
+    
+    const finalAssignedTo = assignMultiple ? selectedEmployees[0] : formData.assigned_to;
+    
+    await onSave({
+      ...formData,
+      assigned_to: finalAssignedTo,
+      tags: formData.tags.split(",").map((t: string) => t.trim()).filter(Boolean),
+    });
     onOpenChange(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{task ? "Edit Task" : "Create New Task"}</DialogTitle>
+          <DialogTitle>{task ? "Edit Task" : "Assign New Daily Task"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label>Title *</Label>
+            <Label>Task Title *</Label>
             <Input
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Enter task title"
+              placeholder="Enter task title (e.g., Daily Report, Bug Fixing, etc.)"
               required
             />
           </div>
+
           <div>
             <Label>Description</Label>
             <Textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Describe the task in detail"
+              placeholder="Describe the task in detail..."
               rows={3}
             />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Assign To *</Label>
-              <Select
-                value={formData.assigned_to}
-                onValueChange={(value) => setFormData({ ...formData, assigned_to: value })}
-                required
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.map((emp: any) => (
-                    <SelectItem key={emp.user_id} value={emp.user_id}>
-                      {emp.display_name || emp.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="assign-multiple"
+                    checked={assignMultiple}
+                    onCheckedChange={(checked) => {
+                      setAssignMultiple(!!checked);
+                      if (!checked) setSelectedEmployees([]);
+                    }}
+                  />
+                  <Label htmlFor="assign-multiple">Assign to multiple employees?</Label>
+                </div>
+                {assignMultiple ? (
+                  <EmployeeSelect
+                    value={selectedEmployees}
+                    onChange={setSelectedEmployees}
+                    employees={employees}
+                    multiple={true}
+                  />
+                ) : (
+                  <EmployeeSelect
+                    value={formData.assigned_to}
+                    onChange={(value: string) => setFormData({ ...formData, assigned_to: value })}
+                    employees={employees}
+                  />
+                )}
+              </div>
             </div>
-            <div>
-              <Label>Due Date *</Label>
-              <Input
-                type="date"
-                value={formData.due_date}
-                onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                required
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
+
             <div>
               <Label>Priority</Label>
               <Select
@@ -138,20 +222,109 @@ const TaskFormModal = ({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Notes</Label>
+              <Label>Start Date</Label>
               <Input
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Additional notes"
+                type="date"
+                value={formData.start_date}
+                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Due Date *</Label>
+              <Input
+                type="date"
+                value={formData.due_date}
+                onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+                required
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Estimated Hours</Label>
+              <Input
+                type="number"
+                step="0.5"
+                value={formData.estimated_hours}
+                onChange={(e) => setFormData({ ...formData, estimated_hours: e.target.value })}
+                placeholder="e.g., 2.5"
+              />
+            </div>
+            <div>
+              <Label>Tags (comma separated)</Label>
+              <Input
+                value={formData.tags}
+                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                placeholder="e.g., urgent, frontend, bug"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Notes</Label>
+            <Textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder="Additional notes or instructions..."
+              rows={2}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="is-daily"
+                checked={formData.is_daily}
+                onCheckedChange={(checked) => 
+                  setFormData({ ...formData, is_daily: !!checked })
+                }
+              />
+              <Label htmlFor="is-daily">Daily Task</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="recurring"
+                checked={formData.recurring}
+                onCheckedChange={(checked) => 
+                  setFormData({ ...formData, recurring: !!checked })
+                }
+              />
+              <Label htmlFor="recurring">Recurring Task</Label>
+            </div>
+          </div>
+
+          {formData.recurring && (
+            <div>
+              <Label>Recurring Pattern</Label>
+              <Select
+                value={formData.recurring_pattern}
+                onValueChange={(value) => setFormData({ ...formData, recurring_pattern: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="biweekly">Bi-Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-4 border-t">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">{task ? "Update" : "Create"} Task</Button>
+            <Button type="submit">
+              {task ? "Update Task" : "Assign Task"}
+            </Button>
           </div>
         </form>
       </DialogContent>
@@ -164,6 +337,7 @@ const TaskUpdateModal = ({ open, onOpenChange, task, onUpdate }: any) => {
   const [status, setStatus] = useState(task?.status || "pending");
   const [progress, setProgress] = useState(task?.progress || 0);
   const [comment, setComment] = useState("");
+  const [actualHours, setActualHours] = useState(task?.actual_hours || "");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +346,7 @@ const TaskUpdateModal = ({ open, onOpenChange, task, onUpdate }: any) => {
       status,
       progress,
       comment,
+      actual_hours: actualHours ? parseFloat(actualHours) : null,
     });
     onOpenChange(false);
   };
@@ -198,6 +373,7 @@ const TaskUpdateModal = ({ open, onOpenChange, task, onUpdate }: any) => {
               </SelectContent>
             </Select>
           </div>
+
           <div>
             <Label>Progress: {progress}%</Label>
             <Input
@@ -208,9 +384,26 @@ const TaskUpdateModal = ({ open, onOpenChange, task, onUpdate }: any) => {
               onChange={(e) => setProgress(Number(e.target.value))}
               className="w-full"
             />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>0%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
           </div>
+
           <div>
-            <Label>Comment</Label>
+            <Label>Actual Hours Worked</Label>
+            <Input
+              type="number"
+              step="0.5"
+              value={actualHours}
+              onChange={(e) => setActualHours(e.target.value)}
+              placeholder="e.g., 3.5"
+            />
+          </div>
+
+          <div>
+            <Label>Update Comment</Label>
             <Textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
@@ -218,6 +411,7 @@ const TaskUpdateModal = ({ open, onOpenChange, task, onUpdate }: any) => {
               rows={3}
             />
           </div>
+
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -230,8 +424,88 @@ const TaskUpdateModal = ({ open, onOpenChange, task, onUpdate }: any) => {
   );
 };
 
+// Task Details Modal
+const TaskDetailsModal = ({ open, onOpenChange, task, profiles }: any) => {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Task Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-lg font-semibold">{task?.title}</h3>
+            <p className="text-muted-foreground">{task?.description}</p>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Assigned To</Label>
+              <p>{profiles[task?.assigned_to] || task?.assigned_to}</p>
+            </div>
+            <div>
+              <Label>Assigned By</Label>
+              <p>{profiles[task?.assigned_by] || task?.assigned_by}</p>
+            </div>
+            <div>
+              <Label>Due Date</Label>
+              <p>{task?.due_date ? format(parseISO(task.due_date), "PPP") : "N/A"}</p>
+            </div>
+            <div>
+              <Label>Priority</Label>
+              <PriorityBadge priority={task?.priority} />
+            </div>
+            <div>
+              <Label>Status</Label>
+              <StatusBadge status={task?.status} />
+            </div>
+            <div>
+              <Label>Progress</Label>
+              <p>{task?.progress}%</p>
+            </div>
+            {task?.estimated_hours && (
+              <div>
+                <Label>Estimated Hours</Label>
+                <p>{task.estimated_hours}h</p>
+              </div>
+            )}
+            {task?.actual_hours && (
+              <div>
+                <Label>Actual Hours</Label>
+                <p>{task.actual_hours}h</p>
+              </div>
+            )}
+          </div>
+
+          {task?.tags && task.tags.length > 0 && (
+            <div>
+              <Label>Tags</Label>
+              <div className="flex flex-wrap gap-1">
+                {task.tags.map((tag: string, i: number) => (
+                  <Badge key={i} variant="secondary">{tag}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {task?.notes && (
+            <div>
+              <Label>Notes</Label>
+              <p className="text-muted-foreground">{task.notes}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // Main Component
-export default function DailyTasks() {
+export default function DailyTaskAssignment() {
   const { user } = useAuth();
   const { toast } = useToast();
   const isAdmin = useHasRole("admin", "owner", "hr_manager", "tl");
@@ -239,12 +513,15 @@ export default function DailyTasks() {
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
   // Load Tasks
   const loadTasks = async () => {
@@ -262,10 +539,24 @@ export default function DailyTasks() {
         query = query.eq("assigned_to", user?.id);
       }
 
-      const { data, error } = await query.order("due_date", { ascending: true });
+      const { data, error } = await query
+        .order("due_date", { ascending: true })
+        .order("priority", { ascending: false });
 
       if (error) throw error;
       setTasks(data || []);
+
+      // Build profiles map
+      const profileMap: Record<string, string> = {};
+      data?.forEach((task: any) => {
+        if (task.assigned_to_profile) {
+          profileMap[task.assigned_to] = task.assigned_to_profile.display_name || task.assigned_to_profile.email;
+        }
+        if (task.assigned_by_profile) {
+          profileMap[task.assigned_by] = task.assigned_by_profile.display_name || task.assigned_by_profile.email;
+        }
+      });
+      setProfiles(profileMap);
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -276,14 +567,25 @@ export default function DailyTasks() {
   // Load Employees (for admins)
   const loadEmployees = async () => {
     if (!isAdmin) return;
-    const { data } = await supabase
-      .from("profiles")
-      .select("user_id, display_name, email")
-      .in("user_id", 
-        (await supabase.from("user_roles").select("user_id").in("role", ["employee"]))
-          .data?.map((r: any) => r.user_id) || []
-      );
-    setEmployees(data || []);
+    try {
+      // Get all users with employee roles
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .in("role", ["employee", "tl"]);
+
+      if (roleData) {
+        const userIds = roleData.map((r: any) => r.user_id);
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("user_id, display_name, email")
+          .in("user_id", userIds);
+        
+        setEmployees(profileData || []);
+      }
+    } catch (error) {
+      console.error("Error loading employees:", error);
+    }
   };
 
   useEffect(() => {
@@ -307,28 +609,64 @@ export default function DailyTasks() {
     try {
       let result;
       if (taskData.id) {
+        // Update existing task
         result = await supabase
           .from("daily_tasks")
           .update({
-            ...taskData,
+            title: taskData.title,
+            description: taskData.description,
+            assigned_to: taskData.assigned_to,
+            due_date: taskData.due_date,
+            start_date: taskData.start_date,
+            priority: taskData.priority,
+            estimated_hours: taskData.estimated_hours ? parseFloat(taskData.estimated_hours) : null,
+            notes: taskData.notes,
+            tags: taskData.tags,
+            is_daily: taskData.is_daily,
+            recurring: taskData.recurring,
+            recurring_pattern: taskData.recurring_pattern,
             updated_at: new Date().toISOString(),
           })
           .eq("id", taskData.id);
       } else {
+        // Create new task
         result = await supabase
           .from("daily_tasks")
           .insert({
-            ...taskData,
+            title: taskData.title,
+            description: taskData.description,
+            assigned_to: taskData.assigned_to,
             assigned_by: user?.id,
+            due_date: taskData.due_date,
+            start_date: taskData.start_date,
+            priority: taskData.priority,
+            estimated_hours: taskData.estimated_hours ? parseFloat(taskData.estimated_hours) : null,
+            notes: taskData.notes,
+            tags: taskData.tags,
+            is_daily: taskData.is_daily,
+            recurring: taskData.recurring,
+            recurring_pattern: taskData.recurring_pattern,
             created_at: new Date().toISOString(),
           });
       }
 
       if (result.error) throw result.error;
       
+      // Log assignment
+      if (!taskData.id) {
+        await supabase
+          .from("task_assignments")
+          .insert({
+            task_id: result.data?.[0]?.id,
+            assigned_to: taskData.assigned_to,
+            assigned_by: user?.id,
+            assigned_date: new Date().toISOString().slice(0, 10),
+          });
+      }
+
       toast({
-        title: taskData.id ? "Task Updated" : "Task Created",
-        description: `Task "${taskData.title}" ${taskData.id ? "updated" : "created"} successfully`,
+        title: taskData.id ? "Task Updated" : "Task Assigned",
+        description: `Task "${taskData.title}" ${taskData.id ? "updated" : "assigned"} successfully`,
       });
       
       loadTasks();
@@ -338,17 +676,33 @@ export default function DailyTasks() {
   };
 
   // Update Task Status
-  const handleUpdateTask = async ({ id, status, progress, comment }: any) => {
+  const handleUpdateTask = async ({ id, status, progress, comment, actual_hours }: any) => {
     try {
+      // Get current task for status change tracking
+      const { data: currentTask } = await supabase
+        .from("daily_tasks")
+        .select("status, progress")
+        .eq("id", id)
+        .single();
+
       // Update task
+      const updateData: any = {
+        status,
+        progress,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (status === "completed") {
+        updateData.completed_at = new Date().toISOString();
+      }
+
+      if (actual_hours !== undefined) {
+        updateData.actual_hours = actual_hours;
+      }
+
       const { error } = await supabase
         .from("daily_tasks")
-        .update({
-          status,
-          progress,
-          updated_at: new Date().toISOString(),
-          completed_at: status === "completed" ? new Date().toISOString() : null,
-        })
+        .update(updateData)
         .eq("id", id);
 
       if (error) throw error;
@@ -361,7 +715,9 @@ export default function DailyTasks() {
           user_id: user?.id,
           update_type: "status_change",
           content: comment,
+          old_status: currentTask?.status,
           new_status: status,
+          old_progress: currentTask?.progress,
           new_progress: progress,
         });
 
@@ -390,7 +746,7 @@ export default function DailyTasks() {
     }
   };
 
-  // Filter Tasks
+  // Get Filtered Tasks
   const getFilteredTasks = () => {
     let filtered = tasks;
     
@@ -401,14 +757,15 @@ export default function DailyTasks() {
     if (search) {
       filtered = filtered.filter((t) =>
         t.title.toLowerCase().includes(search.toLowerCase()) ||
-        t.description?.toLowerCase().includes(search.toLowerCase())
+        t.description?.toLowerCase().includes(search.toLowerCase()) ||
+        profiles[t.assigned_to]?.toLowerCase().includes(search.toLowerCase())
       );
     }
 
     return filtered;
   };
 
-  // Statistics
+  // Get Statistics
   const getStats = () => {
     const total = tasks.length;
     const completed = tasks.filter((t) => t.status === "completed").length;
@@ -428,14 +785,15 @@ export default function DailyTasks() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Daily Tasks</h1>
+          <h1 className="text-2xl font-bold">Daily Task Assignment</h1>
           <p className="text-muted-foreground text-sm">
-            {isAdmin ? "Manage and assign tasks to your team" : "Track and update your daily tasks"}
+            {isAdmin ? "Assign and manage daily tasks for your team" : "View and update your daily tasks"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={loadTasks} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -443,45 +801,45 @@ export default function DailyTasks() {
           {isAdmin && (
             <Button size="sm" onClick={() => { setSelectedTask(null); setFormOpen(true); }}>
               <Plus className="h-4 w-4 mr-2" />
-              New Task
+              Assign Task
             </Button>
           )}
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardContent className="pt-4">
             <div className="text-2xl font-bold">{stats.total}</div>
             <p className="text-xs text-muted-foreground">Total Tasks</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-yellow-200">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
             <p className="text-xs text-muted-foreground">Pending</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-blue-200">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-blue-600">{stats.inProgress}</div>
             <p className="text-xs text-muted-foreground">In Progress</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-green-200">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
             <p className="text-xs text-muted-foreground">Completed</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-red-200">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-red-600">{stats.blocked}</div>
             <p className="text-xs text-muted-foreground">Blocked</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-orange-200">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-orange-600">{stats.overdue}</div>
             <p className="text-xs text-muted-foreground">Overdue</p>
@@ -490,50 +848,66 @@ export default function DailyTasks() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4">
-        <div className="flex-1 min-w-[200px]">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search tasks..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 min-w-[200px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search tasks by title, description or assignee..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tasks</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="blocked">Blocked</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMode(viewMode === "table" ? "cards" : "table")}
+              >
+                {viewMode === "table" ? "Cards View" : "Table View"}
+              </Button>
+            )}
           </div>
-        </div>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Tasks</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="blocked">Blocked</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* Tasks Table */}
+      {/* Tasks List */}
       <Card>
         <CardContent className="pt-6">
           {loading ? (
-            <div className="text-center py-8">Loading tasks...</div>
-          ) : (
+            <div className="text-center py-8">
+              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4" />
+              <p>Loading tasks...</p>
+            </div>
+          ) : viewMode === "table" ? (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Task</TableHead>
+                    <TableHead>Task Details</TableHead>
                     <TableHead>Assignee</TableHead>
                     <TableHead>Due Date</TableHead>
                     <TableHead>Priority</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Progress</TableHead>
-                    {isAdmin && <TableHead>Actions</TableHead>}
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -545,26 +919,45 @@ export default function DailyTasks() {
                           <div className="text-xs text-muted-foreground truncate max-w-xs">
                             {task.description}
                           </div>
+                          {task.tags && task.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {task.tags.slice(0, 2).map((tag: string, i: number) => (
+                                <Badge key={i} variant="secondary" className="text-xs">
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {task.tags.length > 2 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  +{task.tags.length - 2}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        {task.assigned_to_profile?.display_name || task.assigned_to?.slice(0, 8)}
+                        {profiles[task.assigned_to] || task.assigned_to?.slice(0, 8)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          <span className={isAfter(new Date(), parseISO(task.due_date)) && task.status !== "completed" ? "text-red-600" : ""}>
+                          <span className={isAfter(new Date(), parseISO(task.due_date)) && task.status !== "completed" ? "text-red-600 font-medium" : ""}>
                             {format(parseISO(task.due_date), "MMM dd, yyyy")}
                           </span>
-                          {isToday(parseISO(task.due_date)) && <Badge variant="outline">Today</Badge>}
-                          {isTomorrow(parseISO(task.due_date)) && <Badge variant="outline">Tomorrow</Badge>}
+                          {isToday(parseISO(task.due_date)) && <Badge variant="outline" className="text-xs">Today</Badge>}
+                          {isTomorrow(parseISO(task.due_date)) && <Badge variant="outline" className="text-xs">Tomorrow</Badge>}
+                          {isAfter(new Date(), parseISO(task.due_date)) && task.status !== "completed" && (
+                            <Badge variant="destructive" className="text-xs">
+                              {differenceInDays(new Date(), parseISO(task.due_date))}d overdue
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell><PriorityBadge priority={task.priority} /></TableCell>
                       <TableCell><StatusBadge status={task.status} /></TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                          <div className="w-16 bg-gray-200 rounded-full h-2">
                             <div 
                               className="bg-blue-600 rounded-full h-2 transition-all"
                               style={{ width: `${task.progress}%` }}
@@ -573,38 +966,128 @@ export default function DailyTasks() {
                           <span className="text-xs">{task.progress}%</span>
                         </div>
                       </TableCell>
-                      {isAdmin && (
-                        <TableCell>
-                          <div className="flex gap-1">
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => { setSelectedTask(task); setDetailsOpen(true); }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {task.status !== "completed" && task.status !== "cancelled" && (
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => { setSelectedTask(task); setFormOpen(true); }}
+                              onClick={() => { setSelectedTask(task); setUpdateOpen(true); }}
                             >
-                              Edit
+                              <Edit className="h-4 w-4" />
                             </Button>
+                          )}
+                          {isAdmin && (
                             <Button
                               size="sm"
                               variant="ghost"
                               className="text-red-600"
                               onClick={() => handleDeleteTask(task.id)}
                             >
-                              Delete
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          </div>
-                        </TableCell>
-                      )}
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {getFilteredTasks().length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={isAdmin ? 7 : 6} className="text-center text-muted-foreground py-8">
-                        No tasks found. {isAdmin ? "Create a new task to get started." : "You have no tasks assigned."}
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        {search || filter !== "all" ? (
+                          "No tasks match your filters"
+                        ) : (
+                          <div>
+                            <p className="text-lg">No tasks found</p>
+                            <p className="text-sm">
+                              {isAdmin ? "Assign a new task to get started." : "You have no tasks assigned."}
+                            </p>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {getFilteredTasks().map((task) => (
+                <Card key={task.id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <CardTitle className="text-base">{task.title}</CardTitle>
+                      <PriorityBadge priority={task.priority} />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                      {task.description}
+                    </p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Assignee:</span>
+                        <span>{profiles[task.assigned_to] || task.assigned_to?.slice(0, 8)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Due:</span>
+                        <span className={isAfter(new Date(), parseISO(task.due_date)) && task.status !== "completed" ? "text-red-600" : ""}>
+                          {format(parseISO(task.due_date), "MMM dd, yyyy")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Status:</span>
+                        <StatusBadge status={task.status} />
+                      </div>
+                      <div className="mt-2">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span>Progress</span>
+                          <span>{task.progress}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-600 rounded-full h-2 transition-all"
+                            style={{ width: `${task.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => { setSelectedTask(task); setDetailsOpen(true); }}
+                        >
+                          <Eye className="h-3 w-3 mr-1" />
+                          View
+                        </Button>
+                        {task.status !== "completed" && task.status !== "cancelled" && (
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => { setSelectedTask(task); setUpdateOpen(true); }}
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Update
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {getFilteredTasks().length === 0 && (
+                <div className="col-span-full text-center text-muted-foreground py-8">
+                  No tasks found
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -625,6 +1108,13 @@ export default function DailyTasks() {
         onOpenChange={setUpdateOpen}
         task={selectedTask}
         onUpdate={handleUpdateTask}
+      />
+
+      <TaskDetailsModal
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        task={selectedTask}
+        profiles={profiles}
       />
     </div>
   );
