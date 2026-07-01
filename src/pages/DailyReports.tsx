@@ -34,9 +34,35 @@ import {
   Upload,
   Users,
   Tag,
-  Link
+  Link,
+  Briefcase,
+  UserPlus,
+  UserCheck,
+  Building2,
+  HardDrive,
+  Monitor,
+  Wrench,
+  Network,
+  Database,
+  Shield,
+  Cloud,
+  Code,
+  Server
 } from "lucide-react";
 import { format, isToday, isTomorrow, isAfter, parseISO, differenceInDays } from "date-fns";
+
+// IT Department Icons
+const itDepartmentIcons: Record<string, any> = {
+  "it": <Monitor className="h-4 w-4" />,
+  "software": <Code className="h-4 w-4" />,
+  "hardware": <HardDrive className="h-4 w-4" />,
+  "network": <Network className="h-4 w-4" />,
+  "database": <Database className="h-4 w-4" />,
+  "security": <Shield className="h-4 w-4" />,
+  "cloud": <Cloud className="h-4 w-4" />,
+  "support": <Wrench className="h-4 w-4" />,
+  "server": <Server className="h-4 w-4" />,
+};
 
 // Status Badge Component
 const StatusBadge = ({ status }: { status: string }) => {
@@ -63,13 +89,41 @@ const PriorityBadge = ({ priority }: { priority: string }) => {
   return <Badge className={v.className}>{v.label}</Badge>;
 };
 
-// Employee Select Component
-const EmployeeSelect = ({ value, onChange, employees, multiple = false }: any) => {
+// IT Department Badge
+const DepartmentBadge = ({ department }: { department: string }) => {
+  const deptMap: Record<string, any> = {
+    "it": { label: "IT", className: "bg-purple-500/10 text-purple-600" },
+    "software": { label: "Software", className: "bg-blue-500/10 text-blue-600" },
+    "hardware": { label: "Hardware", className: "bg-orange-500/10 text-orange-600" },
+    "network": { label: "Network", className: "bg-cyan-500/10 text-cyan-600" },
+    "database": { label: "Database", className: "bg-red-500/10 text-red-600" },
+    "security": { label: "Security", className: "bg-green-500/10 text-green-600" },
+    "cloud": { label: "Cloud", className: "bg-sky-500/10 text-sky-600" },
+    "support": { label: "Support", className: "bg-pink-500/10 text-pink-600" },
+    "server": { label: "Server", className: "bg-indigo-500/10 text-indigo-600" },
+  };
+  const dept = deptMap[department] || { label: department || "General", className: "bg-gray-500/10 text-gray-600" };
+  return <Badge className={dept.className}>{dept.label}</Badge>;
+};
+
+// Employee Select Component with Department Filter
+const EmployeeSelect = ({ 
+  value, 
+  onChange, 
+  employees, 
+  multiple = false,
+  department = "all",
+  showDepartment = true
+}: any) => {
+  const filteredEmployees = department === "all" 
+    ? employees 
+    : employees.filter((emp: any) => emp.department === department || emp.role === "it");
+
   if (multiple) {
     return (
-      <div className="space-y-2">
-        {employees.map((emp: any) => (
-          <div key={emp.user_id} className="flex items-center space-x-2">
+      <div className="space-y-2 max-h-60 overflow-y-auto border rounded-lg p-2">
+        {filteredEmployees.map((emp: any) => (
+          <div key={emp.user_id} className="flex items-center space-x-2 p-2 hover:bg-accent rounded">
             <Checkbox
               id={emp.user_id}
               checked={value?.includes(emp.user_id)}
@@ -81,9 +135,23 @@ const EmployeeSelect = ({ value, onChange, employees, multiple = false }: any) =
                 }
               }}
             />
-            <Label htmlFor={emp.user_id}>{emp.display_name || emp.email}</Label>
+            <div className="flex-1">
+              <Label htmlFor={emp.user_id} className="cursor-pointer">
+                {emp.display_name || emp.email}
+              </Label>
+              {showDepartment && emp.department && (
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {emp.department}
+                </Badge>
+              )}
+            </div>
           </div>
         ))}
+        {filteredEmployees.length === 0 && (
+          <div className="text-center text-muted-foreground py-4">
+            No employees found in this department
+          </div>
+        )}
       </div>
     );
   }
@@ -94,9 +162,16 @@ const EmployeeSelect = ({ value, onChange, employees, multiple = false }: any) =
         <SelectValue placeholder="Select employee" />
       </SelectTrigger>
       <SelectContent>
-        {employees.map((emp: any) => (
+        {filteredEmployees.map((emp: any) => (
           <SelectItem key={emp.user_id} value={emp.user_id}>
-            {emp.display_name || emp.email}
+            <div className="flex items-center gap-2">
+              {emp.display_name || emp.email}
+              {showDepartment && emp.department && (
+                <Badge variant="outline" className="text-xs">
+                  {emp.department}
+                </Badge>
+              )}
+            </div>
           </SelectItem>
         ))}
       </SelectContent>
@@ -126,12 +201,32 @@ const TaskFormModal = ({
     is_daily: task?.is_daily !== undefined ? task.is_daily : true,
     recurring: task?.recurring || false,
     recurring_pattern: task?.recurring_pattern || "daily",
+    department: task?.department || "it",
+    task_category: task?.task_category || "general",
   });
 
   const [assignMultiple, setAssignMultiple] = useState(false);
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>(
     task?.assigned_to ? [task.assigned_to] : []
   );
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
+
+  const taskCategories = [
+    { value: "general", label: "General Task" },
+    { value: "development", label: "Development" },
+    { value: "bug_fix", label: "Bug Fix" },
+    { value: "maintenance", label: "Maintenance" },
+    { value: "support", label: "IT Support" },
+    { value: "network", label: "Network Setup" },
+    { value: "security", label: "Security Check" },
+    { value: "database", label: "Database Management" },
+    { value: "server", label: "Server Management" },
+    { value: "cloud", label: "Cloud Operations" },
+    { value: "software", label: "Software Installation" },
+    { value: "hardware", label: "Hardware Setup" },
+    { value: "backup", label: "Backup & Recovery" },
+    { value: "monitoring", label: "System Monitoring" },
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,6 +237,7 @@ const TaskFormModal = ({
       ...formData,
       assigned_to: finalAssignedTo,
       tags: formData.tags.split(",").map((t: string) => t.trim()).filter(Boolean),
+      department: formData.department,
     });
     onOpenChange(false);
   };
@@ -150,17 +246,22 @@ const TaskFormModal = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{task ? "Edit Task" : "Assign New Daily Task"}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5" />
+            {task ? "Edit Task" : "Assign New IT Task"}
+          </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label>Task Title *</Label>
-            <Input
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Enter task title (e.g., Daily Report, Bug Fixing, etc.)"
-              required
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <Label>Task Title *</Label>
+              <Input
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Enter task title (e.g., Server Maintenance, Bug Fixing, etc.)"
+                required
+              />
+            </div>
           </div>
 
           <div>
@@ -175,8 +276,52 @@ const TaskFormModal = ({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Assign To *</Label>
-              <div className="space-y-2">
+              <Label>Department *</Label>
+              <Select
+                value={formData.department}
+                onValueChange={(value) => setFormData({ ...formData, department: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="it">IT Department</SelectItem>
+                  <SelectItem value="software">Software Development</SelectItem>
+                  <SelectItem value="hardware">Hardware Support</SelectItem>
+                  <SelectItem value="network">Network Team</SelectItem>
+                  <SelectItem value="database">Database Team</SelectItem>
+                  <SelectItem value="security">Security Team</SelectItem>
+                  <SelectItem value="cloud">Cloud Operations</SelectItem>
+                  <SelectItem value="support">IT Support</SelectItem>
+                  <SelectItem value="server">Server Management</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Task Category</Label>
+              <Select
+                value={formData.task_category}
+                onValueChange={(value) => setFormData({ ...formData, task_category: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {taskCategories.map((cat) => (
+                    <SelectItem key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <Label>Assign To *</Label>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="assign-multiple"
@@ -186,25 +331,55 @@ const TaskFormModal = ({
                       if (!checked) setSelectedEmployees([]);
                     }}
                   />
-                  <Label htmlFor="assign-multiple">Assign to multiple employees?</Label>
+                  <Label htmlFor="assign-multiple">Multiple Employees</Label>
                 </div>
-                {assignMultiple ? (
-                  <EmployeeSelect
-                    value={selectedEmployees}
-                    onChange={setSelectedEmployees}
-                    employees={employees}
-                    multiple={true}
-                  />
-                ) : (
-                  <EmployeeSelect
-                    value={formData.assigned_to}
-                    onChange={(value: string) => setFormData({ ...formData, assigned_to: value })}
-                    employees={employees}
-                  />
-                )}
+                
+                <div className="flex-1">
+                  <Select
+                    value={selectedDepartment}
+                    onValueChange={setSelectedDepartment}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filter by department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Departments</SelectItem>
+                      <SelectItem value="it">IT</SelectItem>
+                      <SelectItem value="software">Software</SelectItem>
+                      <SelectItem value="hardware">Hardware</SelectItem>
+                      <SelectItem value="network">Network</SelectItem>
+                      <SelectItem value="database">Database</SelectItem>
+                      <SelectItem value="security">Security</SelectItem>
+                      <SelectItem value="cloud">Cloud</SelectItem>
+                      <SelectItem value="support">Support</SelectItem>
+                      <SelectItem value="server">Server</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </div>
 
+              {assignMultiple ? (
+                <EmployeeSelect
+                  value={selectedEmployees}
+                  onChange={setSelectedEmployees}
+                  employees={employees}
+                  multiple={true}
+                  department={selectedDepartment}
+                  showDepartment={true}
+                />
+              ) : (
+                <EmployeeSelect
+                  value={formData.assigned_to}
+                  onChange={(value: string) => setFormData({ ...formData, assigned_to: value })}
+                  employees={employees}
+                  department={selectedDepartment}
+                  showDepartment={true}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Priority</Label>
               <Select
@@ -221,6 +396,17 @@ const TaskFormModal = ({
                   <SelectItem value="urgent">Urgent</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div>
+              <Label>Estimated Hours</Label>
+              <Input
+                type="number"
+                step="0.5"
+                value={formData.estimated_hours}
+                onChange={(e) => setFormData({ ...formData, estimated_hours: e.target.value })}
+                placeholder="e.g., 2.5"
+              />
             </div>
           </div>
 
@@ -244,25 +430,13 @@ const TaskFormModal = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Estimated Hours</Label>
-              <Input
-                type="number"
-                step="0.5"
-                value={formData.estimated_hours}
-                onChange={(e) => setFormData({ ...formData, estimated_hours: e.target.value })}
-                placeholder="e.g., 2.5"
-              />
-            </div>
-            <div>
-              <Label>Tags (comma separated)</Label>
-              <Input
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                placeholder="e.g., urgent, frontend, bug"
-              />
-            </div>
+          <div>
+            <Label>Tags (comma separated)</Label>
+            <Input
+              value={formData.tags}
+              onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+              placeholder="e.g., urgent, server, maintenance"
+            />
           </div>
 
           <div>
@@ -322,8 +496,18 @@ const TaskFormModal = ({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">
-              {task ? "Update Task" : "Assign Task"}
+            <Button type="submit" className="gap-2">
+              {task ? (
+                <>
+                  <Edit className="h-4 w-4" />
+                  Update Task
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Assign IT Task
+                </>
+              )}
             </Button>
           </div>
         </form>
@@ -430,7 +614,10 @@ const TaskDetailsModal = ({ open, onOpenChange, task, profiles }: any) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Task Details</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Eye className="h-5 w-5" />
+            Task Details
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
@@ -439,6 +626,16 @@ const TaskDetailsModal = ({ open, onOpenChange, task, profiles }: any) => {
           </div>
           
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Department</Label>
+              <div className="mt-1">
+                <DepartmentBadge department={task?.department} />
+              </div>
+            </div>
+            <div>
+              <Label>Category</Label>
+              <p>{task?.task_category?.replace('_', ' ') || 'General'}</p>
+            </div>
             <div>
               <Label>Assigned To</Label>
               <p>{profiles[task?.assigned_to] || task?.assigned_to}</p>
@@ -516,6 +713,7 @@ export default function DailyTaskAssignment() {
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -531,12 +729,17 @@ export default function DailyTaskAssignment() {
         .from("daily_tasks")
         .select(`
           *,
-          assigned_to_profile:profiles!assigned_to(display_name, email),
-          assigned_by_profile:profiles!assigned_by(display_name, email)
+          assigned_to_profile:profiles!assigned_to(display_name, email, department),
+          assigned_by_profile:profiles!assigned_by(display_name, email, department)
         `);
 
       if (!isAdmin) {
         query = query.eq("assigned_to", user?.id);
+      }
+
+      // Department filter
+      if (departmentFilter !== "all") {
+        query = query.eq("department", departmentFilter);
       }
 
       const { data, error } = await query
@@ -564,7 +767,7 @@ export default function DailyTaskAssignment() {
     }
   };
 
-  // Load Employees (for admins)
+  // Load Employees with Department Info
   const loadEmployees = async () => {
     if (!isAdmin) return;
     try {
@@ -578,7 +781,7 @@ export default function DailyTaskAssignment() {
         const userIds = roleData.map((r: any) => r.user_id);
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("user_id, display_name, email")
+          .select("user_id, display_name, email, department")
           .in("user_id", userIds);
         
         setEmployees(profileData || []);
@@ -602,7 +805,7 @@ export default function DailyTaskAssignment() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user?.id, isAdmin]);
+  }, [user?.id, isAdmin, departmentFilter]);
 
   // Create/Update Task
   const handleSaveTask = async (taskData: any) => {
@@ -625,6 +828,8 @@ export default function DailyTaskAssignment() {
             is_daily: taskData.is_daily,
             recurring: taskData.recurring,
             recurring_pattern: taskData.recurring_pattern,
+            department: taskData.department,
+            task_category: taskData.task_category,
             updated_at: new Date().toISOString(),
           })
           .eq("id", taskData.id);
@@ -646,6 +851,8 @@ export default function DailyTaskAssignment() {
             is_daily: taskData.is_daily,
             recurring: taskData.recurring,
             recurring_pattern: taskData.recurring_pattern,
+            department: taskData.department,
+            task_category: taskData.task_category,
             created_at: new Date().toISOString(),
           });
       }
@@ -653,11 +860,11 @@ export default function DailyTaskAssignment() {
       if (result.error) throw result.error;
       
       // Log assignment
-      if (!taskData.id) {
+      if (!taskData.id && result.data) {
         await supabase
           .from("task_assignments")
           .insert({
-            task_id: result.data?.[0]?.id,
+            task_id: result.data[0]?.id,
             assigned_to: taskData.assigned_to,
             assigned_by: user?.id,
             assigned_date: new Date().toISOString().slice(0, 10),
@@ -728,7 +935,7 @@ export default function DailyTaskAssignment() {
     }
   };
 
-  // Delete Task (Admin only)
+  // Delete Task
   const handleDeleteTask = async (id: string) => {
     if (!confirm("Are you sure you want to delete this task?")) return;
     
@@ -788,9 +995,12 @@ export default function DailyTaskAssignment() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Daily Task Assignment</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Briefcase className="h-6 w-6" />
+            IT Task Assignment
+          </h1>
           <p className="text-muted-foreground text-sm">
-            {isAdmin ? "Assign and manage daily tasks for your team" : "View and update your daily tasks"}
+            {isAdmin ? "Assign and manage IT tasks for your team" : "View and update your IT tasks"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -800,8 +1010,8 @@ export default function DailyTaskAssignment() {
           </Button>
           {isAdmin && (
             <Button size="sm" onClick={() => { setSelectedTask(null); setFormOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Assign Task
+              <UserPlus className="h-4 w-4 mr-2" />
+              Assign IT Task
             </Button>
           )}
         </div>
@@ -855,26 +1065,45 @@ export default function DailyTaskAssignment() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search tasks by title, description or assignee..."
+                  placeholder="Search IT tasks by title, description or assignee..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
                 />
               </div>
             </div>
+            
             <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Tasks</SelectItem>
+                <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="blocked">Blocked</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
+
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by department" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                <SelectItem value="it">IT</SelectItem>
+                <SelectItem value="software">Software</SelectItem>
+                <SelectItem value="hardware">Hardware</SelectItem>
+                <SelectItem value="network">Network</SelectItem>
+                <SelectItem value="database">Database</SelectItem>
+                <SelectItem value="security">Security</SelectItem>
+                <SelectItem value="cloud">Cloud</SelectItem>
+                <SelectItem value="support">Support</SelectItem>
+                <SelectItem value="server">Server</SelectItem>
+              </SelectContent>
+            </Select>
+
             {isAdmin && (
               <Button
                 variant="outline"
@@ -894,7 +1123,7 @@ export default function DailyTaskAssignment() {
           {loading ? (
             <div className="text-center py-8">
               <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4" />
-              <p>Loading tasks...</p>
+              <p>Loading IT tasks...</p>
             </div>
           ) : viewMode === "table" ? (
             <div className="overflow-x-auto">
@@ -902,6 +1131,7 @@ export default function DailyTaskAssignment() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Task Details</TableHead>
+                    <TableHead>Department</TableHead>
                     <TableHead>Assignee</TableHead>
                     <TableHead>Due Date</TableHead>
                     <TableHead>Priority</TableHead>
@@ -936,6 +1166,9 @@ export default function DailyTaskAssignment() {
                         </div>
                       </TableCell>
                       <TableCell>
+                        <DepartmentBadge department={task.department} />
+                      </TableCell>
+                      <TableCell>
                         {profiles[task.assigned_to] || task.assigned_to?.slice(0, 8)}
                       </TableCell>
                       <TableCell>
@@ -945,7 +1178,6 @@ export default function DailyTaskAssignment() {
                             {format(parseISO(task.due_date), "MMM dd, yyyy")}
                           </span>
                           {isToday(parseISO(task.due_date)) && <Badge variant="outline" className="text-xs">Today</Badge>}
-                          {isTomorrow(parseISO(task.due_date)) && <Badge variant="outline" className="text-xs">Tomorrow</Badge>}
                           {isAfter(new Date(), parseISO(task.due_date)) && task.status !== "completed" && (
                             <Badge variant="destructive" className="text-xs">
                               {differenceInDays(new Date(), parseISO(task.due_date))}d overdue
@@ -1000,14 +1232,14 @@ export default function DailyTaskAssignment() {
                   ))}
                   {getFilteredTasks().length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        {search || filter !== "all" ? (
-                          "No tasks match your filters"
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                        {search || filter !== "all" || departmentFilter !== "all" ? (
+                          "No IT tasks match your filters"
                         ) : (
                           <div>
-                            <p className="text-lg">No tasks found</p>
+                            <p className="text-lg">No IT tasks found</p>
                             <p className="text-sm">
-                              {isAdmin ? "Assign a new task to get started." : "You have no tasks assigned."}
+                              {isAdmin ? "Assign a new IT task to get started." : "You have no IT tasks assigned."}
                             </p>
                           </div>
                         )}
@@ -1025,6 +1257,12 @@ export default function DailyTaskAssignment() {
                     <div className="flex justify-between items-start">
                       <CardTitle className="text-base">{task.title}</CardTitle>
                       <PriorityBadge priority={task.priority} />
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <DepartmentBadge department={task.department} />
+                      {task.task_category && (
+                        <Badge variant="outline">{task.task_category.replace('_', ' ')}</Badge>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -1085,7 +1323,7 @@ export default function DailyTaskAssignment() {
               ))}
               {getFilteredTasks().length === 0 && (
                 <div className="col-span-full text-center text-muted-foreground py-8">
-                  No tasks found
+                  No IT tasks found
                 </div>
               )}
             </div>
