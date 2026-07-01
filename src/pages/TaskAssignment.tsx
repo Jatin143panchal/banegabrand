@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,6 @@ export default function TaskAssignment() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAssignTo, setBulkAssignTo] = useState("");
   const [leadTab, setLeadTab] = useState("all");
-  const [error, setError] = useState<string | null>(null);
 
   // Fetch Profiles
   const { 
@@ -154,7 +153,6 @@ export default function TaskAssignment() {
     },
     onError: (e: Error) => {
       toast.error(e.message || "Failed to assign task");
-      setError(e.message);
     },
   });
 
@@ -211,7 +209,7 @@ export default function TaskAssignment() {
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "leads"] });
-      toast.success(`${count} leads assigned successfully`);
+      toast.success(`${count} lead${count > 1 ? 's' : ''} assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
     },
@@ -245,22 +243,22 @@ export default function TaskAssignment() {
 
   const getProfileName = (userId: string | null) => {
     if (!userId) return "Unassigned";
-    const p = (profiles as Profile[]).find(p => p.user_id === userId);
+    const p = profiles.find(p => p.user_id === userId);
     return p?.display_name || "Unknown";
   };
 
   const handleAdd = async () => {
-    if (!form.title) {
+    if (!form.title.trim()) {
       toast.error("Please enter a task title");
       return;
     }
     await assignTask.mutateAsync({
-      title: form.title,
+      title: form.title.trim(),
       type: form.type,
-      description: form.description || null,
+      description: form.description?.trim() || null,
       assigned_to: form.assigned_to || null,
       due_date: form.due_date || null,
-      contact_name: form.contact_name || null,
+      contact_name: form.contact_name?.trim() || null,
     });
   };
 
@@ -286,6 +284,11 @@ export default function TaskAssignment() {
       leadIds: Array.from(selectedIds), 
       assignedTo: bulkAssignTo 
     });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setBulkAssignTo("");
   };
 
   // Check if user is admin
@@ -319,12 +322,15 @@ export default function TaskAssignment() {
         <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
         <h2 className="text-xl font-semibold text-red-700 mb-2">Error Loading Data</h2>
         <p className="text-red-600 mb-4">{errorMsg || "Failed to load data"}</p>
-        <Button onClick={() => {
-          refetchProfiles();
-          refetchActivities();
-          refetchLeads();
-        }}>
-          <RefreshCw className="h-4 w-4 mr-2" />
+        <Button 
+          onClick={() => {
+            refetchProfiles();
+            refetchActivities();
+            refetchLeads();
+          }}
+          className="gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
           Retry
         </Button>
       </Card>
@@ -342,6 +348,10 @@ export default function TaskAssignment() {
     return true;
   });
 
+  const todayLeadsCount = leads.filter(l => isToday(new Date(l.created_at))).length;
+  const freshLeadsCount = leads.filter(l => (l.status === "new" || l.stage === "new") && new Date(l.created_at) >= subDays(new Date(), 3)).length;
+  const unassignedLeadsCount = leads.filter(l => !l.assigned_to).length;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -351,36 +361,48 @@ export default function TaskAssignment() {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />Assign Task</Button>
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Assign Task
+            </Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Assign New Task</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Assign New Task</DialogTitle>
+            </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label>Title *</Label>
+                <Label htmlFor="title">Title *</Label>
                 <Input 
+                  id="title"
                   value={form.title} 
                   onChange={e => setForm({ ...form, title: e.target.value })} 
                   placeholder="Enter task title"
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Type</Label>
+                <Label htmlFor="type">Type</Label>
                 <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="type">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {["call", "email", "meeting", "task", "note"].map(t => (
-                      <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+                      <SelectItem key={t} value={t}>
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Assign To</Label>
+                <Label htmlFor="assigned_to">Assign To</Label>
                 <Select value={form.assigned_to} onValueChange={v => setForm({ ...form, assigned_to: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger>
+                  <SelectTrigger id="assigned_to">
+                    <SelectValue placeholder="Select team member" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {(profiles as Profile[]).map(p => (
+                    {profiles.map(p => (
                       <SelectItem key={p.user_id} value={p.user_id}>
                         {p.display_name || "Unknown"}
                       </SelectItem>
@@ -389,33 +411,36 @@ export default function TaskAssignment() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label>Description</Label>
+                <Label htmlFor="description">Description</Label>
                 <Textarea 
+                  id="description"
                   value={form.description} 
                   onChange={e => setForm({ ...form, description: e.target.value })} 
                   placeholder="Task description"
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Due Date</Label>
+                <Label htmlFor="due_date">Due Date</Label>
                 <Input 
+                  id="due_date"
                   type="date" 
                   value={form.due_date} 
                   onChange={e => setForm({ ...form, due_date: e.target.value })} 
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Contact Name</Label>
+                <Label htmlFor="contact_name">Contact Name</Label>
                 <Input 
+                  id="contact_name"
                   value={form.contact_name} 
                   onChange={e => setForm({ ...form, contact_name: e.target.value })} 
                   placeholder="Contact name"
                 />
               </div>
-              <Button onClick={handleAdd} disabled={assignTask.isPending}>
+              <Button onClick={handleAdd} disabled={assignTask.isPending} className="mt-2 gap-2">
                 {assignTask.isPending ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                     Assigning...
                   </>
                 ) : (
@@ -457,19 +482,21 @@ export default function TaskAssignment() {
 
       {/* Lead Assignment with Bulk */}
       <Card>
-        <CardHeader>
+        <CardHeader className="space-y-4">
           <CardTitle className="text-base">Lead Assignment & Bulk Assign</CardTitle>
-          <Tabs value={leadTab} onValueChange={setLeadTab} className="mt-2">
+          <Tabs value={leadTab} onValueChange={setLeadTab}>
             <TabsList className="flex-wrap">
-              <TabsTrigger value="all" className="text-xs">All ({leads.length})</TabsTrigger>
+              <TabsTrigger value="all" className="text-xs">
+                All ({leads.length})
+              </TabsTrigger>
               <TabsTrigger value="today" className="text-xs">
-                Today's ({leads.filter(l => isToday(new Date(l.created_at))).length})
+                Today's ({todayLeadsCount})
               </TabsTrigger>
               <TabsTrigger value="fresh" className="text-xs">
-                Fresh ({leads.filter(l => (l.status === "new" || l.stage === "new") && new Date(l.created_at) >= subDays(new Date(), 3)).length})
+                Fresh ({freshLeadsCount})
               </TabsTrigger>
               <TabsTrigger value="unassigned" className="text-xs">
-                Unassigned ({leads.filter(l => !l.assigned_to).length})
+                Unassigned ({unassignedLeadsCount})
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -477,7 +504,7 @@ export default function TaskAssignment() {
         <CardContent>
           {selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded-lg border bg-primary/5">
-              <Badge className="gap-1">
+              <Badge variant="secondary" className="gap-1">
                 <CheckSquare className="h-3 w-3" />
                 {selectedIds.size} selected
               </Badge>
@@ -486,7 +513,7 @@ export default function TaskAssignment() {
                   <SelectValue placeholder="Assign to employee" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(profiles as Profile[]).map(p => (
+                  {profiles.map(p => (
                     <SelectItem key={p.user_id} value={p.user_id}>
                       {p.display_name || "Unknown"}
                     </SelectItem>
@@ -497,18 +524,19 @@ export default function TaskAssignment() {
                 size="sm" 
                 onClick={handleBulkAssign} 
                 disabled={bulkAssign.isPending}
+                className="gap-1"
               >
                 {bulkAssign.isPending ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <UserCheck className="mr-1 h-4 w-4" />
+                  <UserCheck className="h-4 w-4" />
                 )}
                 Bulk Assign
               </Button>
               <Button 
                 size="sm" 
                 variant="ghost" 
-                onClick={() => setSelectedIds(new Set())}
+                onClick={clearSelection}
               >
                 Clear
               </Button>
@@ -552,7 +580,9 @@ export default function TaskAssignment() {
                       {lead.phone && <p className="text-xs text-muted-foreground">{lead.phone}</p>}
                     </TableCell>
                     <TableCell className="text-sm">{lead.company || "—"}</TableCell>
-                    <TableCell><Badge variant="outline">{lead.status}</Badge></TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{lead.status}</Badge>
+                    </TableCell>
                     <TableCell>
                       <Select 
                         value={lead.business_status || "active"} 
@@ -579,7 +609,7 @@ export default function TaskAssignment() {
                           <SelectValue placeholder="Assign" />
                         </SelectTrigger>
                         <SelectContent>
-                          {(profiles as Profile[]).map(p => (
+                          {profiles.map(p => (
                             <SelectItem key={p.user_id} value={p.user_id}>
                               {p.display_name || "Unknown"}
                             </SelectItem>
@@ -618,7 +648,7 @@ export default function TaskAssignment() {
                   <TableHead>Due Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Remarks</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="w-12">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -626,11 +656,17 @@ export default function TaskAssignment() {
                   <TableRow key={act.id}>
                     <TableCell>
                       <p className="font-medium text-sm">{act.title}</p>
-                      <p className="text-xs text-muted-foreground">{act.description}</p>
+                      {act.description && (
+                        <p className="text-xs text-muted-foreground">{act.description}</p>
+                      )}
                     </TableCell>
-                    <TableCell><Badge variant="outline">{act.type}</Badge></TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{act.type}</Badge>
+                    </TableCell>
                     <TableCell className="text-sm">{getProfileName(act.assigned_to)}</TableCell>
-                    <TableCell className="text-sm">{act.due_date ? new Date(act.due_date).toLocaleDateString() : "—"}</TableCell>
+                    <TableCell className="text-sm">
+                      {act.due_date ? new Date(act.due_date).toLocaleDateString() : "—"}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={getTaskStatus(act) === "completed" ? "secondary" : "default"}>
                         {getTaskStatus(act).replace("_", " ")}
@@ -645,6 +681,7 @@ export default function TaskAssignment() {
                         size="sm"
                         onClick={() => deleteTask.mutate(act.id)}
                         disabled={deleteTask.isPending}
+                        className="h-8 w-8 p-0"
                       >
                         <Trash2 className="h-4 w-4 text-red-500" />
                       </Button>
