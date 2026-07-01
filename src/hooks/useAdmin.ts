@@ -1,3 +1,5 @@
+// hooks/useAdmin.ts
+
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,46 +11,60 @@ export function useUserRoles() {
   return useQuery({
     queryKey: ["user_roles", user?.id],
     queryFn: async () => {
+      if (!user) return [];
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
-        .eq("user_id", user!.id);
+        .eq("user_id", user.id);
       if (error) throw error;
       return (data ?? []).map((r) => r.role as AppRole);
     },
     enabled: !!user,
+    initialData: [],
   });
 }
 
 export function useIsAdmin() {
-  const { data: roles } = useUserRoles();
+  const { data: roles = [], isLoading } = useUserRoles();
   return {
-    data: !!roles?.some((r) => r === "admin" || r === "owner"),
-    isLoading: false,
-  } as { data: boolean; isLoading: boolean };
+    data: roles.some((r) => r === "admin" || r === "owner"),
+    isLoading,
+  };
 }
 
 /** Owner or Admin — full CRM admin access */
 export function useIsOwnerOrAdmin() {
-  const { data: roles } = useUserRoles();
-  return !!roles?.some((r) => r === "owner" || r === "admin");
+  const { data: roles = [], isLoading } = useUserRoles();
+  return {
+    data: roles.some((r) => r === "owner" || r === "admin"),
+    isLoading,
+  };
 }
 
 /** Team Lead / Manager — assign & monitor tasks, not full admin */
 export function useIsManager() {
-  const { data: roles } = useUserRoles();
-  return !!roles?.some((r) => r === "tl");
+  const { data: roles = [], isLoading } = useUserRoles();
+  return {
+    data: roles.some((r) => r === "tl"),
+    isLoading,
+  };
 }
 
 /** Can assign tasks/leads to employees */
 export function useCanAssignTasks() {
-  const { data: roles } = useUserRoles();
-  return !!roles?.some((r) => r === "owner" || r === "admin" || r === "tl");
+  const { data: roles = [], isLoading } = useUserRoles();
+  return {
+    data: roles.some((r) => r === "owner" || r === "admin" || r === "tl"),
+    isLoading,
+  };
 }
 
 export function useHasRole(...allowed: AppRole[]) {
-  const { data: roles } = useUserRoles();
-  return !!roles?.some((r) => allowed.includes(r));
+  const { data: roles = [], isLoading } = useUserRoles();
+  return {
+    data: roles.some((r) => allowed.includes(r)),
+    isLoading,
+  };
 }
 
 export function useAllProfiles() {
