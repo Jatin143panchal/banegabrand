@@ -152,11 +152,11 @@ export default function TeamRoles() {
       <Card>
         <CardHeader><CardTitle className="text-base">Role Definitions</CardTitle></CardHeader>
         <CardContent className="grid sm:grid-cols-2 gap-3 text-sm">
-          <div><Badge className={roleColor.owner}>owner</Badge> Full access — dashboard, roles, tasks, leads, sab kuch.</div>
-          <div><Badge className={roleColor.admin}>admin</Badge> Full access — owner jaisa, system + users manage.</div>
-          <div><Badge className={roleColor.tl}>tl (Manager)</Badge> Task assign kare, team progress dekhe — full admin nahi.</div>
-          <div><Badge className={roleColor.hr_manager}>hr_manager</Badge> Attendance, employees, notifications — HR ka kaam.</div>
-          <div><Badge className={roleColor.employee}>employee</Badge> Apne tasks + assigned leads, daily reports.</div>
+          <div><Badge className={roleColor.owner}>owner</Badge> Full access — owns the company workspace.</div>
+          <div><Badge className={roleColor.admin}>admin</Badge> System admin — manage data, users, settings.</div>
+          <div><Badge className={roleColor.hr_manager}>hr_manager</Badge> Manages attendance, leaves, holidays.</div>
+          <div><Badge className={roleColor.tl}>tl</Badge> Team Lead — assigns tasks, oversees team work.</div>
+          <div><Badge className={roleColor.employee}>employee</Badge> Standard employee with daily check-in/out.</div>
         </CardContent>
       </Card>
     </div>
