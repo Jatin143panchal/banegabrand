@@ -12,7 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useHasRole } from "@/hooks/useAdmin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, UserCheck, Loader2, CheckSquare, AlertCircle, RefreshCw } from "lucide-react";
+import { Plus, UserCheck, Loader2, CheckSquare, AlertCircle, RefreshCw, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { isToday, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -54,7 +54,7 @@ interface Profile {
 
 export default function TaskAssignment() {
   const { user } = useAuth();
-  const isAdmin = useHasRole("admin", "owner", "hr_manager", "tl");
+  const { data: isAdmin } = useHasRole("admin", "owner", "hr_manager", "tl");
   const queryClient = useQueryClient();
   
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -71,7 +71,7 @@ export default function TaskAssignment() {
   const [leadTab, setLeadTab] = useState("all");
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch Profiles with better error handling
+  // Fetch Profiles
   const { 
     data: profiles = [], 
     isLoading: pl, 
@@ -88,7 +88,7 @@ export default function TaskAssignment() {
       if (error) throw new Error(error.message);
       return data as Profile[];
     },
-    enabled: !!user && isAdmin,
+    enabled: !!user && !!isAdmin,
     retry: 2,
   });
 
@@ -109,7 +109,7 @@ export default function TaskAssignment() {
       if (error) throw new Error(error.message);
       return data as Activity[];
     },
-    enabled: !!user && isAdmin,
+    enabled: !!user && !!isAdmin,
     retry: 2,
   });
 
@@ -130,7 +130,7 @@ export default function TaskAssignment() {
       if (error) throw new Error(error.message);
       return data as Lead[];
     },
-    enabled: !!user && isAdmin,
+    enabled: !!user && !!isAdmin,
     retry: 2,
   });
 
@@ -220,6 +220,26 @@ export default function TaskAssignment() {
     },
   });
 
+  // Delete Task Mutation
+  const deleteTask = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("activities")
+        .delete()
+        .eq("id", id);
+      
+      if (error) throw new Error(error.message);
+      return id;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "activities"] });
+      toast.success("Task deleted successfully");
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || "Failed to delete task");
+    },
+  });
+
   const getTaskStatus = (act: Activity) =>
     act.task_status || (act.completed ? "completed" : "pending");
 
@@ -271,7 +291,7 @@ export default function TaskAssignment() {
   // Check if user is admin
   if (!isAdmin) {
     return (
-      <Card className="p-8 text-center">
+      <Card className="p-8 text-center max-w-lg mx-auto mt-12">
         <AlertCircle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
         <p className="text-muted-foreground">
@@ -295,7 +315,7 @@ export default function TaskAssignment() {
   if (profilesError || activitiesError || leadsError) {
     const errorMsg = profilesError?.message || activitiesError?.message || leadsError?.message;
     return (
-      <Card className="p-8 text-center border-red-200 bg-red-50">
+      <Card className="p-8 text-center border-red-200 bg-red-50 max-w-lg mx-auto mt-12">
         <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
         <h2 className="text-xl font-semibold text-red-700 mb-2">Error Loading Data</h2>
         <p className="text-red-600 mb-4">{errorMsg || "Failed to load data"}</p>
@@ -324,7 +344,7 @@ export default function TaskAssignment() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Task & Lead Assignment</h1>
           <p className="text-muted-foreground">Assign tasks and leads to team members — track overall status</p>
@@ -333,7 +353,7 @@ export default function TaskAssignment() {
           <DialogTrigger asChild>
             <Button><Plus className="mr-2 h-4 w-4" />Assign Task</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Assign New Task</DialogTitle></DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -393,7 +413,14 @@ export default function TaskAssignment() {
                 />
               </div>
               <Button onClick={handleAdd} disabled={assignTask.isPending}>
-                {assignTask.isPending ? "Assigning..." : "Assign Task"}
+                {assignTask.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  "Assign Task"
+                )}
               </Button>
             </div>
           </DialogContent>
@@ -401,7 +428,7 @@ export default function TaskAssignment() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-2xl font-bold">{leads.length}</p>
@@ -432,8 +459,8 @@ export default function TaskAssignment() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Lead Assignment & Bulk Assign</CardTitle>
-          <Tabs value={leadTab} onValueChange={setLeadTab}>
-            <TabsList className="mt-2">
+          <Tabs value={leadTab} onValueChange={setLeadTab} className="mt-2">
+            <TabsList className="flex-wrap">
               <TabsTrigger value="all" className="text-xs">All ({leads.length})</TabsTrigger>
               <TabsTrigger value="today" className="text-xs">
                 Today's ({leads.filter(l => isToday(new Date(l.created_at))).length})
@@ -450,7 +477,10 @@ export default function TaskAssignment() {
         <CardContent>
           {selectedIds.size > 0 && (
             <div className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded-lg border bg-primary/5">
-              <Badge><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
+              <Badge className="gap-1">
+                <CheckSquare className="h-3 w-3" />
+                {selectedIds.size} selected
+              </Badge>
               <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
                 <SelectTrigger className="w-44 h-9">
                   <SelectValue placeholder="Assign to employee" />
@@ -468,8 +498,12 @@ export default function TaskAssignment() {
                 onClick={handleBulkAssign} 
                 disabled={bulkAssign.isPending}
               >
-                <UserCheck className="mr-1 h-4 w-4" />
-                Bulk Assign {selectedIds.size} Leads
+                {bulkAssign.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <UserCheck className="mr-1 h-4 w-4" />
+                )}
+                Bulk Assign
               </Button>
               <Button 
                 size="sm" 
@@ -502,7 +536,6 @@ export default function TaskAssignment() {
                   <TableHead>Status</TableHead>
                   <TableHead>Business</TableHead>
                   <TableHead>Assigned To</TableHead>
-                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -524,6 +557,7 @@ export default function TaskAssignment() {
                       <Select 
                         value={lead.business_status || "active"} 
                         onValueChange={v => updateBusinessStatus.mutate({ id: lead.id, business_status: v })}
+                        disabled={updateBusinessStatus.isPending}
                       >
                         <SelectTrigger className="w-28 h-8">
                           <SelectValue />
@@ -539,6 +573,7 @@ export default function TaskAssignment() {
                       <Select 
                         value={lead.assigned_to || ""} 
                         onValueChange={v => assignLead.mutate({ id: lead.id, assigned_to: v })}
+                        disabled={assignLead.isPending}
                       >
                         <SelectTrigger className="w-32 h-8">
                           <SelectValue placeholder="Assign" />
@@ -552,16 +587,11 @@ export default function TaskAssignment() {
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell>
-                      <Badge variant={lead.assigned_to ? "default" : "outline"} className="text-xs">
-                        {lead.assigned_to ? <><UserCheck className="h-3 w-3 mr-1" />Assigned</> : "Unassigned"}
-                      </Badge>
-                    </TableCell>
                   </TableRow>
                 ))}
                 {filteredLeads.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">
+                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">
                       No leads in this filter
                     </TableCell>
                   </TableRow>
@@ -574,7 +604,9 @@ export default function TaskAssignment() {
 
       {/* Assigned Tasks */}
       <Card>
-        <CardHeader><CardTitle className="text-base">All Tasks</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">All Tasks</CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
@@ -586,6 +618,7 @@ export default function TaskAssignment() {
                   <TableHead>Due Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Remarks</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -597,7 +630,7 @@ export default function TaskAssignment() {
                     </TableCell>
                     <TableCell><Badge variant="outline">{act.type}</Badge></TableCell>
                     <TableCell className="text-sm">{getProfileName(act.assigned_to)}</TableCell>
-                    <TableCell className="text-sm">{act.due_date || "—"}</TableCell>
+                    <TableCell className="text-sm">{act.due_date ? new Date(act.due_date).toLocaleDateString() : "—"}</TableCell>
                     <TableCell>
                       <Badge variant={getTaskStatus(act) === "completed" ? "secondary" : "default"}>
                         {getTaskStatus(act).replace("_", " ")}
@@ -606,11 +639,21 @@ export default function TaskAssignment() {
                     <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
                       {act.employee_remarks || "—"}
                     </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteTask.mutate(act.id)}
+                        disabled={deleteTask.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {activities.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">
+                    <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">
                       No tasks yet
                     </TableCell>
                   </TableRow>
