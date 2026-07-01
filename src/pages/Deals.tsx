@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { 
   Plus, IndianRupee, Loader2, User, Building2, Calendar, Clock, 
   FileText, CheckCircle, XCircle, AlertCircle, Edit2, Trash2,
-  Paperclip, Image, File, X, Download, Eye
+  Paperclip, Image, File, X, Download, Eye, Search, Filter,
+  ChevronDown, ChevronUp, DollarSign, Receipt, CreditCard
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -24,6 +25,14 @@ interface PaymentSlip {
   uploadedAt: string;
 }
 
+interface GstDetails {
+  gstNumber: string;
+  companyName: string;
+  businessType: 'proprietorship' | 'partnership' | 'pvt_ltd' | 'llp' | 'other';
+  panNumber: string;
+  registeredAddress: string;
+}
+
 interface SalesEntry {
   id: string;
   date: string;
@@ -32,7 +41,10 @@ interface SalesEntry {
   address: string;
   state: string;
   hasGst: boolean;
+  gstDetails?: GstDetails;
   amount: number;
+  gstAmount?: number;
+  totalAmount?: number;
   product: string;
   paymentMode: 'UPI' | 'Netbanking' | 'Razorpay' | 'Cash' | 'Other';
   paymentSlips: PaymentSlip[];
@@ -50,6 +62,11 @@ interface SalesEntry {
   budget_utilized?: number;
   category?: string;
   assigned_to?: string | null;
+  expected_completion_date?: string;
+  paymentStatus?: 'pending' | 'partial' | 'completed';
+  paymentReceived?: number;
+  invoiceNumber?: string;
+  poNumber?: string;
 }
 
 interface SalesFormData {
@@ -58,7 +75,13 @@ interface SalesFormData {
   address: string;
   state: string;
   hasGst: boolean;
+  gstNumber: string;
+  companyName: string;
+  businessType: 'proprietorship' | 'partnership' | 'pvt_ltd' | 'llp' | 'other';
+  panNumber: string;
+  registeredAddress: string;
   amount: number;
+  gstRate: number;
   product: string;
   paymentMode: 'UPI' | 'Netbanking' | 'Razorpay' | 'Cash' | 'Other';
   notes: string;
@@ -66,6 +89,10 @@ interface SalesFormData {
   category: string;
   budget_allocated: number;
   expected_completion_date: string;
+  invoiceNumber: string;
+  poNumber: string;
+  paymentStatus: 'pending' | 'partial' | 'completed';
+  paymentReceived: number;
 }
 
 // ==================== CONSTANTS ====================
@@ -85,6 +112,14 @@ const priorities = [
   { key: "urgent", label: "Urgent", color: "bg-red-100 text-red-700" },
 ] as const;
 
+const paymentStatuses = [
+  { key: "pending", label: "Pending", color: "bg-yellow-100 text-yellow-700" },
+  { key: "partial", label: "Partial", color: "bg-orange-100 text-orange-700" },
+  { key: "completed", label: "Completed", color: "bg-green-100 text-green-700" },
+] as const;
+
+const gstRates = [0, 5, 12, 18, 28];
+
 // ==================== MAIN COMPONENT ====================
 const SalesPunch: React.FC = () => {
   // ---------- STATE ----------
@@ -96,6 +131,11 @@ const SalesPunch: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [filterMode, setFilterMode] = useState<'all' | 'gst' | 'non_gst'>('all');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'client'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState<SalesFormData>({
@@ -104,7 +144,13 @@ const SalesPunch: React.FC = () => {
     address: '',
     state: '',
     hasGst: false,
+    gstNumber: '',
+    companyName: '',
+    businessType: 'proprietorship',
+    panNumber: '',
+    registeredAddress: '',
     amount: 0,
+    gstRate: 18,
     product: '',
     paymentMode: 'Cash',
     notes: '',
@@ -112,6 +158,10 @@ const SalesPunch: React.FC = () => {
     category: '',
     budget_allocated: 0,
     expected_completion_date: '',
+    invoiceNumber: '',
+    poNumber: '',
+    paymentStatus: 'pending',
+    paymentReceived: 0,
   });
 
   // ---------- LOCAL STORAGE ----------
@@ -132,6 +182,13 @@ const SalesPunch: React.FC = () => {
           budget_utilized: entry.budget_utilized || 0,
           expected_completion_date: entry.expected_completion_date || '',
           request_number: entry.request_number || `REQ-${String(Date.now()).slice(-6)}`,
+          gstDetails: entry.gstDetails || undefined,
+          gstAmount: entry.gstAmount || 0,
+          totalAmount: entry.totalAmount || entry.amount || 0,
+          invoiceNumber: entry.invoiceNumber || '',
+          poNumber: entry.poNumber || '',
+          paymentStatus: entry.paymentStatus || 'pending',
+          paymentReceived: entry.paymentReceived || 0,
         }));
         setEntries(fixed);
       } catch (e) {
@@ -198,6 +255,14 @@ const SalesPunch: React.FC = () => {
     return p ? p.color : 'bg-gray-100 text-gray-700';
   };
 
+  const calculateGST = (amount: number, rate: number): number => {
+    return (amount * rate) / 100;
+  };
+
+  const calculateTotal = (amount: number, gstAmount: number): number => {
+    return amount + gstAmount;
+  };
+
   // ---------- CRUD ----------
   const handleAddEntry = (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +270,9 @@ const SalesPunch: React.FC = () => {
       alert('Please fill Client Name, Mobile, and Amount correctly!');
       return;
     }
+
+    const gstAmount = form.hasGst ? calculateGST(form.amount, form.gstRate) : 0;
+    const totalAmount = form.hasGst ? calculateTotal(form.amount, gstAmount) : form.amount;
 
     const newEntry: SalesEntry = {
       id: Date.now().toString(),
@@ -214,7 +282,16 @@ const SalesPunch: React.FC = () => {
       address: form.address.trim(),
       state: form.state.trim(),
       hasGst: form.hasGst,
+      gstDetails: form.hasGst ? {
+        gstNumber: form.gstNumber.trim(),
+        companyName: form.companyName.trim(),
+        businessType: form.businessType,
+        panNumber: form.panNumber.trim(),
+        registeredAddress: form.registeredAddress.trim(),
+      } : undefined,
       amount: form.amount,
+      gstAmount: gstAmount,
+      totalAmount: totalAmount,
       product: form.product.trim(),
       paymentMode: form.paymentMode,
       paymentSlips: [],
@@ -226,6 +303,10 @@ const SalesPunch: React.FC = () => {
       budget_utilized: 0,
       expected_completion_date: form.expected_completion_date || '',
       request_number: `REQ-${String(Date.now()).slice(-6)}`,
+      invoiceNumber: form.invoiceNumber.trim(),
+      poNumber: form.poNumber.trim(),
+      paymentStatus: form.paymentStatus,
+      paymentReceived: form.paymentReceived || 0,
     };
 
     setEntries([...entries, newEntry]);
@@ -242,6 +323,9 @@ const SalesPunch: React.FC = () => {
 
     if (!editingId) return;
 
+    const gstAmount = form.hasGst ? calculateGST(form.amount, form.gstRate) : 0;
+    const totalAmount = form.hasGst ? calculateTotal(form.amount, gstAmount) : form.amount;
+
     setEntries(entries.map(entry => {
       if (entry.id === editingId) {
         return {
@@ -252,7 +336,16 @@ const SalesPunch: React.FC = () => {
           address: form.address.trim(),
           state: form.state.trim(),
           hasGst: form.hasGst,
+          gstDetails: form.hasGst ? {
+            gstNumber: form.gstNumber.trim(),
+            companyName: form.companyName.trim(),
+            businessType: form.businessType,
+            panNumber: form.panNumber.trim(),
+            registeredAddress: form.registeredAddress.trim(),
+          } : undefined,
           amount: form.amount,
+          gstAmount: gstAmount,
+          totalAmount: totalAmount,
           product: form.product.trim(),
           paymentMode: form.paymentMode,
           notes: form.notes.trim(),
@@ -260,6 +353,10 @@ const SalesPunch: React.FC = () => {
           category: form.category.trim(),
           budget_allocated: form.budget_allocated || 0,
           expected_completion_date: form.expected_completion_date || '',
+          invoiceNumber: form.invoiceNumber.trim(),
+          poNumber: form.poNumber.trim(),
+          paymentStatus: form.paymentStatus,
+          paymentReceived: form.paymentReceived || 0,
         };
       }
       return entry;
@@ -284,8 +381,14 @@ const SalesPunch: React.FC = () => {
         mobile: entry.mobile,
         address: entry.address,
         state: entry.state || '',
-        hasGst: entry.hasGst,
+        hasGst: entry.hasGst || false,
+        gstNumber: entry.gstDetails?.gstNumber || '',
+        companyName: entry.gstDetails?.companyName || '',
+        businessType: entry.gstDetails?.businessType || 'proprietorship',
+        panNumber: entry.gstDetails?.panNumber || '',
+        registeredAddress: entry.gstDetails?.registeredAddress || '',
         amount: entry.amount,
+        gstRate: entry.gstAmount ? (entry.gstAmount / entry.amount) * 100 : 18,
         product: entry.product,
         paymentMode: entry.paymentMode,
         notes: entry.notes || '',
@@ -293,6 +396,10 @@ const SalesPunch: React.FC = () => {
         category: entry.category || '',
         budget_allocated: entry.budget_allocated || 0,
         expected_completion_date: entry.expected_completion_date || '',
+        invoiceNumber: entry.invoiceNumber || '',
+        poNumber: entry.poNumber || '',
+        paymentStatus: entry.paymentStatus || 'pending',
+        paymentReceived: entry.paymentReceived || 0,
       });
       setSelectedDate(entry.date);
       setEditingId(id);
@@ -321,7 +428,13 @@ const SalesPunch: React.FC = () => {
       address: '',
       state: '',
       hasGst: false,
+      gstNumber: '',
+      companyName: '',
+      businessType: 'proprietorship',
+      panNumber: '',
+      registeredAddress: '',
       amount: 0,
+      gstRate: 18,
       product: '',
       paymentMode: 'Cash',
       notes: '',
@@ -329,6 +442,10 @@ const SalesPunch: React.FC = () => {
       category: '',
       budget_allocated: 0,
       expected_completion_date: '',
+      invoiceNumber: '',
+      poNumber: '',
+      paymentStatus: 'pending',
+      paymentReceived: 0,
     });
     setEditingId(null);
   };
@@ -410,16 +527,51 @@ const SalesPunch: React.FC = () => {
 
   // ---------- FILTERED DATA ----------
   const filteredEntries = entries
-    .filter(entry => entry.date === selectedDate)
-    .filter(entry => selectedStatus === 'all' || entry.status === selectedStatus);
+    .filter(entry => {
+      // Date filter
+      if (selectedDate && entry.date !== selectedDate) return false;
+      // Status filter
+      if (selectedStatus !== 'all' && entry.status !== selectedStatus) return false;
+      // GST filter
+      if (filterMode === 'gst' && !entry.hasGst) return false;
+      if (filterMode === 'non_gst' && entry.hasGst) return false;
+      // Search filter
+      if (searchTerm) {
+        const search = searchTerm.toLowerCase();
+        return (
+          entry.clientName.toLowerCase().includes(search) ||
+          entry.mobile.includes(search) ||
+          entry.product.toLowerCase().includes(search) ||
+          entry.invoiceNumber?.toLowerCase().includes(search) ||
+          entry.request_number?.toLowerCase().includes(search)
+        );
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'date') {
+        return sortOrder === 'asc' 
+          ? new Date(a.date).getTime() - new Date(b.date).getTime()
+          : new Date(b.date).getTime() - new Date(a.date).getTime();
+      } else if (sortBy === 'amount') {
+        return sortOrder === 'asc' 
+          ? (a.totalAmount || a.amount) - (b.totalAmount || b.amount)
+          : (b.totalAmount || b.amount) - (a.totalAmount || a.amount);
+      } else {
+        return sortOrder === 'asc'
+          ? a.clientName.localeCompare(b.clientName)
+          : b.clientName.localeCompare(a.clientName);
+      }
+    });
   
-  const totalAmount = filteredEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalAmount = filteredEntries.reduce((sum, entry) => sum + (entry.totalAmount || entry.amount), 0);
+  const totalGST = filteredEntries.reduce((sum, entry) => sum + (entry.gstAmount || 0), 0);
 
   // ---------- PIPELINE DATA ----------
   const pipelineEntries = entries;
   const pipelineTotals = statuses.reduce((acc, status) => {
     const items = pipelineEntries.filter(e => e.status === status.key);
-    acc[status.key] = items.reduce((sum, e) => sum + e.amount, 0);
+    acc[status.key] = items.reduce((sum, e) => sum + (e.totalAmount || e.amount), 0);
     return acc;
   }, {} as Record<string, number>);
 
@@ -434,7 +586,7 @@ const SalesPunch: React.FC = () => {
               <h2 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
                 💰 Sales Punch
               </h2>
-              <p className="text-sm text-gray-500 mt-1">Daily payment entries with approval pipeline</p>
+              <p className="text-sm text-gray-500 mt-1">Daily payment entries with GST and approval pipeline</p>
             </div>
             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <button
@@ -456,35 +608,120 @@ const SalesPunch: React.FC = () => {
           </div>
         </div>
 
-        {/* ===== DATE FILTER & TOTAL ===== */}
-        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl shadow-md p-4 md:p-6 mb-4 md:mb-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <label className="text-white text-sm font-medium whitespace-nowrap">Select Date:</label>
+        {/* ===== FILTERS & CONTROLS ===== */}
+        <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 mb-4 md:mb-6 border border-gray-200">
+          <div className="flex flex-col md:flex-row gap-4">
+            {/* Search */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by client, mobile, product, invoice..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            {/* Date */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 whitespace-nowrap">Date:</label>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border-0 text-sm focus:ring-2 focus:ring-white outline-none w-full sm:w-auto"
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               />
-              {viewMode === 'list' && (
+            </div>
+
+            {/* Filter Toggle */}
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-2 transition"
+            >
+              <Filter className="h-4 w-4" />
+              Filters
+              {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </div>
+
+          {/* Expanded Filters */}
+          {showFilters && (
+            <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Status</label>
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg border-0 text-sm focus:ring-2 focus:ring-white outline-none bg-white"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                 >
                   <option value="all">All Status</option>
                   {statuses.map(s => (
                     <option key={s.key} value={s.key}>{s.label}</option>
                   ))}
                 </select>
-              )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">GST Filter</label>
+                <select
+                  value={filterMode}
+                  onChange={(e) => setFilterMode(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                >
+                  <option value="all">All Entries</option>
+                  <option value="gst">With GST</option>
+                  <option value="non_gst">Without GST</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Sort By</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                >
+                  <option value="date">Date</option>
+                  <option value="amount">Amount</option>
+                  <option value="client">Client</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Sort Order</label>
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+              </div>
             </div>
-            <div className="text-white text-right w-full sm:w-auto">
-              <p className="text-xs opacity-80">Total Collection</p>
-              <p className="text-2xl md:text-3xl font-bold">{formatCurrency(totalAmount)}</p>
-              <p className="text-xs opacity-80">{filteredEntries.length} entries</p>
-            </div>
+          )}
+        </div>
+
+        {/* ===== SUMMARY CARDS ===== */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 md:mb-6">
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+            <p className="text-xs text-gray-500">Total Entries</p>
+            <p className="text-2xl font-bold text-gray-800">{filteredEntries.length}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+            <p className="text-xs text-gray-500">Total Amount</p>
+            <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalAmount)}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+            <p className="text-xs text-gray-500">Total GST</p>
+            <p className="text-2xl font-bold text-orange-600">{formatCurrency(totalGST)}</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-200">
+            <p className="text-xs text-gray-500">GST Entries</p>
+            <p className="text-2xl font-bold text-green-600">
+              {filteredEntries.filter(e => e.hasGst).length}
+            </p>
           </div>
         </div>
 
@@ -496,7 +733,8 @@ const SalesPunch: React.FC = () => {
             </h3>
 
             <form onSubmit={editingId ? handleUpdateEntry : handleAddEntry} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Client Name *
@@ -524,9 +762,22 @@ const SalesPunch: React.FC = () => {
                     required
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Invoice Number
+                  </label>
+                  <input
+                    type="text"
+                    value={form.invoiceNumber}
+                    onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="INV-2024-001"
+                  />
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Address
@@ -552,9 +803,114 @@ const SalesPunch: React.FC = () => {
                     placeholder="Maharashtra"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    PO Number
+                  </label>
+                  <input
+                    type="text"
+                    value={form.poNumber}
+                    onChange={(e) => setForm({ ...form, poNumber: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="PO-2024-001"
+                  />
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* GST Section */}
+              <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center gap-3 mb-4">
+                  <input
+                    type="checkbox"
+                    checked={form.hasGst}
+                    onChange={(e) => setForm({ ...form, hasGst: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                  />
+                  <label className="text-sm font-medium text-gray-700">
+                    GST Registered Client
+                  </label>
+                </div>
+
+                {form.hasGst && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        GST Number *
+                      </label>
+                      <input
+                        type="text"
+                        value={form.gstNumber}
+                        onChange={(e) => setForm({ ...form, gstNumber: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="22AAAAA0000A1Z5"
+                        required={form.hasGst}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        Company Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={form.companyName}
+                        onChange={(e) => setForm({ ...form, companyName: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="ABC Pvt Ltd"
+                        required={form.hasGst}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        Business Type
+                      </label>
+                      <select
+                        value={form.businessType}
+                        onChange={(e) => setForm({ ...form, businessType: e.target.value as any })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                      >
+                        <option value="proprietorship">Proprietorship</option>
+                        <option value="partnership">Partnership</option>
+                        <option value="pvt_ltd">Private Limited</option>
+                        <option value="llp">LLP</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        PAN Number *
+                      </label>
+                      <input
+                        type="text"
+                        value={form.panNumber}
+                        onChange={(e) => setForm({ ...form, panNumber: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="AAAAA1234A"
+                        required={form.hasGst}
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        Registered Address
+                      </label>
+                      <input
+                        type="text"
+                        value={form.registeredAddress}
+                        onChange={(e) => setForm({ ...form, registeredAddress: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="Registered office address"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Amount & Payment */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Amount (₹) *
@@ -571,6 +927,51 @@ const SalesPunch: React.FC = () => {
                   />
                 </div>
 
+                {form.hasGst && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        GST Rate (%)
+                      </label>
+                      <select
+                        value={form.gstRate}
+                        onChange={(e) => setForm({ ...form, gstRate: parseFloat(e.target.value) })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                      >
+                        {gstRates.map(rate => (
+                          <option key={rate} value={rate}>{rate}%</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        GST Amount
+                      </label>
+                      <input
+                        type="text"
+                        value={formatCurrency(calculateGST(form.amount, form.gstRate))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700"
+                        disabled
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                        Total Amount
+                      </label>
+                      <input
+                        type="text"
+                        value={formatCurrency(calculateTotal(form.amount, calculateGST(form.amount, form.gstRate)))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-blue-50 text-blue-700 font-semibold"
+                        disabled
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Product / Service
@@ -583,9 +984,7 @@ const SalesPunch: React.FC = () => {
                     placeholder="Website Development"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Payment Mode
@@ -603,20 +1002,39 @@ const SalesPunch: React.FC = () => {
                   </select>
                 </div>
 
-                <div className="flex items-center gap-3 pt-6">
-                  <label className="text-sm font-medium text-gray-600 whitespace-nowrap">GST Registered:</label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Payment Status
+                  </label>
+                  <select
+                    value={form.paymentStatus}
+                    onChange={(e) => setForm({ ...form, paymentStatus: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  >
+                    {paymentStatuses.map(p => (
+                      <option key={p.key} value={p.key}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Payment Received (₹)
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={form.hasGst}
-                    onChange={(e) => setForm({ ...form, hasGst: e.target.checked })}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    type="number"
+                    value={form.paymentReceived || ''}
+                    onChange={(e) => setForm({ ...form, paymentReceived: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="0"
+                    min="0"
+                    step="0.01"
                   />
-                  <span className="text-sm text-gray-500">{form.hasGst ? '✅ Yes' : '❌ No'}</span>
                 </div>
               </div>
 
               {/* Priority & Category */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
                     Priority
@@ -644,23 +1062,6 @@ const SalesPunch: React.FC = () => {
                     placeholder="Software, Consulting, etc."
                   />
                 </div>
-              </div>
-
-              {/* Budget & Expected Completion */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">
-                    Budget Allocated (₹)
-                  </label>
-                  <input
-                    type="number"
-                    value={form.budget_allocated || ''}
-                    onChange={(e) => setForm({ ...form, budget_allocated: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="0"
-                    min="0"
-                  />
-                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">
@@ -673,6 +1074,20 @@ const SalesPunch: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  Budget Allocated (₹)
+                </label>
+                <input
+                  type="number"
+                  value={form.budget_allocated || ''}
+                  onChange={(e) => setForm({ ...form, budget_allocated: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="0"
+                  min="0"
+                />
               </div>
 
               <div>
@@ -712,7 +1127,7 @@ const SalesPunch: React.FC = () => {
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {statuses.map(status => {
               const statusRequests = pipelineEntries.filter(r => r.status === status.key);
-              const totalAmount = statusRequests.reduce((s, r) => s + (r.amount || 0), 0);
+              const totalAmount = statusRequests.reduce((s, r) => s + (r.totalAmount || r.amount || 0), 0);
 
               return (
                 <div key={status.key} className="space-y-3">
@@ -773,11 +1188,18 @@ const SalesPunch: React.FC = () => {
                               )}
                             </div>
 
+                            {/* GST Badge */}
+                            {request.hasGst && (
+                              <Badge className="text-xs bg-green-100 text-green-700 mt-1">
+                                GST {request.gstAmount ? formatCurrency(request.gstAmount) : ''}
+                              </Badge>
+                            )}
+
                             {/* Amount & Date */}
                             <div className="flex items-center justify-between mt-2">
                               <span className="text-sm font-semibold flex items-center gap-1">
                                 <IndianRupee className="h-3 w-3 flex-shrink-0" />
-                                {formatCurrency(request.amount || 0)}
+                                {formatCurrency(request.totalAmount || request.amount || 0)}
                               </span>
                               <span className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Calendar className="h-3 w-3 flex-shrink-0" />
@@ -786,6 +1208,17 @@ const SalesPunch: React.FC = () => {
                                   : 'N/A'}
                               </span>
                             </div>
+
+                            {/* Payment Status */}
+                            {request.paymentStatus && (
+                              <Badge className={`text-xs mt-1 ${
+                                request.paymentStatus === 'completed' ? 'bg-green-100 text-green-700' :
+                                request.paymentStatus === 'partial' ? 'bg-orange-100 text-orange-700' :
+                                'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {request.paymentStatus.charAt(0).toUpperCase() + request.paymentStatus.slice(1)}
+                              </Badge>
+                            )}
 
                             {/* ===== ACTION BUTTONS ===== */}
                             {request.status === 'draft' && (
@@ -881,16 +1314,21 @@ const SalesPunch: React.FC = () => {
               <h3 className="text-sm font-semibold text-gray-700">
                 📋 Entries ({filteredEntries.length})
               </h3>
-              <span className="text-xs text-gray-500">
-                Total: {formatCurrency(totalAmount)}
-              </span>
+              <div className="flex flex-wrap items-center gap-4">
+                <span className="text-xs text-gray-500">
+                  Total: {formatCurrency(totalAmount)}
+                </span>
+                <span className="text-xs text-gray-500">
+                  GST: {formatCurrency(totalGST)}
+                </span>
+              </div>
             </div>
 
             {filteredEntries.length === 0 ? (
               <div className="text-center py-8 md:py-12 text-gray-400">
                 <p className="text-4xl md:text-5xl mb-3">📭</p>
-                <p className="text-sm">No entries for this date</p>
-                <p className="text-xs">Click "New Entry" to add your first sale</p>
+                <p className="text-sm">No entries found</p>
+                <p className="text-xs">Try adjusting your filters or add a new entry</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -903,6 +1341,7 @@ const SalesPunch: React.FC = () => {
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold hidden lg:table-cell">State</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold hidden md:table-cell">Product</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold">Amount</th>
+                      <th className="py-2 md:py-3 px-2 md:px-4 font-semibold hidden sm:table-cell">GST</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold hidden sm:table-cell">Payment</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold">Status</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold text-center">Slips</th>
@@ -925,6 +1364,11 @@ const SalesPunch: React.FC = () => {
                           <div className="text-xs text-gray-400 sm:hidden">
                             {entry.mobile}
                           </div>
+                          {entry.invoiceNumber && (
+                            <div className="text-xs text-gray-400">
+                              INV: {entry.invoiceNumber}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 md:py-3 px-2 md:px-4 text-gray-600 hidden sm:table-cell">
                           {entry.mobile}
@@ -935,13 +1379,44 @@ const SalesPunch: React.FC = () => {
                         <td className="py-2 md:py-3 px-2 md:px-4 text-gray-600 hidden md:table-cell">
                           {entry.product || '—'}
                         </td>
-                        <td className="py-2 md:py-3 px-2 md:px-4 font-bold text-gray-800 whitespace-nowrap">
-                          {formatCurrency(entry.amount)}
+                        <td className="py-2 md:py-3 px-2 md:px-4">
+                          <div className="font-bold text-gray-800 whitespace-nowrap">
+                            {formatCurrency(entry.totalAmount || entry.amount)}
+                          </div>
+                          {entry.totalAmount && entry.totalAmount !== entry.amount && (
+                            <div className="text-xs text-gray-400">
+                              Base: {formatCurrency(entry.amount)}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 md:py-3 px-2 md:px-4 hidden sm:table-cell">
-                          <span className="text-[10px] bg-gray-100 px-1.5 py-1 rounded-full whitespace-nowrap">
-                            {getPaymentEmoji(entry.paymentMode)} {entry.paymentMode}
-                          </span>
+                          {entry.hasGst ? (
+                            <span className="text-xs text-orange-600">
+                              {formatCurrency(entry.gstAmount || 0)}
+                              <span className="block text-[10px] text-gray-400">
+                                {entry.gstDetails?.gstNumber || ''}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-2 md:py-3 px-2 md:px-4 hidden sm:table-cell">
+                          <div>
+                            <span className="text-[10px] bg-gray-100 px-1.5 py-1 rounded-full whitespace-nowrap">
+                              {getPaymentEmoji(entry.paymentMode)} {entry.paymentMode}
+                            </span>
+                            {entry.paymentStatus && (
+                              <div className="text-[10px] text-gray-400 mt-1">
+                                {entry.paymentStatus}
+                                {entry.paymentReceived && entry.paymentReceived > 0 && (
+                                  <span className="ml-1">
+                                    ({formatCurrency(entry.paymentReceived)})
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2 md:py-3 px-2 md:px-4">
                           <Badge className={`text-xs ${
