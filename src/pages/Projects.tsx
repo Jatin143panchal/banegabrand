@@ -23,7 +23,7 @@ import {
   FileText, CreditCard, ClipboardList, Building2, Send,
   ChevronRight, ArrowLeft, Bell, File, Image, Video,
   Shield, Award, Coffee, Globe, Zap, Target, BarChart3,
-  RefreshCw, Save, Copy, Upload
+  RefreshCw, Save, Copy, Upload, StickyNote, MapPin, PhoneCall
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -114,6 +114,8 @@ interface Project {
   current_stage: string;
   completion_percentage: number;
   status: string;
+  client_address: string | null;
+  client_phone: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -136,6 +138,8 @@ interface ProjectTask {
   description: string | null;
   department: string | null;
   assigned_to: string | null;
+  assigned_to_email: string | null;
+  assigned_to_name: string | null;
   assigned_by: string | null;
   priority: string;
   status: string;
@@ -214,6 +218,26 @@ interface Communication {
   communication_date: string;
   user_id: string | null;
   next_followup_date: string | null;
+}
+
+interface ProjectNote {
+  id: string;
+  project_id: string;
+  note_type: string; // 'general' | 'documentation'
+  title: string | null;
+  content: string;
+  created_by: string | null;
+  created_by_email: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ITTeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string | null;
+  active: boolean;
 }
 
 // ============================================================
@@ -407,9 +431,11 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
 }
 
 // ── Task Card ──────────────────────────────────────────────────
-function TaskCard({ task, onStatusChange, onDelete }: { 
+function TaskCard({ task, itTeam, onStatusChange, onAssign, onDelete }: { 
   task: ProjectTask; 
+  itTeam: ITTeamMember[];
   onStatusChange: (id: string, status: string) => void;
+  onAssign: (id: string, email: string, name: string) => void;
   onDelete: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -439,7 +465,13 @@ function TaskCard({ task, onStatusChange, onDelete }: {
             {task.due_date && (
               <span>📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
             )}
-            {task.assigned_to && <span>👤 Assigned</span>}
+            {task.assigned_to_name || task.assigned_to_email ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                👤 {task.assigned_to_name || task.assigned_to_email}
+              </span>
+            ) : (
+              <span className="text-amber-600">👤 Unassigned</span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -461,34 +493,34 @@ function TaskCard({ task, onStatusChange, onDelete }: {
                 value={task.status} 
                 onValueChange={(v) => onStatusChange(task.id, v)}
               >
-                <SelectTrigger className="h-7 text-xs w-32">
+                <SelectTrigger className="h-7 text-xs w-36">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="not_started">Not Started</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="in_progress">Processing</SelectItem>
                   <SelectItem value="review">Review</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="completed">Done</SelectItem>
                   <SelectItem value="blocked">Blocked</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <span className="text-muted-foreground">Priority: </span>
+              <span className="text-muted-foreground">Assign To: </span>
               <Select 
-                value={task.priority} 
-                onValueChange={async (v) => {
-                  // Update priority
+                value={task.assigned_to_email || ""} 
+                onValueChange={(v) => {
+                  const member = itTeam.find(m => m.email === v);
+                  onAssign(task.id, v, member?.name || v);
                 }}
               >
-                <SelectTrigger className="h-7 text-xs w-32">
-                  <SelectValue />
+                <SelectTrigger className="h-7 text-xs w-44">
+                  <SelectValue placeholder="Unassigned" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
+                  {itTeam.map(m => (
+                    <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -596,6 +628,39 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
   );
 }
 
+// ── Note Card ──────────────────────────────────────────────────
+function NoteCard({ note, onEdit, onDelete }: {
+  note: ProjectNote;
+  onEdit: (note: ProjectNote) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          {note.title && <p className="font-medium">{note.title}</p>}
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-0.5">{note.content}</p>
+          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+            <span>🕒 {format(new Date(note.created_at), "dd MMM yyyy, hh:mm a")}</span>
+            {note.updated_at && note.updated_at !== note.created_at && (
+              <span>✏️ Edited: {format(new Date(note.updated_at), "dd MMM yyyy, hh:mm a")}</span>
+            )}
+            {note.created_by && <span>👤 {note.created_by}</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(note)}>
+            <Edit className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(note.id)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
@@ -611,6 +676,7 @@ export default function Projects() {
   const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState("all"); // 'all' | 'mine' | email
   
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -623,6 +689,8 @@ export default function Projects() {
   const [brandingDialogOpen, setBrandingDialogOpen] = useState(false);
   const [documentDialogOpen, setDocumentDialogOpen] = useState(false);
   const [communicationDialogOpen, setCommunicationDialogOpen] = useState(false);
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [docNoteEditing, setDocNoteEditing] = useState(false);
   
   // Data states
   const [projectStages, setProjectStages] = useState<ProjectStage[]>([]);
@@ -633,7 +701,23 @@ export default function Projects() {
   const [brandingItems, setBrandingItems] = useState<BrandingItem[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [communications, setCommunications] = useState<Communication[]>([]);
+  const [notes, setNotes] = useState<ProjectNote[]>([]);
+  const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // ── IT Team (fetched from Supabase) ──
+  const { data: itTeam = [] } = useQuery({
+    queryKey: ["it_team_members"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("it_team_members")
+        .select("*")
+        .eq("active", true)
+        .order("name");
+      if (error) throw error;
+      return data as ITTeamMember[];
+    },
+  });
   
   // ── New Stage State ──
   const [newStage, setNewStage] = useState({
@@ -649,6 +733,7 @@ export default function Projects() {
     priority: "medium",
     due_date: "",
     stage_id: "",
+    assigned_to_email: "",
   });
 
   // ── New Manufacturing State ──
@@ -682,6 +767,13 @@ export default function Projects() {
     message: "",
     next_followup: "",
   });
+
+  // ── New / Editing Note State ──
+  const [newNote, setNewNote] = useState({
+    title: "",
+    content: "",
+  });
+  const [editingNote, setEditingNote] = useState<ProjectNote | null>(null);
 
   // ── Fetch Projects ─────────────────────────────────────────
   const { data: projects = [], isLoading, refetch } = useQuery({
@@ -718,6 +810,17 @@ export default function Projects() {
     
     return matchSearch && matchStatus && matchStage;
   });
+
+  // ── Filtered tasks (by assignee) ──────────────────────────
+  const filteredTasks = projectTasks.filter(task => {
+    if (taskAssigneeFilter === "all") return true;
+    if (taskAssigneeFilter === "mine") return task.assigned_to_email === user?.email;
+    return task.assigned_to_email === taskAssigneeFilter;
+  });
+
+  // ── Documentation note (single pinned note) ──
+  const documentationNote = notes.find(n => n.note_type === "documentation") || null;
+  const generalNotes = notes.filter(n => n.note_type === "general");
 
   // ── Fetch Project Details ──────────────────────────────────
   const fetchProjectDetails = async (projectId: string) => {
@@ -785,6 +888,21 @@ export default function Projects() {
         .order("communication_date", { ascending: false });
       if (communicationsData) setCommunications(communicationsData);
 
+      // Fetch notes (general + documentation)
+      const { data: notesData } = await supabase
+        .from("project_notes")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+      if (notesData) {
+        setNotes(notesData);
+        const docNote = notesData.find((n: ProjectNote) => n.note_type === "documentation");
+        setDocNoteContent(docNote?.content || "");
+      } else {
+        setNotes([]);
+        setDocNoteContent("");
+      }
+
     } catch (error) {
       console.error("Error fetching project details:", error);
     } finally {
@@ -797,6 +915,7 @@ export default function Projects() {
     setSelectedProject(project);
     setViewMode("detail");
     setActiveTab("overview");
+    setTaskAssigneeFilter("all");
     fetchProjectDetails(project.id);
   };
 
@@ -811,6 +930,8 @@ export default function Projects() {
     setBrandingItems([]);
     setDocuments([]);
     setCommunications([]);
+    setNotes([]);
+    setDocNoteContent("");
   };
 
   // ── Create Project ──────────────────────────────────────────
@@ -821,6 +942,8 @@ export default function Projects() {
     project_value: "",
     start_date: "",
     expected_launch_date: "",
+    client_address: "",
+    client_phone: "",
   });
 
   const createProject = async () => {
@@ -842,6 +965,8 @@ export default function Projects() {
           project_value: Number(newProject.project_value) || 0,
           start_date: newProject.start_date || null,
           expected_launch_date: newProject.expected_launch_date || null,
+          client_address: newProject.client_address || null,
+          client_phone: newProject.client_phone || null,
           current_stage: "discovery",
           status: "active",
           completion_percentage: 0,
@@ -861,6 +986,16 @@ export default function Projects() {
 
       await supabase.from("project_stages").insert(stages);
 
+      // Create a starter documentation note for the project
+      await supabase.from("project_notes").insert({
+        project_id: data.id,
+        note_type: "documentation",
+        title: "Project Documentation",
+        content: "test",
+        created_by: user?.email || null,
+        created_by_email: user?.email || null,
+      });
+
       toast.success("Project created successfully!");
       setDialogOpen(false);
       setNewProject({
@@ -870,6 +1005,8 @@ export default function Projects() {
         project_value: "",
         start_date: "",
         expected_launch_date: "",
+        client_address: "",
+        client_phone: "",
       });
       refetch();
     } catch (error: any) {
@@ -895,6 +1032,8 @@ export default function Projects() {
           expected_launch_date: editingProject.expected_launch_date,
           status: editingProject.status,
           current_stage: editingProject.current_stage,
+          client_address: editingProject.client_address,
+          client_phone: editingProject.client_phone,
         })
         .eq("id", editingProject.id);
 
@@ -982,6 +1121,25 @@ export default function Projects() {
     }
   };
 
+  // ── Assign / Reassign Task ──────────────────────────────────
+  const assignTask = async (taskId: string, email: string, name: string) => {
+    try {
+      const { error } = await supabase
+        .from("project_tasks")
+        .update({ assigned_to_email: email, assigned_to_name: name })
+        .eq("id", taskId);
+
+      if (error) throw error;
+
+      toast.success(`Task assigned to ${name}`);
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
   // ── Add Task ─────────────────────────────────────────────────
   const addTask = async () => {
     if (!newTask.task_name || !selectedProject) {
@@ -990,6 +1148,8 @@ export default function Projects() {
     }
 
     try {
+      const assignee = itTeam.find(m => m.email === newTask.assigned_to_email);
+
       const { error } = await supabase
         .from("project_tasks")
         .insert({
@@ -1002,6 +1162,8 @@ export default function Projects() {
           status: "not_started",
           due_date: newTask.due_date || null,
           assigned_by: user?.id,
+          assigned_to_email: newTask.assigned_to_email || null,
+          assigned_to_name: assignee?.name || null,
         });
 
       if (error) throw error;
@@ -1015,6 +1177,7 @@ export default function Projects() {
         priority: "medium",
         due_date: "",
         stage_id: "",
+        assigned_to_email: "",
       });
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
@@ -1402,6 +1565,120 @@ export default function Projects() {
     }
   };
 
+  // ── Add General Note ────────────────────────────────────────
+  const addNote = async () => {
+    if (!newNote.content || !selectedProject) {
+      toast.error("Note content is required");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("project_notes")
+        .insert({
+          project_id: selectedProject.id,
+          note_type: "general",
+          title: newNote.title || null,
+          content: newNote.content,
+          created_by: user?.email || user?.id || null,
+          created_by_email: user?.email || null,
+        });
+
+      if (error) throw error;
+
+      toast.success("Note saved successfully!");
+      setNoteDialogOpen(false);
+      setNewNote({ title: "", content: "" });
+      setEditingNote(null);
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save note");
+    }
+  };
+
+  // ── Update General Note ───────────────────────────────────
+  const updateNote = async () => {
+    if (!editingNote) return;
+
+    try {
+      const { error } = await supabase
+        .from("project_notes")
+        .update({
+          title: newNote.title || null,
+          content: newNote.content,
+        })
+        .eq("id", editingNote.id);
+
+      if (error) throw error;
+
+      toast.success("Note updated successfully!");
+      setNoteDialogOpen(false);
+      setNewNote({ title: "", content: "" });
+      setEditingNote(null);
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update note");
+    }
+  };
+
+  // ── Delete Note ─────────────────────────────────────────────
+  const deleteNote = async (noteId: string) => {
+    if (!confirm("Delete this note?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("project_notes")
+        .delete()
+        .eq("id", noteId);
+
+      if (error) throw error;
+
+      toast.success("Note deleted successfully!");
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ── Save Project Documentation Note ───────────────────────
+  const saveDocumentationNote = async () => {
+    if (!selectedProject) return;
+
+    try {
+      if (documentationNote) {
+        const { error } = await supabase
+          .from("project_notes")
+          .update({ content: docNoteContent })
+          .eq("id", documentationNote.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("project_notes")
+          .insert({
+            project_id: selectedProject.id,
+            note_type: "documentation",
+            title: "Project Documentation",
+            content: docNoteContent || "test",
+            created_by: user?.email || null,
+            created_by_email: user?.email || null,
+          });
+        if (error) throw error;
+      }
+
+      toast.success("Documentation saved!");
+      setDocNoteEditing(false);
+      fetchProjectDetails(selectedProject.id);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save documentation");
+    }
+  };
+
   // ── Delete Project ──────────────────────────────────────────
   const deleteProject = async (id: string) => {
     if (!confirm("Delete this project? All data will be lost.")) return;
@@ -1480,6 +1757,14 @@ export default function Projects() {
               <p className="text-sm text-muted-foreground">
                 {selectedProject.project_id} • {selectedProject.brand_name || "No brand"}
               </p>
+              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+                {selectedProject.client_phone && (
+                  <span className="inline-flex items-center gap-1"><PhoneCall className="h-3 w-3" /> {selectedProject.client_phone}</span>
+                )}
+                {selectedProject.client_address && (
+                  <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {selectedProject.client_address}</span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1508,6 +1793,14 @@ export default function Projects() {
             <Button size="sm" variant="outline" onClick={() => setCommunicationDialogOpen(true)}>
               <MessageSquare className="h-4 w-4 mr-2" />
               Communicate
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              setEditingNote(null);
+              setNewNote({ title: "", content: "" });
+              setNoteDialogOpen(true);
+            }}>
+              <StickyNote className="h-4 w-4 mr-2" />
+              Add Note
             </Button>
             
             <Button 
@@ -1547,7 +1840,7 @@ export default function Projects() {
 
         {/* ── Tabs ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-9 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="stages">Stages</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
@@ -1556,6 +1849,7 @@ export default function Projects() {
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
             <TabsTrigger value="communication">Communication</TabsTrigger>
+            <TabsTrigger value="notes">Notes</TabsTrigger>
           </TabsList>
 
           {/* ── OVERVIEW TAB ── */}
@@ -1589,6 +1883,31 @@ export default function Projects() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Client Details */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Client Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Phone Number</p>
+                      <p className="text-sm font-medium">{selectedProject.client_phone || "Not added"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Address</p>
+                      <p className="text-sm font-medium">{selectedProject.client_address || "Not added"}</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Payment Summary */}
             <Card>
@@ -1644,6 +1963,9 @@ export default function Projects() {
                         <span className={`flex-1 ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
                           {task.task_name}
                         </span>
+                        {task.assigned_to_name && (
+                          <span className="text-xs text-indigo-600">👤 {task.assigned_to_name}</span>
+                        )}
                         <span className="text-xs text-muted-foreground">
                           {task.due_date ? format(new Date(task.due_date), "dd MMM") : "No due"}
                         </span>
@@ -1724,12 +2046,26 @@ export default function Projects() {
           <TabsContent value="tasks" className="mt-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-lg">Project Tasks</CardTitle>
-                  <Button size="sm" onClick={() => setTaskDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Task
-                  </Button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Select value={taskAssigneeFilter} onValueChange={setTaskAssigneeFilter}>
+                      <SelectTrigger className="w-44 h-8 text-xs">
+                        <SelectValue placeholder="Filter by assignee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Tasks</SelectItem>
+                        <SelectItem value="mine">My Tasks</SelectItem>
+                        {itTeam.map(m => (
+                          <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" onClick={() => setTaskDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Task
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1737,16 +2073,18 @@ export default function Projects() {
                   <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
                 ) : (
                   <div className="space-y-3">
-                    {projectTasks.map(task => (
+                    {filteredTasks.map(task => (
                       <TaskCard 
                         key={task.id} 
                         task={task} 
+                        itTeam={itTeam}
                         onStatusChange={updateTaskStatus}
+                        onAssign={assignTask}
                         onDelete={deleteTask}
                       />
                     ))}
-                    {projectTasks.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">No tasks yet</p>
+                    {filteredTasks.length === 0 && (
+                      <p className="text-center text-muted-foreground py-8">No tasks found</p>
                     )}
                   </div>
                 )}
@@ -2073,6 +2411,95 @@ export default function Projects() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ── NOTES TAB ── */}
+          <TabsContent value="notes" className="mt-4 space-y-4">
+            {/* Project Documentation - pinned, editable */}
+            <Card className="border-primary/30">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    Project Documentation
+                  </CardTitle>
+                  {!docNoteEditing ? (
+                    <Button size="sm" variant="outline" onClick={() => setDocNoteEditing(true)}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => {
+                        setDocNoteEditing(false);
+                        setDocNoteContent(documentationNote?.content || "");
+                      }}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" onClick={saveDocumentationNote}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {docNoteEditing ? (
+                  <Textarea 
+                    value={docNoteContent}
+                    onChange={(e) => setDocNoteContent(e.target.value)}
+                    rows={8}
+                    placeholder="Project scope, requirements, links, credentials, notes for the team..."
+                  />
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">
+                    {documentationNote?.content || "test"}
+                  </p>
+                )}
+                {documentationNote?.updated_at && (
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Last updated: {format(new Date(documentationNote.updated_at), "dd MMM yyyy, hh:mm a")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* General running notes */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Notes</CardTitle>
+                  <Button size="sm" onClick={() => {
+                    setEditingNote(null);
+                    setNewNote({ title: "", content: "" });
+                    setNoteDialogOpen(true);
+                  }}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Note
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {generalNotes.map(note => (
+                    <NoteCard
+                      key={note.id}
+                      note={note}
+                      onEdit={(n) => {
+                        setEditingNote(n);
+                        setNewNote({ title: n.title || "", content: n.content });
+                        setNoteDialogOpen(true);
+                      }}
+                      onDelete={deleteNote}
+                    />
+                  ))}
+                  {generalNotes.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No notes yet</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
         {/* ════════════════════════════════════════════════════════════ */}
@@ -2161,6 +2588,7 @@ export default function Projects() {
                       <SelectItem value="Sales">💼 Sales</SelectItem>
                       <SelectItem value="Legal">⚖️ Legal</SelectItem>
                       <SelectItem value="Finance">💰 Finance</SelectItem>
+                      <SelectItem value="IT">🖥️ IT</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2178,6 +2606,19 @@ export default function Projects() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Assign To (IT Team)</Label>
+                <Select value={newTask.assigned_to_email} onValueChange={(v) => setNewTask({ ...newTask, assigned_to_email: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select team member" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {itTeam.map(m => (
+                      <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid gap-2">
                 <Label>Stage (Optional)</Label>
@@ -2552,6 +2993,47 @@ export default function Projects() {
           </DialogContent>
         </Dialog>
 
+        {/* ── Add / Edit Note Dialog ── */}
+        <Dialog open={noteDialogOpen} onOpenChange={(open) => {
+          setNoteDialogOpen(open);
+          if (!open) { setEditingNote(null); setNewNote({ title: "", content: "" }); }
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <StickyNote className="h-5 w-5 text-yellow-500" />
+                {editingNote ? "Edit Note" : "Add Note"}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Title (Optional)</Label>
+                <Input 
+                  value={newNote.title} 
+                  onChange={(e) => setNewNote({ ...newNote, title: e.target.value })}
+                  placeholder="Enter title"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Note *</Label>
+                <Textarea 
+                  value={newNote.content} 
+                  onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
+                  placeholder="Enter note"
+                  rows={5}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button>
+              <Button onClick={editingNote ? updateNote : addNote} disabled={!newNote.content}>
+                <Save className="h-4 w-4 mr-2" />
+                {editingNote ? "Update Note" : "Save Note"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* ── Edit Project Dialog ── */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
           <DialogContent className="max-w-2xl">
@@ -2565,6 +3047,14 @@ export default function Projects() {
                 <div className="grid gap-2">
                   <Label>Brand Name</Label>
                   <Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Client Phone Number</Label>
+                  <Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Client Address</Label>
+                  <Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Project Type</Label>
@@ -2652,6 +3142,14 @@ export default function Projects() {
                 <div className="grid gap-2">
                   <Label>Brand Name</Label>
                   <Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Client Phone Number</Label>
+                  <Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Client Address</Label>
+                  <Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Project Type</Label>
