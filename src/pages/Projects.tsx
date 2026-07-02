@@ -706,18 +706,14 @@ export default function Projects() {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   // ── IT Team (fetched from Supabase) ──
-  const { data: itTeam = [] } = useQuery({
-    queryKey: ["it_team_members"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("it_team_members")
-        .select("*")
-        .eq("active", true)
-        .order("name");
-      if (error) throw error;
-      return data as ITTeamMember[];
-    },
-  });
+// IT Team fetch ke place mein yeh daal kar dekh:
+const itTeam = [
+  { id: '1', name: 'Vaibhav Tiwari', email: 'iambaibhavtiwari@gmail.com', role: 'IT Team', active: true },
+  { id: '2', name: 'Jatin', email: 'jatinsoftwaredeveloper@gmail.com', role: 'IT Team', active: true },
+  { id: '3', name: 'Sahil', email: 'sahil@banegabrand.com', role: 'IT Team', active: true },
+  { id: '4', name: 'Simar', email: 'simargrap@gmail.com', role: 'IT Team', active: true },
+  { id: '5', name: 'Ashish', email: 'ashish@banegabrand.com', role: 'IT Team', active: true },
+];
   
   // ── New Stage State ──
   const [newStage, setNewStage] = useState({
