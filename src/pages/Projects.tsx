@@ -705,16 +705,40 @@ export default function Projects() {
   const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // ── IT Team (fetched from Supabase) ──
-// IT Team fetch ke place mein yeh daal kar dekh:
-const itTeam = [
-  { id: '1', name: 'Vaibhav Tiwari', email: 'iambaibhavtiwari@gmail.com', role: 'IT Team', active: true },
-  { id: '2', name: 'Jatin', email: 'jatinsoftwaredeveloper@gmail.com', role: 'IT Team', active: true },
-  { id: '3', name: 'Sahil', email: 'sahil@banegabrand.com', role: 'IT Team', active: true },
-  { id: '4', name: 'Simar', email: 'simargrap@gmail.com', role: 'IT Team', active: true },
-  { id: '5', name: 'Ashish', email: 'ashish@banegabrand.com', role: 'IT Team', active: true },
-];
-  
+
+// ── IT Team (fetched from Supabase) ──
+const { data: itTeam = [], error, isLoading: itLoading } = useQuery({
+  queryKey: ["it_team_members"],
+  queryFn: async () => {
+    console.log("🔄 Fetching IT Team members...");
+    
+    const { data, error } = await supabase
+      .from("it_team_members")
+      .select("*")
+      .eq("active", true)
+      .order("name");
+    
+    if (error) {
+      console.error("❌ Supabase error:", error);
+      throw error;
+    }
+    
+    console.log(`✅ Fetched ${data?.length || 0} IT Team members:`, data);
+    return data as ITTeamMember[];
+  },
+  staleTime: 0,
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
+  retry: 2,
+});
+
+// Debug log (component render mein)
+console.log("📊 IT Team render state:", {
+  count: itTeam.length,
+  members: itTeam.map(m => m.name),
+  loading: itLoading,
+  error: error?.message,
+});
   // ── New Stage State ──
   const [newStage, setNewStage] = useState({
     stage_name: "",
