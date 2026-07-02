@@ -1,5 +1,7 @@
 // src/pages/SalesPunch.tsx
 import React, { useState, useEffect, useRef } from 'react';
+// Adjust this import path if your Supabase client lives somewhere else in the project.
+import { supabase } from '@/integrations/supabase/client';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,8 +22,9 @@ import { format } from "date-fns";
 interface PaymentSlip {
   id: string;
   fileName: string;
-  fileData: string;
+  filePath: string;
   fileType: string;
+  url: string;
   uploadedAt: string;
 }
 
@@ -124,6 +127,7 @@ const gstRates = [0, 5, 12, 18, 28];
 const SalesPunch: React.FC = () => {
   // ---------- STATE ----------
   const [entries, setEntries] = useState<SalesEntry[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
   const [showAllDates, setShowAllDates] = useState<boolean>(false);
   const [showForm, setShowForm] = useState<boolean>(false);
@@ -166,42 +170,107 @@ const SalesPunch: React.FC = () => {
     paymentReceived: 0,
   });
 
-  // ---------- LOCAL STORAGE ----------
-  useEffect(() => {
-    const saved = localStorage.getItem('salesPunchEntries');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const fixed = parsed.map((entry: any) => ({
-          ...entry,
-          paymentSlips: entry.paymentSlips || [],
-          notes: entry.notes || '',
-          state: entry.state || '',
-          status: entry.status || 'draft',
-          priority: entry.priority || 'medium',
-          category: entry.category || '',
-          budget_allocated: entry.budget_allocated || 0,
-          budget_utilized: entry.budget_utilized || 0,
-          expected_completion_date: entry.expected_completion_date || '',
-          request_number: entry.request_number || `REQ-${String(Date.now()).slice(-6)}`,
-          gstDetails: entry.gstDetails || undefined,
-          gstAmount: entry.gstAmount || 0,
-          totalAmount: entry.totalAmount || entry.amount || 0,
-          invoiceNumber: entry.invoiceNumber || '',
-          poNumber: entry.poNumber || '',
-          paymentStatus: entry.paymentStatus || 'pending',
-          paymentReceived: entry.paymentReceived || 0,
-        }));
-        setEntries(fixed);
-      } catch (e) {
-        console.error('Error loading data:', e);
-      }
+  // ---------- SUPABASE MAPPING ----------
+  const mapRowToEntry = (row: any, slips: PaymentSlip[] = []): SalesEntry => ({
+    id: row.id,
+    date: row.entry_date,
+    clientName: row.client_name,
+    mobile: row.mobile,
+    address: row.address || '',
+    state: row.state || '',
+    hasGst: row.has_gst || false,
+    gstDetails: row.has_gst ? {
+      gstNumber: row.gst_number || '',
+      companyName: row.company_name || '',
+      businessType: row.business_type || 'proprietorship',
+      panNumber: row.pan_number || '',
+      registeredAddress: row.registered_address || '',
+    } : undefined,
+    amount: Number(row.amount) || 0,
+    gstAmount: Number(row.gst_amount) || 0,
+    totalAmount: Number(row.total_amount) || Number(row.amount) || 0,
+    product: row.product || '',
+    paymentMode: row.payment_mode || 'Cash',
+    paymentSlips: slips,
+    notes: row.notes || '',
+    status: row.status || 'draft',
+    priority: row.priority || 'medium',
+    request_number: row.request_number || `REQ-${String(row.id).slice(-6)}`,
+    created_by: row.created_by_email || row.created_by || undefined,
+    approved_by: row.approved_by,
+    approved_at: row.approved_at,
+    rejection_reason: row.rejection_reason,
+    submitted_at: row.submitted_at,
+    completed_at: row.completed_at,
+    budget_allocated: Number(row.budget_allocated) || 0,
+    budget_utilized: Number(row.budget_utilized) || 0,
+    category: row.category || '',
+    assigned_to: row.assigned_to,
+    expected_completion_date: row.expected_completion_date || '',
+    paymentStatus: row.payment_status || 'pending',
+    paymentReceived: Number(row.payment_received) || 0,
+    invoiceNumber: row.invoice_number || '',
+    poNumber: row.po_number || '',
+  });
+
+  // ---------- SUPABASE: FETCH (shared data — everyone sees everyone's entries) ----------
+  const fetchEntries = async () => {
+    setLoading(true);
+    const { data: rows, error } = await supabase
+      .from('sales_punch_entries')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching entries:', error);
+      setLoading(false);
+      return;
     }
-  }, []);
+
+    const { data: slipRows, error: slipError } = await supabase
+      .from('sales_punch_payment_slips')
+      .select('*');
+
+    if (slipError) {
+      console.error('Error fetching payment slips:', slipError);
+    }
+
+    const slipsByEntry: Record<string, PaymentSlip[]> = {};
+    (slipRows || []).forEach((s: any) => {
+      const { data: urlData } = supabase.storage.from('payment-slips').getPublicUrl(s.file_path);
+      const slip: PaymentSlip = {
+        id: s.id,
+        fileName: s.file_name,
+        filePath: s.file_path,
+        fileType: s.file_type || '',
+        url: urlData?.publicUrl || '',
+        uploadedAt: s.uploaded_at,
+      };
+      slipsByEntry[s.entry_id] = [...(slipsByEntry[s.entry_id] || []), slip];
+    });
+
+    setEntries((rows || []).map((r: any) => mapRowToEntry(r, slipsByEntry[r.id] || [])));
+    setLoading(false);
+  };
 
   useEffect(() => {
-    localStorage.setItem('salesPunchEntries', JSON.stringify(entries));
-  }, [entries]);
+    fetchEntries();
+
+    // Realtime: any user's insert/update/delete refreshes everyone's view live
+    const channel = supabase
+      .channel('sales-punch-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_punch_entries' }, () => {
+        fetchEntries();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_punch_payment_slips' }, () => {
+        fetchEntries();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // ---------- HELPERS ----------
   function getTodayString(): string {
@@ -265,58 +334,77 @@ const SalesPunch: React.FC = () => {
     return amount + gstAmount;
   };
 
-  // ---------- CRUD ----------
-  const handleAddEntry = (e: React.FormEvent) => {
+  // ---------- CRUD (Supabase — writes are visible to every user) ----------
+  const buildEntryPayload = () => {
+    const gstAmount = form.hasGst ? calculateGST(form.amount, form.gstRate) : 0;
+    const totalAmount = form.hasGst ? calculateTotal(form.amount, gstAmount) : form.amount;
+    return {
+      entry_date: selectedDate,
+      client_name: form.clientName.trim(),
+      mobile: form.mobile.trim(),
+      address: form.address.trim(),
+      state: form.state.trim(),
+      has_gst: form.hasGst,
+      gst_number: form.hasGst ? form.gstNumber.trim() : null,
+      company_name: form.hasGst ? form.companyName.trim() : null,
+      business_type: form.hasGst ? form.businessType : null,
+      pan_number: form.hasGst ? form.panNumber.trim() : null,
+      registered_address: form.hasGst ? form.registeredAddress.trim() : null,
+      amount: form.amount,
+      gst_amount: gstAmount,
+      total_amount: totalAmount,
+      product: form.product.trim(),
+      payment_mode: form.paymentMode,
+      notes: form.notes.trim(),
+      priority: form.priority,
+      category: form.category.trim(),
+      budget_allocated: form.budget_allocated || 0,
+      expected_completion_date: form.expected_completion_date || null,
+      invoice_number: form.invoiceNumber.trim(),
+      po_number: form.poNumber.trim(),
+      payment_status: form.paymentStatus,
+      payment_received: form.paymentReceived || 0,
+    };
+  };
+
+  const handleAddEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.clientName.trim() || !form.mobile.trim() || form.amount <= 0) {
       alert('Please fill Client Name, Mobile, and Amount correctly!');
       return;
     }
 
-    const gstAmount = form.hasGst ? calculateGST(form.amount, form.gstRate) : 0;
-    const totalAmount = form.hasGst ? calculateTotal(form.amount, gstAmount) : form.amount;
+    let userId: string | null = null;
+    let userEmail: string | null = null;
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      userId = userData?.user?.id || null;
+      userEmail = userData?.user?.email || null;
+    } catch {
+      // No auth configured — entries will just be saved without a creator identity.
+    }
 
-    const newEntry: SalesEntry = {
-      id: Date.now().toString(),
-      date: selectedDate,
-      clientName: form.clientName.trim(),
-      mobile: form.mobile.trim(),
-      address: form.address.trim(),
-      state: form.state.trim(),
-      hasGst: form.hasGst,
-      gstDetails: form.hasGst ? {
-        gstNumber: form.gstNumber.trim(),
-        companyName: form.companyName.trim(),
-        businessType: form.businessType,
-        panNumber: form.panNumber.trim(),
-        registeredAddress: form.registeredAddress.trim(),
-      } : undefined,
-      amount: form.amount,
-      gstAmount: gstAmount,
-      totalAmount: totalAmount,
-      product: form.product.trim(),
-      paymentMode: form.paymentMode,
-      paymentSlips: [],
-      notes: form.notes.trim(),
+    const { error } = await supabase.from('sales_punch_entries').insert({
+      ...buildEntryPayload(),
       status: 'draft',
-      priority: form.priority,
-      category: form.category.trim(),
-      budget_allocated: form.budget_allocated || 0,
       budget_utilized: 0,
-      expected_completion_date: form.expected_completion_date || '',
       request_number: `REQ-${String(Date.now()).slice(-6)}`,
-      invoiceNumber: form.invoiceNumber.trim(),
-      poNumber: form.poNumber.trim(),
-      paymentStatus: form.paymentStatus,
-      paymentReceived: form.paymentReceived || 0,
-    };
+      created_by: userId,
+      created_by_email: userEmail,
+    });
 
-    setEntries([...entries, newEntry]);
+    if (error) {
+      console.error(error);
+      alert('Failed to save entry: ' + error.message);
+      return;
+    }
+
     resetForm();
     setShowForm(false);
+    fetchEntries();
   };
 
-  const handleUpdateEntry = (e: React.FormEvent) => {
+  const handleUpdateEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.clientName.trim() || !form.mobile.trim() || form.amount <= 0) {
       alert('Please fill Client Name, Mobile, and Amount correctly!');
@@ -325,59 +413,39 @@ const SalesPunch: React.FC = () => {
 
     if (!editingId) return;
 
-    const gstAmount = form.hasGst ? calculateGST(form.amount, form.gstRate) : 0;
-    const totalAmount = form.hasGst ? calculateTotal(form.amount, gstAmount) : form.amount;
+    const { error } = await supabase
+      .from('sales_punch_entries')
+      .update(buildEntryPayload())
+      .eq('id', editingId);
 
-    setEntries(entries.map(entry => {
-      if (entry.id === editingId) {
-        return {
-          ...entry,
-          date: selectedDate,
-          clientName: form.clientName.trim(),
-          mobile: form.mobile.trim(),
-          address: form.address.trim(),
-          state: form.state.trim(),
-          hasGst: form.hasGst,
-          gstDetails: form.hasGst ? {
-            gstNumber: form.gstNumber.trim(),
-            companyName: form.companyName.trim(),
-            businessType: form.businessType,
-            panNumber: form.panNumber.trim(),
-            registeredAddress: form.registeredAddress.trim(),
-          } : undefined,
-          amount: form.amount,
-          gstAmount: gstAmount,
-          totalAmount: totalAmount,
-          product: form.product.trim(),
-          paymentMode: form.paymentMode,
-          notes: form.notes.trim(),
-          priority: form.priority,
-          category: form.category.trim(),
-          budget_allocated: form.budget_allocated || 0,
-          expected_completion_date: form.expected_completion_date || '',
-          invoiceNumber: form.invoiceNumber.trim(),
-          poNumber: form.poNumber.trim(),
-          paymentStatus: form.paymentStatus,
-          paymentReceived: form.paymentReceived || 0,
-        };
-      }
-      return entry;
-    }));
+    if (error) {
+      console.error(error);
+      alert('Failed to update entry: ' + error.message);
+      return;
+    }
 
     resetForm();
     setShowForm(false);
     setEditingId(null);
+    fetchEntries();
   };
 
-  const handleDeleteEntry = (id: string) => {
-    if (window.confirm('Delete this entry?')) {
-      setEntries(entries.filter(entry => entry.id !== id));
-      setSelectedEntries(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+  const handleDeleteEntry = async (id: string) => {
+    if (!window.confirm('Delete this entry?')) return;
+
+    const { error } = await supabase.from('sales_punch_entries').delete().eq('id', id);
+    if (error) {
+      console.error(error);
+      alert('Failed to delete entry: ' + error.message);
+      return;
     }
+
+    setSelectedEntries(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    fetchEntries();
   };
 
   const handleEditEntry = (id: string) => {
@@ -414,18 +482,20 @@ const SalesPunch: React.FC = () => {
     }
   };
 
-  const handleStatusChange = (id: string, newStatus: string) => {
-    setEntries(entries.map(entry => {
-      if (entry.id === id) {
-        const updates: Partial<SalesEntry> = { status: newStatus as any };
-        if (newStatus === 'approved') updates.approved_at = new Date().toISOString();
-        if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
-        if (newStatus === 'submitted') updates.submitted_at = new Date().toISOString();
-        if (newStatus === 'rejected') updates.rejection_reason = 'Rejected by approver';
-        return { ...entry, ...updates };
-      }
-      return entry;
-    }));
+  const handleStatusChange = async (id: string, newStatus: string) => {
+    const updates: Record<string, any> = { status: newStatus };
+    if (newStatus === 'approved') updates.approved_at = new Date().toISOString();
+    if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
+    if (newStatus === 'submitted') updates.submitted_at = new Date().toISOString();
+    if (newStatus === 'rejected') updates.rejection_reason = 'Rejected by approver';
+
+    const { error } = await supabase.from('sales_punch_entries').update(updates).eq('id', id);
+    if (error) {
+      console.error(error);
+      alert('Failed to update status: ' + error.message);
+      return;
+    }
+    fetchEntries();
   };
 
   const resetForm = () => {
@@ -462,47 +532,66 @@ const SalesPunch: React.FC = () => {
     setShowForm(false);
   };
 
-  // ---------- PAYMENT SLIP HANDLERS ----------
-  const handleAddSlip = (entryId: string, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const base64 = e.target?.result as string;
-      const newSlip: PaymentSlip = {
-        id: Date.now().toString(),
-        fileName: file.name,
-        fileData: base64,
-        fileType: file.type,
-        uploadedAt: new Date().toISOString(),
-      };
+  // ---------- PAYMENT SLIP HANDLERS (Supabase Storage + table) ----------
+  const handleAddSlip = async (entryId: string, file: File) => {
+    const path = `${entryId}/${Date.now()}-${file.name}`;
 
-      setEntries(entries.map(entry => {
-        if (entry.id === entryId) {
-          return {
-            ...entry,
-            paymentSlips: [...(entry.paymentSlips || []), newSlip],
-          };
-        }
-        return entry;
-      }));
-    };
-    reader.readAsDataURL(file);
-  };
+    const { error: uploadError } = await supabase.storage
+      .from('payment-slips')
+      .upload(path, file);
 
-  const handleDeleteSlip = (entryId: string, slipId: string) => {
-    if (window.confirm('Delete this payment slip?')) {
-      setEntries(entries.map(entry => {
-        if (entry.id === entryId) {
-          return {
-            ...entry,
-            paymentSlips: (entry.paymentSlips || []).filter(slip => slip.id !== slipId),
-          };
-        }
-        return entry;
-      }));
+    if (uploadError) {
+      console.error(uploadError);
+      alert('Upload failed: ' + uploadError.message);
+      return;
     }
+
+    let userId: string | null = null;
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      userId = userData?.user?.id || null;
+    } catch {
+      // No auth configured — that's fine, slip is still saved.
+    }
+
+    const { error } = await supabase.from('sales_punch_payment_slips').insert({
+      entry_id: entryId,
+      file_name: file.name,
+      file_path: path,
+      file_type: file.type,
+      uploaded_by: userId,
+    });
+
+    if (error) {
+      console.error(error);
+      alert('Failed to save payment slip: ' + error.message);
+      return;
+    }
+
+    fetchEntries();
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDeleteSlip = async (entryId: string, slipId: string) => {
+    if (!window.confirm('Delete this payment slip?')) return;
+
+    const entry = entries.find(e => e.id === entryId);
+    const slip = entry?.paymentSlips.find(s => s.id === slipId);
+
+    if (slip?.filePath) {
+      await supabase.storage.from('payment-slips').remove([slip.filePath]);
+    }
+
+    const { error } = await supabase.from('sales_punch_payment_slips').delete().eq('id', slipId);
+    if (error) {
+      console.error(error);
+      alert('Failed to delete payment slip: ' + error.message);
+      return;
+    }
+
+    fetchEntries();
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && selectedEntryId) {
       if (file.size > 5 * 1024 * 1024) {
@@ -512,7 +601,7 @@ const SalesPunch: React.FC = () => {
         }
         return;
       }
-      handleAddSlip(selectedEntryId, file);
+      await handleAddSlip(selectedEntryId, file);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -568,28 +657,47 @@ const SalesPunch: React.FC = () => {
 
   const clearSelection = () => setSelectedEntries(new Set());
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (selectedEntries.size === 0) return;
-    if (window.confirm(`Delete ${selectedEntries.size} selected entr${selectedEntries.size === 1 ? 'y' : 'ies'}?`)) {
-      setEntries(entries.filter(entry => !selectedEntries.has(entry.id)));
-      clearSelection();
+    if (!window.confirm(`Delete ${selectedEntries.size} selected entr${selectedEntries.size === 1 ? 'y' : 'ies'}?`)) return;
+
+    const { error } = await supabase
+      .from('sales_punch_entries')
+      .delete()
+      .in('id', Array.from(selectedEntries));
+
+    if (error) {
+      console.error(error);
+      alert('Failed to delete selected entries: ' + error.message);
+      return;
     }
+
+    clearSelection();
+    fetchEntries();
   };
 
-  const handleBulkStatusChange = (newStatus: string) => {
+  const handleBulkStatusChange = async (newStatus: string) => {
     if (selectedEntries.size === 0) return;
-    setEntries(entries.map(entry => {
-      if (selectedEntries.has(entry.id)) {
-        const updates: Partial<SalesEntry> = { status: newStatus as any };
-        if (newStatus === 'approved') updates.approved_at = new Date().toISOString();
-        if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
-        if (newStatus === 'submitted') updates.submitted_at = new Date().toISOString();
-        if (newStatus === 'rejected') updates.rejection_reason = 'Rejected by approver';
-        return { ...entry, ...updates };
-      }
-      return entry;
-    }));
+
+    const updates: Record<string, any> = { status: newStatus };
+    if (newStatus === 'approved') updates.approved_at = new Date().toISOString();
+    if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
+    if (newStatus === 'submitted') updates.submitted_at = new Date().toISOString();
+    if (newStatus === 'rejected') updates.rejection_reason = 'Rejected by approver';
+
+    const { error } = await supabase
+      .from('sales_punch_entries')
+      .update(updates)
+      .in('id', Array.from(selectedEntries));
+
+    if (error) {
+      console.error(error);
+      alert('Failed to update selected entries: ' + error.message);
+      return;
+    }
+
     clearSelection();
+    fetchEntries();
   };
 
   // ---------- FILTERED DATA ----------
@@ -659,6 +767,17 @@ const SalesPunch: React.FC = () => {
   }, {} as Record<string, number>);
 
   // ---------- RENDER ----------
+  if (loading) {
+    return (
+      <div className="h-full bg-gray-50 flex items-center justify-center p-6">
+        <div className="flex items-center gap-2 text-gray-500">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading entries…</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full bg-gray-50 p-4 md:p-6 overflow-y-auto">
       <div className="max-w-7xl mx-auto">
@@ -1532,6 +1651,11 @@ const SalesPunch: React.FC = () => {
                               INV: {entry.invoiceNumber}
                             </div>
                           )}
+                          {entry.created_by && (
+                            <div className="text-[10px] text-gray-400">
+                              by {entry.created_by}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 md:py-3 px-2 md:px-4 text-gray-600 hidden sm:table-cell">
                           {entry.mobile}
@@ -1690,7 +1814,7 @@ const SalesPunch: React.FC = () => {
                         <div className="relative bg-gray-50 p-2">
                           {slip.fileType && slip.fileType.startsWith('image/') ? (
                             <img
-                              src={slip.fileData}
+                              src={slip.url}
                               alt={slip.fileName}
                               className="w-full h-32 md:h-40 object-contain rounded"
                             />
