@@ -706,11 +706,14 @@ export default function Projects() {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
 
-// ── IT Team (hardcoded fallback) ──
-const { data: itTeam = [] } = useQuery({
-  queryKey: ["it_team_members"],
-  queryFn: async () => {
+// ── IT Team (temporary fix) ──
+const [itTeam, setItTeam] = useState<ITTeamMember[]>([]);
+const [itLoading, setItLoading] = useState(true);
+
+useEffect(() => {
+  const fetchITTeam = async () => {
     try {
+      console.log("🔄 Fetching IT Team...");
       const { data, error } = await supabase
         .from("it_team_members")
         .select("*")
@@ -718,20 +721,18 @@ const { data: itTeam = [] } = useQuery({
         .order("name");
       
       if (error) throw error;
-      return data as ITTeamMember[];
+      
+      console.log("✅ IT Team fetched:", data);
+      setItTeam(data || []);
     } catch (error) {
-      console.error("❌ Using fallback data:", error);
-      // Fallback hardcoded data
-      return [
-        { id: '1', name: 'Vaibhav Tiwari', email: 'iambaibhavtiwari@gmail.com', role: 'IT Team', active: true },
-        { id: '2', name: 'Jatin', email: 'jatinsoftwaredeveloper@gmail.com', role: 'IT Team', active: true },
-        { id: '3', name: 'Sahil', email: 'sahil@banegabrand.com', role: 'IT Team', active: true },
-        { id: '4', name: 'Simar', email: 'simargrap@gmail.com', role: 'IT Team', active: true },
-        { id: '5', name: 'Ashish', email: 'ashish@banegabrand.com', role: 'IT Team', active: true },
-      ];
+      console.error("❌ Error fetching IT Team:", error);
+    } finally {
+      setItLoading(false);
     }
-  },
-});
+  };
+  
+  fetchITTeam();
+}, []);
   // ── New Task State ──
   const [newTask, setNewTask] = useState({
     task_name: "",
