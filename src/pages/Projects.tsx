@@ -1122,7 +1122,7 @@ console.log("📊 IT Team render state:", {
     }
   };
 
-  // ── Update Task Status ──────────────────────────────────────
+  // ── Update Task Status (also recalculates project completion %) ──
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -1133,8 +1133,31 @@ console.log("📊 IT Team render state:", {
       if (error) throw error;
       
       toast.success("Task updated successfully");
+
       if (selectedProject) {
+        // Get the freshest task list for this project so the % is accurate
+        const { data: tasksData, error: tasksError } = await supabase
+          .from("project_tasks")
+          .select("*")
+          .eq("project_id", selectedProject.id);
+
+        if (!tasksError && tasksData && tasksData.length > 0) {
+          const completedCount = tasksData.filter((t: any) => t.status === "completed").length;
+          const newPercentage = Math.round((completedCount / tasksData.length) * 100);
+
+          // Push the recalculated % onto the project itself
+          const { error: projectUpdateError } = await supabase
+            .from("projects")
+            .update({ completion_percentage: newPercentage })
+            .eq("id", selectedProject.id);
+
+          if (!projectUpdateError) {
+            setSelectedProject((prev) => prev ? { ...prev, completion_percentage: newPercentage } : prev);
+          }
+        }
+
         fetchProjectDetails(selectedProject.id);
+        refetch(); // keep dashboard list + stats in sync too
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -1170,11 +1193,15 @@ console.log("📊 IT Team render state:", {
     try {
       const assignee = itTeam.find(m => m.email === newTask.assigned_to_email);
 
+      // "none" is a placeholder value used by the Stage select — never send it to the DB
+      const stageIdToSave =
+        newTask.stage_id && newTask.stage_id !== "none" ? newTask.stage_id : null;
+
       const { error } = await supabase
         .from("project_tasks")
         .insert({
           project_id: selectedProject.id,
-          stage_id: newTask.stage_id || null,
+          stage_id: stageIdToSave,
           task_name: newTask.task_name,
           description: newTask.description || null,
           department: newTask.department || null,
