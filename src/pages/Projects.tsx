@@ -2627,7 +2627,7 @@ export default function Projects() {
                     <SelectValue placeholder="Select stage" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {projectStages.map(s => (
                       <SelectItem key={s.id} value={s.id}>{s.stage_name}</SelectItem>
                     ))}
