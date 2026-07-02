@@ -706,33 +706,14 @@ export default function Projects() {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
 
-// ── IT Team (temporary fix) ──
-const [itTeam, setItTeam] = useState<ITTeamMember[]>([]);
-const [itLoading, setItLoading] = useState(true);
-
-useEffect(() => {
-  const fetchITTeam = async () => {
-    try {
-      console.log("🔄 Fetching IT Team...");
-      const { data, error } = await supabase
-        .from("it_team_members")
-        .select("*")
-        .eq("active", true)
-        .order("name");
-      
-      if (error) throw error;
-      
-      console.log("✅ IT Team fetched:", data);
-      setItTeam(data || []);
-    } catch (error) {
-      console.error("❌ Error fetching IT Team:", error);
-    } finally {
-      setItLoading(false);
-    }
-  };
-  
-  fetchITTeam();
-}, []);
+// IT Team fetch ke place mein yeh daal kar dekh:
+const itTeam = [
+  { id: '1', name: 'Vaibhav Tiwari', email: 'iambaibhavtiwari@gmail.com', role: 'IT Team', active: true },
+  { id: '2', name: 'Jatin', email: 'jatinsoftwaredeveloper@gmail.com', role: 'IT Team', active: true },
+  { id: '3', name: 'Sahil', email: 'sahil@banegabrand.com', role: 'IT Team', active: true },
+  { id: '4', name: 'Simar', email: 'simargrap@gmail.com', role: 'IT Team', active: true },
+  { id: '5', name: 'Ashish', email: 'ashish@banegabrand.com', role: 'IT Team', active: true },
+];
   // ── New Task State ──
   const [newTask, setNewTask] = useState({
     task_name: "",
