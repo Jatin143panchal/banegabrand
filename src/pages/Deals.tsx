@@ -12,7 +12,7 @@ import {
   Plus, IndianRupee, Loader2, User, Building2, Calendar, Clock, 
   FileText, CheckCircle, XCircle, AlertCircle, Edit2, Trash2,
   Paperclip, Image, File, X, Download, Eye, Search, Filter,
-  ChevronDown, ChevronUp, DollarSign, Receipt, CreditCard
+  ChevronDown, ChevronUp, DollarSign, Receipt, CreditCard, CheckSquare, Square
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -125,6 +125,7 @@ const SalesPunch: React.FC = () => {
   // ---------- STATE ----------
   const [entries, setEntries] = useState<SalesEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
+  const [showAllDates, setShowAllDates] = useState<boolean>(false);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [showSlipModal, setShowSlipModal] = useState<boolean>(false);
@@ -136,6 +137,7 @@ const SalesPunch: React.FC = () => {
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'client'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState<SalesFormData>({
@@ -370,6 +372,11 @@ const SalesPunch: React.FC = () => {
   const handleDeleteEntry = (id: string) => {
     if (window.confirm('Delete this entry?')) {
       setEntries(entries.filter(entry => entry.id !== id));
+      setSelectedEntries(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -525,11 +532,71 @@ const SalesPunch: React.FC = () => {
     }
   };
 
+  // ---------- SELECTION / BULK ACTIONS ----------
+  const toggleSelectEntry = (id: string) => {
+    setSelectedEntries(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const isAllFilteredSelected = (list: SalesEntry[]): boolean => {
+    return list.length > 0 && list.every(e => selectedEntries.has(e.id));
+  };
+
+  const toggleSelectAll = (list: SalesEntry[]) => {
+    if (isAllFilteredSelected(list)) {
+      // deselect just the currently visible ones
+      setSelectedEntries(prev => {
+        const next = new Set(prev);
+        list.forEach(e => next.delete(e.id));
+        return next;
+      });
+    } else {
+      setSelectedEntries(prev => {
+        const next = new Set(prev);
+        list.forEach(e => next.add(e.id));
+        return next;
+      });
+    }
+  };
+
+  const clearSelection = () => setSelectedEntries(new Set());
+
+  const handleBulkDelete = () => {
+    if (selectedEntries.size === 0) return;
+    if (window.confirm(`Delete ${selectedEntries.size} selected entr${selectedEntries.size === 1 ? 'y' : 'ies'}?`)) {
+      setEntries(entries.filter(entry => !selectedEntries.has(entry.id)));
+      clearSelection();
+    }
+  };
+
+  const handleBulkStatusChange = (newStatus: string) => {
+    if (selectedEntries.size === 0) return;
+    setEntries(entries.map(entry => {
+      if (selectedEntries.has(entry.id)) {
+        const updates: Partial<SalesEntry> = { status: newStatus as any };
+        if (newStatus === 'approved') updates.approved_at = new Date().toISOString();
+        if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
+        if (newStatus === 'submitted') updates.submitted_at = new Date().toISOString();
+        if (newStatus === 'rejected') updates.rejection_reason = 'Rejected by approver';
+        return { ...entry, ...updates };
+      }
+      return entry;
+    }));
+    clearSelection();
+  };
+
   // ---------- FILTERED DATA ----------
   const filteredEntries = entries
     .filter(entry => {
-      // Date filter
-      if (selectedDate && entry.date !== selectedDate) return false;
+      // Date filter (skipped entirely when "Show All Dates" is on)
+      if (!showAllDates && selectedDate && entry.date !== selectedDate) return false;
       // Status filter
       if (selectedStatus !== 'all' && entry.status !== selectedStatus) return false;
       // GST filter
@@ -542,8 +609,8 @@ const SalesPunch: React.FC = () => {
           entry.clientName.toLowerCase().includes(search) ||
           entry.mobile.includes(search) ||
           entry.product.toLowerCase().includes(search) ||
-          entry.invoiceNumber?.toLowerCase().includes(search) ||
-          entry.request_number?.toLowerCase().includes(search)
+          (entry.invoiceNumber || '').toLowerCase().includes(search) ||
+          (entry.request_number || '').toLowerCase().includes(search)
         );
       }
       return true;
@@ -568,7 +635,23 @@ const SalesPunch: React.FC = () => {
   const totalGST = filteredEntries.reduce((sum, entry) => sum + (entry.gstAmount || 0), 0);
 
   // ---------- PIPELINE DATA ----------
-  const pipelineEntries = entries;
+  // Pipeline view always shows the full pipeline across all dates/statuses (that's the point
+  // of a pipeline board), but it now respects search + GST filters like the list view does.
+  const pipelineEntries = entries.filter(entry => {
+    if (filterMode === 'gst' && !entry.hasGst) return false;
+    if (filterMode === 'non_gst' && entry.hasGst) return false;
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      return (
+        entry.clientName.toLowerCase().includes(search) ||
+        entry.mobile.includes(search) ||
+        entry.product.toLowerCase().includes(search) ||
+        (entry.invoiceNumber || '').toLowerCase().includes(search) ||
+        (entry.request_number || '').toLowerCase().includes(search)
+      );
+    }
+    return true;
+  });
   const pipelineTotals = statuses.reduce((acc, status) => {
     const items = pipelineEntries.filter(e => e.status === status.key);
     acc[status.key] = items.reduce((sum, e) => sum + (e.totalAmount || e.amount), 0);
@@ -630,9 +713,21 @@ const SalesPunch: React.FC = () => {
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                disabled={showAllDates}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400"
               />
             </div>
+
+            {/* All Dates toggle */}
+            <label className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer select-none whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={showAllDates}
+                onChange={(e) => setShowAllDates(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700">Show All Dates</span>
+            </label>
 
             {/* Filter Toggle */}
             <button
@@ -1122,6 +1217,43 @@ const SalesPunch: React.FC = () => {
           </div>
         )}
 
+        {/* ===== BULK ACTION BAR ===== */}
+        {selectedEntries.size > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 md:p-4 mb-4 md:mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <span className="text-sm font-medium text-blue-800">
+              {selectedEntries.size} entr{selectedEntries.size === 1 ? 'y' : 'ies'} selected
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                onChange={(e) => {
+                  if (e.target.value) handleBulkStatusChange(e.target.value);
+                  e.target.value = '';
+                }}
+                defaultValue=""
+                className="px-3 py-1.5 border border-blue-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="" disabled>Change status to...</option>
+                {statuses.map(s => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleBulkDelete}
+                className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition flex items-center gap-1"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Selected
+              </button>
+              <button
+                onClick={clearSelection}
+                className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition"
+              >
+                Clear Selection
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ===== PIPELINE VIEW ===== */}
         {viewMode === 'pipeline' ? (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -1150,15 +1282,27 @@ const SalesPunch: React.FC = () => {
                   <div className="space-y-2">
                     {statusRequests.map(request => {
                       const priority = priorities.find(p => p.key === request.priority);
+                      const isSelected = selectedEntries.has(request.id);
                       
                       return (
-                        <Card key={request.id} className="hover:shadow-md transition-shadow">
+                        <Card
+                          key={request.id}
+                          className={`hover:shadow-md transition-shadow ${isSelected ? 'ring-2 ring-blue-400' : ''}`}
+                        >
                           <CardContent className="p-3">
-                            {/* Request Number & Priority */}
+                            {/* Checkbox, Request Number & Priority */}
                             <div className="flex items-center justify-between">
-                              <p className="text-xs text-muted-foreground">
-                                {request.request_number || `REQ-${request.id.slice(-6)}`}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelectEntry(request.id)}
+                                  className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  {request.request_number || `REQ-${request.id.slice(-6)}`}
+                                </p>
+                              </div>
                               {priority && (
                                 <Badge className={`text-xs ${priority.color}`}>
                                   {priority.label}
@@ -1335,6 +1479,15 @@ const SalesPunch: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr className="text-left text-gray-600 text-xs uppercase tracking-wider">
+                      <th className="py-2 md:py-3 px-2 md:px-4 font-semibold">
+                        <input
+                          type="checkbox"
+                          checked={isAllFilteredSelected(filteredEntries)}
+                          onChange={() => toggleSelectAll(filteredEntries)}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          title="Select all"
+                        />
+                      </th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold">#</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold">Client</th>
                       <th className="py-2 md:py-3 px-2 md:px-4 font-semibold hidden sm:table-cell">Mobile</th>
@@ -1349,8 +1502,18 @@ const SalesPunch: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredEntries.map((entry, index) => (
-                      <tr key={entry.id} className="hover:bg-gray-50 transition">
+                    {filteredEntries.map((entry, index) => {
+                      const isSelected = selectedEntries.has(entry.id);
+                      return (
+                      <tr key={entry.id} className={`hover:bg-gray-50 transition ${isSelected ? 'bg-blue-50' : ''}`}>
+                        <td className="py-2 md:py-3 px-2 md:px-4">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelectEntry(entry.id)}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                        </td>
                         <td className="py-2 md:py-3 px-2 md:px-4 text-gray-500 text-center">{index + 1}</td>
                         <td className="py-2 md:py-3 px-2 md:px-4">
                           <div className="font-medium text-gray-700">
@@ -1463,7 +1626,8 @@ const SalesPunch: React.FC = () => {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
