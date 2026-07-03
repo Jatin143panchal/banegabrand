@@ -18,13 +18,18 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Phone, Calendar, Sparkles, UserCheck, Clock, Loader2,
-  Users, MessageSquare, CheckSquare, AlertCircle, X, Search
+  Users, MessageSquare, CheckSquare, AlertCircle, X, Search,
+  PieChart, TrendingUp, Flame, Snowflake, Sun, BarChart3
 } from "lucide-react";
 import { format, isToday, isPast, startOfDay, subDays } from "date-fns";
 import { toast } from "sonner";
 import { formatStageLabel } from "@/lib/leadStages";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
 import LeadActivityFeed from "@/components/LeadActivityFeed";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart as RePieChart, Pie, Cell, Legend, LineChart, Line
+} from 'recharts';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const LEAD_STAGES = [
@@ -51,9 +56,9 @@ const LEAD_STATUSES = [
 ];
 
 const LEAD_TEMPERATURE = [
-  { value: "hot",   label: "🔥 Hot",   color: "#ef4444", bg: "#fef2f2" },
-  { value: "warm",  label: "☀️ Warm",  color: "#f97316", bg: "#fff7ed" },
-  { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff" },
+  { value: "hot",   label: "Hot",   color: "#ef4444", bg: "#fef2f2", icon: "🔥" },
+  { value: "warm",  label: "Warm",  color: "#f97316", bg: "#fff7ed", icon: "☀️" },
+  { value: "cold",  label: "Cold",  color: "#3b82f6", bg: "#eff6ff", icon: "❄️" },
 ];
 
 const AVATAR_COLORS = [
@@ -87,6 +92,183 @@ const statusColors: Record<string, "default" | "secondary" | "destructive" | "ou
   qualified: "secondary", converted: "default", lost: "destructive",
 };
 
+// ── Chart Components ──
+function DashboardCharts({ leads }: { leads: DbLead[] }) {
+  // Stage distribution data
+  const stageData = useMemo(() => {
+    const counts = LEAD_STAGES.map(s => ({
+      name: s.label,
+      value: leads.filter(l => l.stage === s.value).length,
+      color: s.color
+    }));
+    return counts.filter(d => d.value > 0);
+  }, [leads]);
+
+  // Temperature distribution
+  const temperatureData = useMemo(() => {
+    const counts = LEAD_TEMPERATURE.map(t => ({
+      name: t.label,
+      value: leads.filter(l => l.temperature === t.value).length,
+      color: t.color,
+      icon: t.icon
+    }));
+    return counts.filter(d => d.value > 0);
+  }, [leads]);
+
+  // Conversion status
+  const conversionData = useMemo(() => {
+    const converted = leads.filter(l => l.stage === "converted").length;
+    const lost = leads.filter(l => l.stage === "lost").length;
+    const active = leads.filter(l => l.stage !== "converted" && l.stage !== "lost").length;
+    return [
+      { name: "Active", value: active, color: "#3b82f6" },
+      { name: "Converted", value: converted, color: "#10b981" },
+      { name: "Lost", value: lost, color: "#ef4444" }
+    ].filter(d => d.value > 0);
+  }, [leads]);
+
+  // Weekly trend
+  const weeklyTrend = useMemo(() => {
+    const now = new Date();
+    const days = 7;
+    const data = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = subDays(now, i);
+      const count = leads.filter(l => {
+        const created = new Date(l.created_at);
+        return created.toDateString() === d.toDateString();
+      }).length;
+      data.push({
+        date: format(d, "dd MMM"),
+        leads: count
+      });
+    }
+    return data;
+  }, [leads]);
+
+  const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#10b981', '#06b6d4', '#f59e0b', '#ef4444'];
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* Stage Distribution - Bar Chart */}
+      <Card className="col-span-1 lg:col-span-2">
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold">Stage Distribution</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stageData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Bar dataKey="value">
+                  {stageData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Temperature - Pie Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <PieChart className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold">Temperature</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RePieChart>
+                <Pie
+                  data={temperatureData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={40}
+                  outerRadius={70}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {temperatureData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </RePieChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Conversion - Pie Chart */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold">Conversion</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RePieChart>
+                <Pie
+                  data={conversionData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={40}
+                  outerRadius={70}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {conversionData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </RePieChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Weekly Trend - Line Chart */}
+      <Card className="col-span-1 lg:col-span-4">
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold">Weekly Lead Trend</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[150px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={weeklyTrend}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Line type="monotone" dataKey="leads" stroke="#3b82f6" strokeWidth={2} dot={{ fill: '#3b82f6', r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ── Employee Filter Section ──────────────────────────────────────────────────
 function EmployeeFilterSection({ 
   profiles, 
@@ -113,16 +295,11 @@ function EmployeeFilterSection({
     (p.display_name || "").toLowerCase().includes(searchEmployee.toLowerCase())
   );
   
-  // Get employee stats
   const employeeStats = filteredProfiles.map(p => {
     const empLeads = leads.filter(l => l.assigned_to === p.user_id);
     const stageCounts = LEAD_STAGES.map(s => ({
       ...s,
       count: empLeads.filter(l => l.stage === s.value).length
-    }));
-    const statusCounts = LEAD_STATUSES.map(s => ({
-      ...s,
-      count: empLeads.filter(l => l.status === s.value).length
     }));
     return {
       ...p,
@@ -130,7 +307,6 @@ function EmployeeFilterSection({
       converted: empLeads.filter(l => l.stage === "converted").length,
       lost: empLeads.filter(l => l.stage === "lost").length,
       stageCounts,
-      statusCounts,
       hot: empLeads.filter(l => l.temperature === "hot").length,
       warm: empLeads.filter(l => l.temperature === "warm").length,
       cold: empLeads.filter(l => l.temperature === "cold").length,
@@ -142,7 +318,7 @@ function EmployeeFilterSection({
   return (
     <Card className="mb-4">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Users className="h-5 w-5" />
@@ -171,7 +347,6 @@ function EmployeeFilterSection({
         </div>
       </CardHeader>
       <CardContent>
-        {/* Search Employee */}
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -182,8 +357,7 @@ function EmployeeFilterSection({
           />
         </div>
         
-        {/* Employee Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mb-4">
           {/* Unassigned Card */}
           <div 
             className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
@@ -209,7 +383,6 @@ function EmployeeFilterSection({
             </div>
           </div>
           
-          {/* Employee Cards */}
           {employeeStats.map(emp => {
             const color = avatarColor(emp.display_name || "?");
             const isActive = selectedEmployee === emp.user_id;
@@ -226,13 +399,13 @@ function EmployeeFilterSection({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div 
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
                       style={{ background: color }}
                     >
                       {getInitials(emp.display_name || "?")}
                     </div>
                     <div>
-                      <p className="font-semibold text-sm">{emp.display_name || "Unknown"}</p>
+                      <p className="font-semibold text-sm truncate max-w-[80px]">{emp.display_name || "Unknown"}</p>
                       <p className="text-xs text-muted-foreground">
                         {emp.converted} converted / {emp.lost} lost
                       </p>
@@ -243,8 +416,7 @@ function EmployeeFilterSection({
                   </Badge>
                 </div>
                 
-                {/* Temperature badges */}
-                <div className="flex gap-1 mt-2">
+                <div className="flex flex-wrap gap-1 mt-2">
                   {emp.hot > 0 && (
                     <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
                       🔥 {emp.hot}
@@ -262,33 +434,12 @@ function EmployeeFilterSection({
                   )}
                 </div>
                 
-                {/* Stage progress */}
                 {emp.total > 0 && (
                   <div className="mt-2">
                     <Progress 
                       value={(emp.converted / emp.total) * 100} 
                       className="h-1" 
                     />
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {emp.stageCounts.filter(s => s.count > 0).slice(0, 4).map(s => (
-                        <span 
-                          key={s.value}
-                          className="text-xs px-1.5 py-0.5 rounded"
-                          style={{ 
-                            background: s.bg, 
-                            color: s.color,
-                            border: `1px solid ${s.color}30`
-                          }}
-                        >
-                          {s.label}: {s.count}
-                        </span>
-                      ))}
-                      {emp.stageCounts.filter(s => s.count > 0).length > 4 && (
-                        <span className="text-xs text-muted-foreground">
-                          +{emp.stageCounts.filter(s => s.count > 0).length - 4} more
-                        </span>
-                      )}
-                    </div>
                   </div>
                 )}
               </div>
@@ -296,11 +447,9 @@ function EmployeeFilterSection({
           })}
         </div>
         
-        {/* Quick Filters */}
         <div className="flex flex-wrap gap-2 items-center border-t pt-3">
           <span className="text-sm font-medium mr-2">Quick Filter:</span>
           
-          {/* Stage Filters */}
           <div className="flex flex-wrap gap-1">
             {LEAD_STAGES.map(s => {
               const count = leads.filter(l => l.stage === s.value).length;
@@ -310,9 +459,7 @@ function EmployeeFilterSection({
                   key={s.value}
                   onClick={() => onSelectStage(isActive ? null : s.value)}
                   className={`text-xs px-2 py-1 rounded-full transition-all ${
-                    isActive 
-                      ? `ring-2 ring-offset-1` 
-                      : "hover:bg-gray-100"
+                    isActive ? "ring-2 ring-offset-1" : "hover:bg-gray-100"
                   }`}
                   style={{
                     background: isActive ? s.bg : "transparent",
@@ -328,7 +475,6 @@ function EmployeeFilterSection({
           
           <span className="text-sm font-medium mx-2">|</span>
           
-          {/* Status Filters */}
           <div className="flex flex-wrap gap-1">
             {LEAD_STATUSES.slice(0, 6).map(s => {
               const count = leads.filter(l => l.status === s.value).length;
@@ -338,9 +484,7 @@ function EmployeeFilterSection({
                   key={s.value}
                   onClick={() => onSelectStatus(isActive ? null : s.value)}
                   className={`text-xs px-2 py-1 rounded-full transition-all ${
-                    isActive 
-                      ? "bg-primary text-white" 
-                      : "bg-gray-100 hover:bg-gray-200"
+                    isActive ? "bg-primary text-white" : "bg-gray-100 hover:bg-gray-200"
                   }`}
                 >
                   {s.label} ({count})
@@ -349,7 +493,6 @@ function EmployeeFilterSection({
             })}
           </div>
           
-          {/* Clear all filters */}
           {(selectedEmployee || selectedStage || selectedStatus) && (
             <Button 
               variant="ghost" 
@@ -399,7 +542,6 @@ export default function LeadDashboard() {
   const bulkAssign = useBulkAssignLeads();
   const logActivity = useLeadActivityLogger();
 
-  // Employee filter states
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -429,19 +571,12 @@ export default function LeadDashboard() {
     return p?.display_name || "Unknown";
   };
 
-  // Apply all filters
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      // Employee filter
       if (employeeFilter === "unassigned" && l.assigned_to) return false;
       if (employeeFilter && employeeFilter !== "unassigned" && l.assigned_to !== employeeFilter) return false;
-      
-      // Stage filter
       if (stageFilter && l.stage !== stageFilter) return false;
-      
-      // Status filter
       if (statusFilter && l.status !== statusFilter) return false;
-      
       return true;
     });
   }, [leads, employeeFilter, stageFilter, statusFilter]);
@@ -590,42 +725,85 @@ export default function LeadDashboard() {
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
+  // Stats for cards
+  const stats = {
+    myLeads: myLeads.length,
+    todayLeads: todayLeads.length,
+    freshLeads: freshLeads.length,
+    followUpLeads: followUpLeads.length,
+    todayTasks: todayTasks.length,
+    unassignedLeads: unassignedLeads.length,
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Lead Dashboard</h1>
         <p className="text-muted-foreground">Daily calls, follow-ups, comments aur bulk assignment — sab ek jagah</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center"><Phone className="h-5 w-5 text-primary" /></div>
-          <div><p className="text-2xl font-bold">{myLeads.length}</p><p className="text-xs text-muted-foreground">Mere Leads</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center"><Calendar className="h-5 w-5 text-blue-500" /></div>
-          <div><p className="text-2xl font-bold">{todayLeads.length}</p><p className="text-xs text-muted-foreground">Aaj ke Leads</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center"><Sparkles className="h-5 w-5 text-green-500" /></div>
-          <div><p className="text-2xl font-bold">{freshLeads.length}</p><p className="text-xs text-muted-foreground">Fresh Leads</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center"><AlertCircle className="h-5 w-5 text-amber-500" /></div>
-          <div><p className="text-2xl font-bold">{followUpLeads.length}</p><p className="text-xs text-muted-foreground">Follow-up Due</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center"><CheckSquare className="h-5 w-5 text-purple-500" /></div>
-          <div><p className="text-2xl font-bold">{todayTasks.length}</p><p className="text-xs text-muted-foreground">Aaj ke Tasks</p></div>
-        </CardContent></Card>
+      {/* Stats Cards */}
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0"><Phone className="h-5 w-5 text-primary" /></div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold leading-none">{stats.myLeads}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">Mere Leads</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0"><Calendar className="h-5 w-5 text-blue-500" /></div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold leading-none">{stats.todayLeads}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">Aaj ke Leads</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0"><Sparkles className="h-5 w-5 text-green-500" /></div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold leading-none">{stats.freshLeads}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">Fresh Leads</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0"><AlertCircle className="h-5 w-5 text-amber-500" /></div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold leading-none">{stats.followUpLeads}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">Follow-up Due</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0"><CheckSquare className="h-5 w-5 text-purple-500" /></div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold leading-none">{stats.todayTasks}</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">Aaj ke Tasks</p>
+            </div>
+          </CardContent>
+        </Card>
         {canAssign && (
-          <Card><CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center"><Users className="h-5 w-5 text-orange-500" /></div>
-            <div><p className="text-2xl font-bold">{unassignedLeads.length}</p><p className="text-xs text-muted-foreground">Unassigned</p></div>
-          </CardContent></Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center flex-shrink-0"><Users className="h-5 w-5 text-orange-500" /></div>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold leading-none">{stats.unassignedLeads}</p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">Unassigned</p>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
+
+      {/* Charts Section */}
+      <DashboardCharts leads={leads} />
 
       {/* Employee Filter Section */}
       <EmployeeFilterSection
@@ -648,7 +826,7 @@ export default function LeadDashboard() {
           <CardContent>
             <div className="space-y-2">
               {todayTasks.map((task) => (
-                <div key={task.id} className="flex items-center justify-between p-3 rounded-lg border">
+                <div key={task.id} className="flex flex-wrap items-center justify-between p-3 rounded-lg border gap-2">
                   <div>
                     <p className="text-sm font-medium">{task.title}</p>
                     <Badge variant="outline" className="text-xs mt-1">{task.type}</Badge>
@@ -721,7 +899,7 @@ export default function LeadDashboard() {
                 <div><p className="text-muted-foreground text-xs">Stage</p><p className="font-medium">{formatStageLabel(detailLead.stage)}</p></div>
                 <div><p className="text-muted-foreground text-xs">Assigned</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {detailLead.phone && (
                   <Button size="sm" variant="outline" asChild>
                     <a href={`tel:${detailLead.phone}`} onClick={() => logActivity(detailLead.id, "called", detailLead.phone || undefined)}>
