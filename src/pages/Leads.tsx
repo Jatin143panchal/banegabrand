@@ -18,7 +18,8 @@ import {
   Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
   MessageCircle, Calendar, TrendingUp, Flag, XCircle,
-  FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight
+  FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
+  AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -970,6 +971,45 @@ export default function Leads() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [temperatureFilter, setTemperatureFilter] = useState<string>("all");
 
+  // ── Import duplicate-resolution queue ──
+  // Each item: { key, importData (mapped row from file), existing_lead_id, existing_lead_name, resolving }
+  const [duplicateQueue, setDuplicateQueue] = useState<any[]>([]);
+  const [importSummary, setImportSummary] = useState<{ imported: number; duplicates: number } | null>(null);
+  const [resolvingKey, setResolvingKey] = useState<string | null>(null);
+
+  // ── Live total-count straight from Supabase (independent safety net on top of realtime) ──
+  const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
+  const [liveCountPulsing, setLiveCountPulsing] = useState(false);
+
+  const fetchLiveTotalCount = useCallback(async () => {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user?.id)
+        .single();
+      const isAdmin = profile?.role === "admin";
+
+      let query = supabase.from("leads").select("*", { count: "exact", head: true });
+      if (!isAdmin && user?.id) {
+        query = query.eq("assigned_to", user.id);
+      }
+      const { count, error } = await query;
+      if (error) throw error;
+      setLiveTotalCount(count ?? 0);
+      setLiveCountPulsing(true);
+      setTimeout(() => setLiveCountPulsing(false), 700);
+    } catch (error) {
+      console.error("Live count fetch error:", error);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchLiveTotalCount();
+    const interval = setInterval(fetchLiveTotalCount, 20000);
+    return () => clearInterval(interval);
+  }, [fetchLiveTotalCount]);
+
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
     lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
@@ -1440,6 +1480,8 @@ export default function Leads() {
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setDuplicateQueue([]);
+    setImportSummary(null);
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
@@ -1473,49 +1515,48 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── Bulk Import ──
+  // ── Bulk Import: splits rows into clean inserts vs a duplicate-resolution queue ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
     let success = 0;
-    let duplicates = 0;
-    let duplicateList: any[] = [];
-    
-    for (const lead of uploadPreview) {
+    const newDuplicateQueue: any[] = [];
+
+    for (let i = 0; i < uploadPreview.length; i++) {
+      const lead = uploadPreview[i];
       try {
         const duplicate = await checkForDuplicate(lead);
-        
+
         if (duplicate && duplicate.is_duplicate) {
-          duplicates++;
-          duplicateList.push({
-            name: lead.name,
-            email: lead.email,
-            phone: lead.phone,
-            existing_lead: duplicate.existing_lead_name
+          newDuplicateQueue.push({
+            key: `${lead.email || lead.phone || lead.name}-${i}`,
+            importData: lead,
+            existing_lead_id: duplicate.existing_lead_id,
+            existing_lead_name: duplicate.existing_lead_name,
           });
           continue;
         }
-        
+
         const { error } = await supabase
           .from("leads")
           .insert({
-            name: lead.name, 
-            email: lead.email, 
-            phone: lead.phone, 
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
             company: lead.company,
-            source: lead.source, 
-            value: lead.value || 0, 
+            source: lead.source,
+            value: lead.value || 0,
             status: "new",
-            lead_type: lead.lead_type, 
-            address: lead.address, 
+            lead_type: lead.lead_type,
+            address: lead.address,
             cx_comment: lead.cx_comment,
-            budget: lead.budget, 
-            stage: lead.stage || "ringing", 
-            sub_stage: lead.sub_stage, 
+            budget: lead.budget,
+            stage: lead.stage || "ringing",
+            sub_stage: lead.sub_stage,
             remark: lead.remark,
             temperature: lead.temperature || "warm",
           });
-        
+
         if (error) {
           console.error("Insert error for lead:", lead.name, error);
           continue;
@@ -1525,28 +1566,74 @@ export default function Leads() {
         console.error("Error importing lead:", lead.name, error);
       }
     }
-    
+
     setUploading(false);
     setUploadPreview([]);
-    setUploadOpen(false);
     if (fileRef.current) fileRef.current.value = "";
-    
+
     await fetchLeads();
-    
-    if (duplicates > 0) {
+    await fetchLiveTotalCount();
+
+    setImportSummary({ imported: success, duplicates: newDuplicateQueue.length });
+    setDuplicateQueue(newDuplicateQueue);
+
+    if (newDuplicateQueue.length > 0) {
       if (success > 0) {
         toast.warning(
-          `${success} leads imported successfully, ${duplicates} duplicate leads skipped.`,
+          `${success} leads imported. ${newDuplicateQueue.length} duplicate leads found — review them below.`,
           { duration: 5000 }
         );
       } else {
-        toast.error(`All ${duplicates} leads were duplicates and were skipped.`);
+        toast.error(`All ${newDuplicateQueue.length} leads were duplicates. Review them below.`);
       }
-      console.log("Skipped duplicates:", duplicateList);
     } else {
       toast.success(`${success} leads imported successfully!`);
+      setUploadOpen(false);
     }
-  }, [uploadPreview, checkForDuplicate, fetchLeads]);
+  }, [uploadPreview, checkForDuplicate, fetchLeads, fetchLiveTotalCount]);
+
+  // ── Resolve a single duplicate: update the existing lead with the freshly imported data ──
+  const handleResolveDuplicateUpdate = useCallback(async (item: any) => {
+    setResolvingKey(item.key);
+    try {
+      const d = item.importData;
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          name: d.name || undefined,
+          email: d.email || undefined,
+          phone: d.phone || undefined,
+          company: d.company || undefined,
+          source: d.source || undefined,
+          value: d.value || undefined,
+          lead_type: d.lead_type || undefined,
+          address: d.address || undefined,
+          cx_comment: d.cx_comment || undefined,
+          budget: d.budget || undefined,
+          stage: d.stage || undefined,
+          sub_stage: d.sub_stage || undefined,
+          remark: d.remark || undefined,
+          temperature: d.temperature || undefined,
+        })
+        .eq("id", item.existing_lead_id);
+
+      if (error) throw error;
+
+      logActivity(item.existing_lead_id, "updated", `Merged from Excel import (duplicate resolved)`);
+      toast.success(`${item.existing_lead_name} updated with imported data`);
+      setDuplicateQueue(prev => prev.filter(q => q.key !== item.key));
+      await fetchLeads();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update existing lead");
+    } finally {
+      setResolvingKey(null);
+    }
+  }, [fetchLeads, logActivity]);
+
+  const handleDiscardDuplicate = useCallback((item: any) => {
+    setDuplicateQueue(prev => prev.filter(q => q.key !== item.key));
+    toast.info(`Skipped duplicate for ${item.existing_lead_name}`);
+  }, []);
 
   // ── UPDATE LEAD - DIRECT QUERY ──
   const handleUpdate = useCallback(async () => {
@@ -1607,10 +1694,11 @@ export default function Leads() {
       setDetailLead(null);
       toast.success("Lead deleted");
       await fetchLeads();
+      await fetchLiveTotalCount();
     } catch (error: any) {
       toast.error(error.message || "Failed to delete lead");
     }
-  }, [fetchLeads]);
+  }, [fetchLeads, fetchLiveTotalCount]);
 
   const handleExport = useCallback(() => {
     const exportData = leads.map(l => ({
@@ -1722,13 +1810,13 @@ export default function Leads() {
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />Export Excel
           </Button>
-          <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+          <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setDuplicateQueue([]); setImportSummary(null); if (fileRef.current) fileRef.current.value = ""; } }}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle className="flex items-center justify-between">
+                <DialogTitle className="flex items-center justify-between flex-wrap gap-2">
                   <span className="flex items-center gap-2">
                     <FileSpreadsheet className="h-5 w-5" />
                     Import Leads from Excel/CSV
@@ -1746,15 +1834,20 @@ export default function Leads() {
                   <p className="text-xs text-muted-foreground mb-3">
                     Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
                   </p>
-                  <p className="text-xs text-amber-600 mb-2">
-                    ⚠️ Duplicate leads will be automatically skipped
+                  <p className="text-xs text-amber-600 mb-2 flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Duplicate leads will be tagged for review instead of being lost
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
+
                 {uploadPreview.length > 0 && (
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium">{uploadPreview.length} leads found in file</p>
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+                        {uploadPreview.length} leads found in file
+                      </p>
                       <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
                     </div>
                     <div className="max-h-60 overflow-auto rounded border">
@@ -1778,11 +1871,81 @@ export default function Leads() {
                     </div>
                   </div>
                 )}
+
+                {importSummary && (
+                  <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
+                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported
+                    </span>
+                    {importSummary.duplicates > 0 && (
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
+                        <AlertTriangle className="h-4 w-4" /> {importSummary.duplicates} duplicates need review
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Duplicate leads review section ── */}
+                {duplicateQueue.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60">
+                    <div className="flex items-center justify-between p-3 border-b border-amber-200">
+                      <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4" />
+                        Duplicate Leads ({duplicateQueue.length})
+                      </p>
+                      <p className="text-xs text-amber-700">Update the existing lead with the new data, or skip it</p>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto divide-y divide-amber-100">
+                      {duplicateQueue.map(item => (
+                        <div key={item.key} className="p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-800 text-[10px] font-semibold uppercase tracking-wide">
+                                Duplicate
+                              </Badge>
+                              <span className="text-sm font-semibold truncate">{item.importData.name}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1 truncate">
+                              {item.importData.email || item.importData.phone || "No contact info"}
+                            </p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <ArrowRight className="h-3 w-3" /> matches existing lead:
+                              <span className="font-medium text-foreground">{item.existing_lead_name}</span>
+                            </p>
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <Button
+                              size="sm"
+                              className="bg-amber-600 hover:bg-amber-700"
+                              disabled={resolvingKey === item.key}
+                              onClick={() => handleResolveDuplicateUpdate(item)}
+                            >
+                              {resolvingKey === item.key ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              Update Existing
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleDiscardDuplicate(item)}>
+                              <X className="mr-1 h-3.5 w-3.5" />Skip
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <DialogFooter>
-                <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                  {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
-                </Button>
+                {uploadPreview.length > 0 && (
+                  <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
+                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
+                  </Button>
+                )}
+                {uploadPreview.length === 0 && (importSummary || duplicateQueue.length > 0) && (
+                  <Button variant="outline" onClick={() => { setUploadOpen(false); }}>Done</Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1881,88 +2044,78 @@ export default function Leads() {
       </div>
 
       {/* Stats Cards */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card className="col-span-2 sm:col-span-1 lg:col-span-1 border-primary/20">
           <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#eff6ff",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
                 <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
               </div>
-              <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{stats.totalLeads}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Total Leads</p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-2xl font-bold leading-none">{liveTotalCount ?? stats.totalLeads}</p>
+                  <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Radio className="h-3 w-3" /> Total Leads (Live)
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
+        <Card>
           <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#fef2f2",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
                 <Flame style={{ color: "#ef4444", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#ef4444" }}>{stats.hotCount}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Hot Leads</p>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#ef4444" }}>{stats.hotCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Hot Leads</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
+        <Card>
           <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#fff7ed",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
                 <Sun style={{ color: "#f97316", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#f97316" }}>{stats.warmCount}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Warm Leads</p>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#f97316" }}>{stats.warmCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Warm Leads</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card style={{ minWidth: 140, flex: "0 0 auto" }}>
+        <Card>
           <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#eff6ff",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
                 <Snowflake style={{ color: "#3b82f6", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color: "#3b82f6" }}>{stats.coldCount}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Cold Leads</p>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#3b82f6" }}>{stats.coldCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Cold Leads</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card style={{ minWidth: 160, flex: "0 0 auto" }}>
+        <Card className="col-span-2 sm:col-span-1">
           <CardContent className="p-4">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: "#ecfdf5",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
                 <TrendingUp style={{ color: "#10b981", width: 24, height: 24 }} />
               </div>
               <div>
-                <p style={{ fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{stats.convertedCount}</p>
-                <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Converted</p>
-                <p style={{ fontSize: 11, color: "#94a3b8" }}>
+                <p className="text-2xl font-bold leading-none">{stats.convertedCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Converted</p>
+                <p className="text-[11px] text-muted-foreground/70">
                   {stats.totalLeads > 0 ? ((stats.convertedCount / stats.totalLeads) * 100).toFixed(1) : 0}% rate
                 </p>
               </div>
@@ -1971,7 +2124,7 @@ export default function Leads() {
         </Card>
 
         {canAssign && typedProfiles.length > 0 && (
-          <Card style={{ flex: 1, minWidth: 300 }}>
+          <Card className="col-span-2 sm:col-span-3 lg:col-span-6">
             <CardContent className="p-4">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div>
