@@ -474,23 +474,16 @@ function TaskCard({ task, itTeam, onStatusChange, onAssign, onDelete }: {
               <span className="text-amber-600">👤 Unassigned</span>
             )}
           </div>
-           <div className="mt-2 ml-9 bg-blue-50 border border-blue-100 rounded-md p-2 max-w-md">
+
+          {/* 👇 Employee's progress/comment — visible to admin */}
+          {task.employee_remarks && (
+            <div className="mt-2 ml-9 bg-blue-50 border border-blue-100 rounded-md p-2 max-w-md">
               <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
                 💬 {task.assigned_to_name || "Employee"}'s update:
               </p>
               <p className="text-xs text-blue-900 mt-0.5 whitespace-pre-wrap">{task.employee_remarks}</p>
             </div>
           )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpanded(!expanded)}>
-            <MoreVertical className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(task.id)}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-          
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpanded(!expanded)}>
