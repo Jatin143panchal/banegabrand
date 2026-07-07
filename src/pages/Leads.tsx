@@ -589,41 +589,29 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── DIRECT DUPLICATE CHECK ──
+  // ── DIRECT DUPLICATE CHECK (Phone number only) ──
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
-      const conditions = [];
-      
-      if (leadData.email && leadData.email.trim()) {
-        conditions.push(`email.eq.${leadData.email.trim()}`);
-      }
-      if (leadData.phone && leadData.phone.trim()) {
-        conditions.push(`phone.eq.${leadData.phone.trim()}`);
-      }
-      if (leadData.name && leadData.name.trim()) {
-        conditions.push(`name.ilike.%${leadData.name.trim()}%`);
-      }
-      
-      if (conditions.length === 0) {
+      if (!leadData.phone || !leadData.phone.trim()) {
         return { is_duplicate: false };
       }
-      
+
       let query = supabase
         .from("leads")
         .select("id, name, email, phone")
-        .or(conditions.join(','));
-      
+        .eq("phone", leadData.phone.trim());
+
       if (excludeId) {
         query = query.neq("id", excludeId);
       }
-      
+
       const { data, error } = await query.limit(1);
-      
+
       if (error) {
         console.error("Duplicate check error:", error);
         return { is_duplicate: false };
       }
-      
+
       if (data && data.length > 0) {
         return {
           is_duplicate: true,
@@ -631,7 +619,7 @@ export default function Leads() {
           existing_lead_id: data[0].id
         };
       }
-      
+
       return { is_duplicate: false };
     } catch (error) {
       console.error("Error checking duplicate:", error);
