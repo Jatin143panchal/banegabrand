@@ -20,7 +20,7 @@ import {
   MessageCircle, Calendar, TrendingUp, Flag, XCircle,
   FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
   AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio, BarChart3,
-  PieChart, PieChartIcon, ChartColumn
+  PieChart, PieChartIcon, ChartColumn, Copy, Filter, Database, ShieldCheck
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -57,7 +57,7 @@ const LEAD_STATUSES = [
   { value: "ringing",            label: "Ringing"           },
   { value: "callback",           label: "Callback"          },
   { value: "dp",                 label: "DP"                },
-  { value: "vms",                label: "VMS"               },
+  { value: "vms",                 label: "VMS"                },
   { value: "pg",                 label: "PG"                },
   { value: "converted",          label: "Converted"         },
   { value: "lost",               label: "Lost"              },
@@ -535,6 +535,11 @@ export default function Leads() {
   const [uploading, setUploading]           = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   
+  // ── NEW: Import options ──
+  const [importOption, setImportOption] = useState<"skip" | "update">("skip");
+  const [importStage, setImportStage] = useState<string>("ringing");
+  const [importSubStage, setImportSubStage] = useState<string>("");
+  
   const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
   const [leegalitySignDialog, setLeegalitySignDialog] = useState<DbLead | null>(null);
   const [leegalityLoading, setLeegalityLoading] = useState<string | null>(null);
@@ -545,8 +550,9 @@ export default function Leads() {
 
   // ── Import duplicate-resolution queue ──
   const [duplicateQueue, setDuplicateQueue] = useState<any[]>([]);
-  const [importSummary, setImportSummary] = useState<{ imported: number; duplicates: number } | null>(null);
+  const [importSummary, setImportSummary] = useState<{ imported: number; duplicates: number; skipped: number; updated: number } | null>(null);
   const [resolvingKey, setResolvingKey] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<"preview" | "review">("preview");
 
   // ── Live total-count ──
   const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
@@ -589,17 +595,24 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── DIRECT DUPLICATE CHECK (Phone number only) ──
-  const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
+  // ── FIXED: DUPLICATE CHECK BY PHONE NUMBER ONLY ──
+  const checkForDuplicate = useCallback(async (phone: string, excludeId?: string) => {
     try {
-      if (!leadData.phone || !leadData.phone.trim()) {
+      if (!phone || !phone.trim()) {
+        return { is_duplicate: false };
+      }
+
+      // Clean phone number - remove all non-numeric characters
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      
+      if (!cleanPhone || cleanPhone.length < 4) {
         return { is_duplicate: false };
       }
 
       let query = supabase
         .from("leads")
         .select("id, name, email, phone")
-        .eq("phone", leadData.phone.trim());
+        .eq("phone", cleanPhone);
 
       if (excludeId) {
         query = query.neq("id", excludeId);
@@ -616,7 +629,8 @@ export default function Leads() {
         return {
           is_duplicate: true,
           existing_lead_name: data[0].name,
-          existing_lead_id: data[0].id
+          existing_lead_id: data[0].id,
+          existing_lead_phone: data[0].phone
         };
       }
 
@@ -913,9 +927,9 @@ export default function Leads() {
     }
     
     try {
-      const duplicate = await checkForDuplicate(form);
+      const duplicate = await checkForDuplicate(form.phone);
       if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists`);
+        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists with phone ${duplicate.existing_lead_phone}`);
         return;
       }
       
@@ -924,7 +938,7 @@ export default function Leads() {
         .insert({
           name: form.name, 
           email: form.email, 
-          phone: form.phone, 
+          phone: form.phone ? form.phone.replace(/[^0-9]/g, '') : null,
           company: form.company,
           source: form.source, 
           value: Number(form.value) || 0, 
@@ -1029,11 +1043,13 @@ export default function Leads() {
     }
   }, [selectedIds, bulkAssignTo, fetchLeads]);
 
+  // ── FIXED: Handle file upload with better phone number cleaning ──
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setDuplicateQueue([]);
     setImportSummary(null);
+    setImportMode("preview");
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
@@ -1044,7 +1060,7 @@ export default function Leads() {
         const mapped = jsonData.map((row: any) => ({
           name:       row.Name || row.name || row["Full Name"] || row["Lead Name"] || "",
           email:      row.Email || row.email || row["Email Address"] || "",
-          phone:      String(row.Number || row.Phone || row.phone || row["Mobile"] || row["Phone Number"] || ""),
+          phone:      String(row.Number || row.Phone || row.phone || row["Mobile"] || row["Phone Number"] || "").replace(/[^0-9]/g, ''),
           company:    row.Company || row.company || row["Company Name"] || row["Organization"] || "",
           source:     row.Source || row.source || row["Lead Source"] || "Excel Import",
           value:      Number(row.Value || row.value || row["Deal Value"] || 0),
@@ -1056,10 +1072,10 @@ export default function Leads() {
           sub_stage:  row["Sub Stage"] || row.sub_stage || "",
           remark:     row.Remark || row.remark || row.Remarks || "",
           temperature: row.Temperature || row.temperature || row["Lead Temperature"] || "warm",
-        })).filter((r: any) => r.name);
+        })).filter((r: any) => r.name && r.phone);
         setUploadPreview(mapped);
         if (mapped.length === 0)
-          toast.error("No valid leads found");
+          toast.error("No valid leads found. Each row must have Name and Phone.");
       } catch (error) {
         toast.error("Failed to parse file");
       }
@@ -1067,28 +1083,66 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── Bulk Import ──
+  // ── FIXED: Bulk Import with options (skip or update) ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
-    let success = 0;
+    let imported = 0;
+    let skipped = 0;
+    let updated = 0;
     const newDuplicateQueue: any[] = [];
 
     for (let i = 0; i < uploadPreview.length; i++) {
       const lead = uploadPreview[i];
       try {
-        const duplicate = await checkForDuplicate(lead);
+        // Check duplicate by phone number only
+        const duplicate = await checkForDuplicate(lead.phone);
 
         if (duplicate && duplicate.is_duplicate) {
-          newDuplicateQueue.push({
-            key: `${lead.email || lead.phone || lead.name}-${i}`,
-            importData: lead,
-            existing_lead_id: duplicate.existing_lead_id,
-            existing_lead_name: duplicate.existing_lead_name,
-          });
-          continue;
+          if (importOption === "skip") {
+            // Skip duplicate
+            skipped++;
+            continue;
+          } else if (importOption === "update") {
+            // Update existing lead with new data (without overwriting critical fields)
+            const { error } = await supabase
+              .from("leads")
+              .update({
+                name: lead.name || undefined,
+                email: lead.email || undefined,
+                company: lead.company || undefined,
+                source: lead.source || undefined,
+                value: lead.value || undefined,
+                lead_type: lead.lead_type || undefined,
+                address: lead.address || undefined,
+                cx_comment: lead.cx_comment || undefined,
+                budget: lead.budget || undefined,
+                stage: lead.stage || importStage || undefined,
+                sub_stage: lead.sub_stage || importSubStage || undefined,
+                remark: lead.remark || undefined,
+                temperature: lead.temperature || undefined,
+                // DON'T update phone - keep original
+              })
+              .eq("id", duplicate.existing_lead_id);
+
+            if (error) {
+              console.error("Update error for lead:", lead.name, error);
+              newDuplicateQueue.push({
+                key: lead.phone,
+                importData: lead,
+                existing_lead_id: duplicate.existing_lead_id,
+                existing_lead_name: duplicate.existing_lead_name,
+                status: "failed",
+              });
+              continue;
+            }
+            updated++;
+            logActivity(duplicate.existing_lead_id, "updated", `Updated from Excel import`);
+            continue;
+          }
         }
 
+        // No duplicate - insert new lead
         const { error } = await supabase
           .from("leads")
           .insert({
@@ -1103,8 +1157,8 @@ export default function Leads() {
             address: lead.address,
             cx_comment: lead.cx_comment,
             budget: lead.budget,
-            stage: lead.stage || "ringing",
-            sub_stage: lead.sub_stage,
+            stage: lead.stage || importStage || "ringing",
+            sub_stage: lead.sub_stage || importSubStage || "",
             remark: lead.remark,
             temperature: lead.temperature || "warm",
           });
@@ -1113,7 +1167,7 @@ export default function Leads() {
           console.error("Insert error for lead:", lead.name, error);
           continue;
         }
-        success++;
+        imported++;
       } catch (error) {
         console.error("Error importing lead:", lead.name, error);
       }
@@ -1126,25 +1180,31 @@ export default function Leads() {
     await fetchLeads();
     await fetchLiveTotalCount();
 
-    setImportSummary({ imported: success, duplicates: newDuplicateQueue.length });
+    setImportSummary({ 
+      imported, 
+      duplicates: newDuplicateQueue.length, 
+      skipped, 
+      updated 
+    });
     setDuplicateQueue(newDuplicateQueue);
 
     if (newDuplicateQueue.length > 0) {
-      if (success > 0) {
+      setImportMode("review");
+      if (imported > 0 || updated > 0) {
         toast.warning(
-          `${success} leads imported. ${newDuplicateQueue.length} duplicate leads found — review them below.`,
+          `${imported} imported, ${updated} updated, ${skipped} skipped. ${newDuplicateQueue.length} duplicates found.`,
           { duration: 5000 }
         );
       } else {
-        toast.error(`All ${newDuplicateQueue.length} leads were duplicates. Review them below.`);
+        toast.error(`All ${newDuplicateQueue.length} leads were duplicates.`);
       }
     } else {
-      toast.success(`${success} leads imported successfully!`);
+      toast.success(`${imported} leads imported successfully! ${updated} updated, ${skipped} skipped.`);
       setUploadOpen(false);
     }
-  }, [uploadPreview, checkForDuplicate, fetchLeads, fetchLiveTotalCount]);
+  }, [uploadPreview, checkForDuplicate, fetchLeads, fetchLiveTotalCount, importOption, importStage, importSubStage, logActivity]);
 
-  // ── Resolve duplicate ──
+  // ── Resolve duplicate (update existing) ──
   const handleResolveDuplicateUpdate = useCallback(async (item: any) => {
     setResolvingKey(item.key);
     try {
@@ -1154,7 +1214,6 @@ export default function Leads() {
         .update({
           name: d.name || undefined,
           email: d.email || undefined,
-          phone: d.phone || undefined,
           company: d.company || undefined,
           source: d.source || undefined,
           value: d.value || undefined,
@@ -1162,10 +1221,11 @@ export default function Leads() {
           address: d.address || undefined,
           cx_comment: d.cx_comment || undefined,
           budget: d.budget || undefined,
-          stage: d.stage || undefined,
-          sub_stage: d.sub_stage || undefined,
+          stage: d.stage || importStage || undefined,
+          sub_stage: d.sub_stage || importSubStage || undefined,
           remark: d.remark || undefined,
           temperature: d.temperature || undefined,
+          // DON'T update phone
         })
         .eq("id", item.existing_lead_id);
 
@@ -1180,7 +1240,7 @@ export default function Leads() {
     } finally {
       setResolvingKey(null);
     }
-  }, [fetchLeads, logActivity]);
+  }, [fetchLeads, logActivity, importStage, importSubStage]);
 
   const handleDiscardDuplicate = useCallback((item: any) => {
     setDuplicateQueue(prev => prev.filter(q => q.key !== item.key));
@@ -1192,9 +1252,9 @@ export default function Leads() {
     if (!editLead) return;
     
     try {
-      const duplicate = await checkForDuplicate(editLead, editLead.id);
+      const duplicate = await checkForDuplicate(editLead.phone, editLead.id);
       if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists`);
+        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists with phone ${duplicate.existing_lead_phone}`);
         return;
       }
       
@@ -1203,7 +1263,7 @@ export default function Leads() {
         .update({
           name: editLead.name, 
           email: editLead.email, 
-          phone: editLead.phone,
+          phone: editLead.phone ? editLead.phone.replace(/[^0-9]/g, '') : null,
           company: editLead.company, 
           source: editLead.source, 
           value: editLead.value,
@@ -1361,7 +1421,7 @@ export default function Leads() {
           <Button variant="outline" size="sm" onClick={handleExport} className="flex-1 sm:flex-none">
             <Download className="mr-2 h-4 w-4" />Export Excel
           </Button>
-          <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setDuplicateQueue([]); setImportSummary(null); if (fileRef.current) fileRef.current.value = ""; } }}>
+          <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setDuplicateQueue([]); setImportSummary(null); setImportMode("preview"); if (fileRef.current) fileRef.current.value = ""; } }}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="flex-1 sm:flex-none"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
             </DialogTrigger>
@@ -1383,14 +1443,62 @@ export default function Leads() {
                   <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
+                    Required columns: Name, Phone (Email is optional)
                   </p>
-                  <p className="text-xs text-amber-600 mb-2 flex items-center justify-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    Duplicate leads will be tagged for review instead of being lost
+                  <p className="text-xs text-amber-600 mb-3 flex items-center justify-center gap-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    Duplicate detection is based on <strong>Phone Number</strong> only
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
+
+                {/* ── Import Options ── */}
+                {uploadPreview.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 rounded-lg border bg-muted/20">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold">On Duplicate</Label>
+                      <Select value={importOption} onValueChange={(v: "skip" | "update") => setImportOption(v)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Choose action" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="skip">Skip Duplicate</SelectItem>
+                          <SelectItem value="update">Update Existing (keep phone)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[10px] text-muted-foreground">
+                        {importOption === "skip" ? "Skip duplicate leads, import only new ones" : "Update existing leads with new data (phone number preserved)"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold">Default Stage</Label>
+                      <Select value={importStage} onValueChange={setImportStage}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select stage" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LEAD_STAGES.map(s => (
+                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold">Default Sub Stage</Label>
+                      <Select value={importSubStage} onValueChange={setImportSubStage}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select sub stage" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {getSubStagesForStage(importStage).map(s => (
+                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
 
                 {uploadPreview.length > 0 && (
                   <div>
@@ -1410,9 +1518,9 @@ export default function Leads() {
                           {uploadPreview.slice(0, 10).map((r, i) => (
                             <TableRow key={i}>
                               <TableCell className="text-sm">{r.name}</TableCell>
-                              <TableCell className="text-sm">{r.email}</TableCell>
-                              <TableCell className="text-sm">{r.phone}</TableCell>
-                              <TableCell className="text-sm">{r.company}</TableCell>
+                              <TableCell className="text-sm">{r.email || "-"}</TableCell>
+                              <TableCell className="text-sm font-mono">{r.phone}</TableCell>
+                              <TableCell className="text-sm">{r.company || "-"}</TableCell>
                               <TableCell className="text-sm">{r.temperature || "Warm"}</TableCell>
                             </TableRow>
                           ))}
@@ -1428,15 +1536,25 @@ export default function Leads() {
                     <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
                       <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported
                     </span>
+                    {importSummary.updated > 0 && (
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-blue-700">
+                        <RefreshCw className="h-4 w-4" /> {importSummary.updated} updated
+                      </span>
+                    )}
+                    {importSummary.skipped > 0 && (
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                        <X className="h-4 w-4" /> {importSummary.skipped} skipped
+                      </span>
+                    )}
                     {importSummary.duplicates > 0 && (
                       <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
-                        <AlertTriangle className="h-4 w-4" /> {importSummary.duplicates} duplicates need review
+                        <AlertTriangle className="h-4 w-4" /> {importSummary.duplicates} duplicates
                       </span>
                     )}
                   </div>
                 )}
 
-                {duplicateQueue.length > 0 && (
+                {duplicateQueue.length > 0 && importMode === "review" && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60">
                     <div className="flex items-center justify-between p-3 border-b border-amber-200 flex-wrap gap-2">
                       <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
@@ -1456,10 +1574,10 @@ export default function Leads() {
                               <span className="text-sm font-semibold truncate">{item.importData.name}</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1 truncate">
-                              {item.importData.email || item.importData.phone || "No contact info"}
+                              Phone: <span className="font-mono">{item.importData.phone}</span>
                             </p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <ArrowRight className="h-3 w-3" /> matches existing lead:
+                              <ArrowRight className="h-3 w-3" /> matches existing:
                               <span className="font-medium text-foreground">{item.existing_lead_name}</span>
                             </p>
                           </div>
@@ -1475,7 +1593,7 @@ export default function Leads() {
                               ) : (
                                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                               )}
-                              Update Existing
+                              Update
                             </Button>
                             <Button size="sm" variant="ghost" onClick={() => handleDiscardDuplicate(item)}>
                               <X className="mr-1 h-3.5 w-3.5" />Skip
@@ -1510,7 +1628,7 @@ export default function Leads() {
                 {[
                   { label: "Name *",    key: "name"    },
                   { label: "Email *",   key: "email"   },
-                  { label: "Number",    key: "phone"   },
+                  { label: "Phone *",   key: "phone"   },
                   { label: "Company",   key: "company" },
                   { label: "Address",   key: "address" },
                   { label: "Value (₹)", key: "value"   },
@@ -2066,7 +2184,7 @@ export default function Leads() {
               <Progress value={getLeadScore(detailLead)} className="h-2" />
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><p className="text-muted-foreground text-xs">Email</p><p className="font-medium break-all">{detailLead.email || "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium">{detailLead.phone || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium font-mono">{detailLead.phone || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Company</p><p className="font-medium">{detailLead.company || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
@@ -2133,7 +2251,7 @@ export default function Leads() {
           <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
           {editLead && (
             <div className="grid gap-4 py-4 sm:grid-cols-2">
-              {[{ label: "Name", key: "name" }, { label: "Email", key: "email" }, { label: "Number", key: "phone" }, { label: "Company", key: "company" }, { label: "Address", key: "address" }].map(f => (<div key={f.key} className="grid gap-2"><Label>{f.label}</Label><Input value={(editLead as any)[f.key] || ""} onChange={e => setEditLead({ ...editLead, [f.key]: e.target.value } as DbLead)} /></div>))}
+              {[{ label: "Name", key: "name" }, { label: "Email", key: "email" }, { label: "Phone", key: "phone" }, { label: "Company", key: "company" }, { label: "Address", key: "address" }].map(f => (<div key={f.key} className="grid gap-2"><Label>{f.label}</Label><Input value={(editLead as any)[f.key] || ""} onChange={e => setEditLead({ ...editLead, [f.key]: e.target.value } as DbLead)} /></div>))}
               <div className="grid gap-2"><Label>Value (₹)</Label><Input type="number" value={editLead.value || 0} onChange={e => setEditLead({ ...editLead, value: Number(e.target.value) })} /></div>
               <div className="grid gap-2"><Label>Lead Type</Label><Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Budget</Label><Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
