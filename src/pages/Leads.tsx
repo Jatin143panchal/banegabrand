@@ -1083,7 +1083,7 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── FIXED: Bulk Import with options (skip or update) ──
+  // ── FIXED: Bulk Import with proper duplicate handling ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1095,17 +1095,38 @@ export default function Leads() {
     for (let i = 0; i < uploadPreview.length; i++) {
       const lead = uploadPreview[i];
       try {
-        // Check duplicate by phone number only
-        const duplicate = await checkForDuplicate(lead.phone);
+        // Clean phone number consistently
+        const cleanPhone = lead.phone ? lead.phone.replace(/[^0-9]/g, '') : '';
+        
+        // Check duplicate by phone number
+        const { data: existingLeads, error: findError } = await supabase
+          .from("leads")
+          .select("id, name, phone")
+          .eq("phone", cleanPhone)
+          .limit(1);
 
-        if (duplicate && duplicate.is_duplicate) {
+        if (findError) {
+          console.error("Duplicate check error:", findError);
+          continue;
+        }
+
+        const existingLead = existingLeads?.[0];
+
+        if (existingLead) {
+          // Duplicate found
           if (importOption === "skip") {
-            // Skip duplicate
             skipped++;
+            newDuplicateQueue.push({
+              key: cleanPhone,
+              importData: lead,
+              existing_lead_id: existingLead.id,
+              existing_lead_name: existingLead.name,
+              status: "skipped",
+            });
             continue;
           } else if (importOption === "update") {
-            // Update existing lead with new data (without overwriting critical fields)
-            const { error } = await supabase
+            // Update existing lead (keep phone number)
+            const { error: updateError } = await supabase
               .from("leads")
               .update({
                 name: lead.name || undefined,
@@ -1121,36 +1142,29 @@ export default function Leads() {
                 sub_stage: lead.sub_stage || importSubStage || undefined,
                 remark: lead.remark || undefined,
                 temperature: lead.temperature || undefined,
-                // DON'T update phone - keep original
+                // IMPORTANT: DON'T update phone - keep original
               })
-              .eq("id", duplicate.existing_lead_id);
+              .eq("id", existingLead.id);
 
-            if (error) {
-              console.error("Update error for lead:", lead.name, error);
-              newDuplicateQueue.push({
-                key: lead.phone,
-                importData: lead,
-                existing_lead_id: duplicate.existing_lead_id,
-                existing_lead_name: duplicate.existing_lead_name,
-                status: "failed",
-              });
+            if (updateError) {
+              console.error("Update error for lead:", lead.name, updateError);
               continue;
             }
             updated++;
-            logActivity(duplicate.existing_lead_id, "updated", `Updated from Excel import`);
+            logActivity(existingLead.id, "updated", `Updated from Excel import`);
             continue;
           }
         }
 
         // No duplicate - insert new lead
-        const { error } = await supabase
+        const { error: insertError } = await supabase
           .from("leads")
           .insert({
             name: lead.name,
             email: lead.email,
-            phone: lead.phone,
+            phone: cleanPhone, // Use cleaned phone
             company: lead.company,
-            source: lead.source,
+            source: lead.source || "Excel Import",
             value: lead.value || 0,
             status: "new",
             lead_type: lead.lead_type,
@@ -1163,8 +1177,8 @@ export default function Leads() {
             temperature: lead.temperature || "warm",
           });
 
-        if (error) {
-          console.error("Insert error for lead:", lead.name, error);
+        if (insertError) {
+          console.error("Insert error for lead:", lead.name, insertError);
           continue;
         }
         imported++;
@@ -1182,27 +1196,30 @@ export default function Leads() {
 
     setImportSummary({ 
       imported, 
-      duplicates: newDuplicateQueue.length, 
+      duplicates: newDuplicateQueue.filter(q => q.status === "skipped").length, 
       skipped, 
       updated 
     });
     setDuplicateQueue(newDuplicateQueue);
 
-    if (newDuplicateQueue.length > 0) {
+    if (newDuplicateQueue.length > 0 && importOption === "skip") {
       setImportMode("review");
       if (imported > 0 || updated > 0) {
         toast.warning(
-          `${imported} imported, ${updated} updated, ${skipped} skipped. ${newDuplicateQueue.length} duplicates found.`,
+          `${imported} imported, ${updated} updated, ${skipped} skipped. ${newDuplicateQueue.filter(q => q.status === "skipped").length} duplicates found.`,
           { duration: 5000 }
         );
       } else {
-        toast.error(`All ${newDuplicateQueue.length} leads were duplicates.`);
+        toast.error(`All ${newDuplicateQueue.filter(q => q.status === "skipped").length} leads were duplicates.`);
       }
+    } else if (importOption === "update") {
+      toast.success(`${imported} new leads imported! ${updated} existing leads updated.`);
+      setUploadOpen(false);
     } else {
       toast.success(`${imported} leads imported successfully! ${updated} updated, ${skipped} skipped.`);
       setUploadOpen(false);
     }
-  }, [uploadPreview, checkForDuplicate, fetchLeads, fetchLiveTotalCount, importOption, importStage, importSubStage, logActivity]);
+  }, [uploadPreview, fetchLeads, fetchLiveTotalCount, importOption, importStage, importSubStage, logActivity]);
 
   // ── Resolve duplicate (update existing) ──
   const handleResolveDuplicateUpdate = useCallback(async (item: any) => {
