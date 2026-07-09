@@ -20,7 +20,7 @@ import {
   MessageCircle, Calendar, TrendingUp, Flag, XCircle,
   FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
   AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio, BarChart3,
-  PieChart, PieChartIcon, ChartColumn
+  PieChart, PieChartIcon, ChartColumn, ShieldCheck
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -543,10 +543,12 @@ export default function Leads() {
 
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
 
+  // ── Export by stage (e.g. "PG" leads only) ──
+  const [exportStage, setExportStage] = useState("all");
+
   // ── Import duplicate-resolution queue ──
   const [duplicateQueue, setDuplicateQueue] = useState<any[]>([]);
   const [importSummary, setImportSummary] = useState<{ imported: number; duplicates: number } | null>(null);
-  const [resolvingKey, setResolvingKey] = useState<string | null>(null);
 
   // ── Live total-count ──
   const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
@@ -589,41 +591,33 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // ── DIRECT DUPLICATE CHECK ──
+  // ── DIRECT DUPLICATE CHECK (Phone / Mobile number ONLY) ──
+  // This never modifies existing data — it only checks whether a phone number
+  // already exists in the leads table so we can flag it and SKIP it instead
+  // of overwriting the existing lead's information.
   const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
     try {
-      const conditions = [];
-      
-      if (leadData.email && leadData.email.trim()) {
-        conditions.push(`email.eq.${leadData.email.trim()}`);
-      }
-      if (leadData.phone && leadData.phone.trim()) {
-        conditions.push(`phone.eq.${leadData.phone.trim()}`);
-      }
-      if (leadData.name && leadData.name.trim()) {
-        conditions.push(`name.ilike.%${leadData.name.trim()}%`);
-      }
-      
-      if (conditions.length === 0) {
+      const normalizedPhone = (leadData.phone || "").toString().trim();
+      if (!normalizedPhone) {
         return { is_duplicate: false };
       }
-      
+
       let query = supabase
         .from("leads")
         .select("id, name, email, phone")
-        .or(conditions.join(','));
-      
+        .eq("phone", normalizedPhone);
+
       if (excludeId) {
         query = query.neq("id", excludeId);
       }
-      
+
       const { data, error } = await query.limit(1);
-      
+
       if (error) {
         console.error("Duplicate check error:", error);
         return { is_duplicate: false };
       }
-      
+
       if (data && data.length > 0) {
         return {
           is_duplicate: true,
@@ -631,7 +625,7 @@ export default function Leads() {
           existing_lead_id: data[0].id
         };
       }
-      
+
       return { is_duplicate: false };
     } catch (error) {
       console.error("Error checking duplicate:", error);
@@ -927,7 +921,7 @@ export default function Leads() {
     try {
       const duplicate = await checkForDuplicate(form);
       if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists`);
+        toast.error(`Duplicate mobile number: ${duplicate.existing_lead_name} already has this number. Lead was NOT added/replaced.`);
         return;
       }
       
@@ -1080,6 +1074,9 @@ export default function Leads() {
   }, []);
 
   // ── Bulk Import ──
+  // IMPORTANT: duplicates (matched by phone/mobile number) are NEVER
+  // overwritten/updated automatically. They are simply skipped and shown
+  // in a review list so existing data always stays untouched.
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1093,7 +1090,7 @@ export default function Leads() {
 
         if (duplicate && duplicate.is_duplicate) {
           newDuplicateQueue.push({
-            key: `${lead.email || lead.phone || lead.name}-${i}`,
+            key: `${lead.phone || lead.email || lead.name}-${i}`,
             importData: lead,
             existing_lead_id: duplicate.existing_lead_id,
             existing_lead_name: duplicate.existing_lead_name,
@@ -1144,11 +1141,11 @@ export default function Leads() {
     if (newDuplicateQueue.length > 0) {
       if (success > 0) {
         toast.warning(
-          `${success} leads imported. ${newDuplicateQueue.length} duplicate leads found — review them below.`,
-          { duration: 5000 }
+          `${success} leads imported. ${newDuplicateQueue.length} leads had a mobile number that already exists — they were NOT imported and existing data was NOT changed.`,
+          { duration: 6000 }
         );
       } else {
-        toast.error(`All ${newDuplicateQueue.length} leads were duplicates. Review them below.`);
+        toast.error(`All ${newDuplicateQueue.length} leads had mobile numbers that already exist. Nothing was imported or overwritten.`);
       }
     } else {
       toast.success(`${success} leads imported successfully!`);
@@ -1156,47 +1153,13 @@ export default function Leads() {
     }
   }, [uploadPreview, checkForDuplicate, fetchLeads, fetchLiveTotalCount]);
 
-  // ── Resolve duplicate ──
-  const handleResolveDuplicateUpdate = useCallback(async (item: any) => {
-    setResolvingKey(item.key);
-    try {
-      const d = item.importData;
-      const { error } = await supabase
-        .from("leads")
-        .update({
-          name: d.name || undefined,
-          email: d.email || undefined,
-          phone: d.phone || undefined,
-          company: d.company || undefined,
-          source: d.source || undefined,
-          value: d.value || undefined,
-          lead_type: d.lead_type || undefined,
-          address: d.address || undefined,
-          cx_comment: d.cx_comment || undefined,
-          budget: d.budget || undefined,
-          stage: d.stage || undefined,
-          sub_stage: d.sub_stage || undefined,
-          remark: d.remark || undefined,
-          temperature: d.temperature || undefined,
-        })
-        .eq("id", item.existing_lead_id);
-
-      if (error) throw error;
-
-      logActivity(item.existing_lead_id, "updated", `Merged from Excel import (duplicate resolved)`);
-      toast.success(`${item.existing_lead_name} updated with imported data`);
-      setDuplicateQueue(prev => prev.filter(q => q.key !== item.key));
-      await fetchLeads();
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update existing lead");
-    } finally {
-      setResolvingKey(null);
-    }
-  }, [fetchLeads, logActivity]);
-
+  // ── Acknowledge / dismiss a duplicate from the review list ──
+  // Note: there is intentionally NO "update existing lead" action here.
+  // Duplicates are matched by mobile number and existing lead data is
+  // never replaced/overwritten from an import.
   const handleDiscardDuplicate = useCallback((item: any) => {
     setDuplicateQueue(prev => prev.filter(q => q.key !== item.key));
-    toast.info(`Skipped duplicate for ${item.existing_lead_name}`);
+    toast.info(`Skipped duplicate (mobile number already exists) for ${item.existing_lead_name}`);
   }, []);
 
   // ── UPDATE LEAD ──
@@ -1206,7 +1169,7 @@ export default function Leads() {
     try {
       const duplicate = await checkForDuplicate(editLead, editLead.id);
       if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate lead found: ${duplicate.existing_lead_name} already exists`);
+        toast.error(`This mobile number already belongs to ${duplicate.existing_lead_name}. Save cancelled to avoid duplicate/overwrite.`);
         return;
       }
       
@@ -1264,28 +1227,50 @@ export default function Leads() {
     }
   }, [fetchLeads, fetchLiveTotalCount]);
 
+  // ── Shared row mapper used by every export (never mutates `leads`) ──
+  const buildExportRows = useCallback((rows: DbLead[]) => rows.map(l => ({
+    Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
+    "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
+    Budget: l.budget, Stage: formatStageLabel(l.stage), "Sub Stage": formatStageLabel(l.sub_stage), Remark: l.remark,
+    Source: l.source, Status: l.status, Value: l.value,
+    "Business Status": l.business_status,
+    "Assigned To": getProfileName(l.assigned_to),
+    "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
+    "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
+    "Lost Reason": l.lost_reason || "",
+    "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
+    "eSign Status": l.leegality_status || "Not Started",
+    "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
+    "Temperature": l.temperature || "Warm",
+  })), [getProfileName]);
+
+  // ── Export ALL leads (unchanged behaviour) ──
   const handleExport = useCallback(() => {
-    const exportData = leads.map(l => ({
-      Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
-      "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
-      Budget: l.budget, Stage: l.stage, "Sub Stage": l.sub_stage, Remark: l.remark,
-      Source: l.source, Status: l.status, Value: l.value,
-      "Business Status": l.business_status,
-      "Assigned To": getProfileName(l.assigned_to),
-      "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
-      "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
-      "Lost Reason": l.lost_reason || "",
-      "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
-      "eSign Status": l.leegality_status || "Not Started",
-      "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
-      "Temperature": l.temperature || "Warm",
-    }));
+    const exportData = buildExportRows(leads);
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Leads");
     XLSX.writeFile(wb, "leads_export.xlsx");
     toast.success("Leads exported!");
-  }, [leads, getProfileName]);
+  }, [leads, buildExportRows]);
+
+  // ── NEW: Export only a specific stage's leads (e.g. only "PG" leads) ──
+  // This is READ-ONLY — it just filters the in-memory leads and writes a
+  // separate file. It never touches / overwrites any data in the database.
+  const handleExportByStage = useCallback((stage: string) => {
+    const source = stage === "all" ? leads : leads.filter(l => l.stage === stage);
+    if (source.length === 0) {
+      toast.error(`No leads found for stage "${stage === "all" ? "All" : formatStageLabel(stage)}"`);
+      return;
+    }
+    const exportData = buildExportRows(source);
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    const stageLabel = stage === "all" ? "All Leads" : formatStageLabel(stage);
+    XLSX.utils.book_append_sheet(wb, ws, stageLabel.slice(0, 31));
+    XLSX.writeFile(wb, `leads_export_${stage === "all" ? "all" : stage}.xlsx`);
+    toast.success(`${source.length} ${stageLabel} lead(s) exported!`);
+  }, [leads, buildExportRows]);
 
   const clearFilters = useCallback(() => {
     setSearch(""); setFilterStatus("all"); setFilterStage("all");
@@ -1370,9 +1355,20 @@ export default function Leads() {
           <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <Button variant="outline" size="sm" onClick={handleExport} className="flex-1 sm:flex-none">
-            <Download className="mr-2 h-4 w-4" />Export Excel
-          </Button>
+          {/* Export by stage — e.g. select "PG" to export only PG leads */}
+          <div className="flex items-center gap-1.5">
+            <Select value={exportStage} onValueChange={setExportStage}>
+              <SelectTrigger className="w-36 h-9"><SelectValue placeholder="Export Stage" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Stages</SelectItem>
+                {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={() => handleExportByStage(exportStage)}>
+              <Download className="mr-2 h-4 w-4" />
+              Export {exportStage === "all" ? "All" : formatStageLabel(exportStage)}
+            </Button>
+          </div>
           <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setDuplicateQueue([]); setImportSummary(null); if (fileRef.current) fileRef.current.value = ""; } }}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="flex-1 sm:flex-none"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
@@ -1398,8 +1394,8 @@ export default function Leads() {
                     Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
                   </p>
                   <p className="text-xs text-amber-600 mb-2 flex items-center justify-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    Duplicate leads will be tagged for review instead of being lost
+                    <ShieldCheck className="h-3 w-3" />
+                    Duplicates are matched by mobile number and are only skipped — existing data is never overwritten
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
@@ -1442,7 +1438,7 @@ export default function Leads() {
                     </span>
                     {importSummary.duplicates > 0 && (
                       <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
-                        <AlertTriangle className="h-4 w-4" /> {importSummary.duplicates} duplicates need review
+                        <AlertTriangle className="h-4 w-4" /> {importSummary.duplicates} duplicate mobile numbers skipped
                       </span>
                     )}
                   </div>
@@ -1453,9 +1449,9 @@ export default function Leads() {
                     <div className="flex items-center justify-between p-3 border-b border-amber-200 flex-wrap gap-2">
                       <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
                         <AlertTriangle className="h-4 w-4" />
-                        Duplicate Leads ({duplicateQueue.length})
+                        Skipped Duplicates ({duplicateQueue.length})
                       </p>
-                      <p className="text-xs text-amber-700">Update the existing lead with the new data, or skip it</p>
+                      <p className="text-xs text-amber-700">These mobile numbers already exist — data was NOT changed or overwritten</p>
                     </div>
                     <div className="max-h-80 overflow-y-auto divide-y divide-amber-100">
                       {duplicateQueue.map(item => (
@@ -1463,34 +1459,21 @@ export default function Leads() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-800 text-[10px] font-semibold uppercase tracking-wide">
-                                Duplicate
+                                Duplicate Mobile
                               </Badge>
                               <span className="text-sm font-semibold truncate">{item.importData.name}</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1 truncate">
-                              {item.importData.email || item.importData.phone || "No contact info"}
+                              {item.importData.phone || item.importData.email || "No contact info"}
                             </p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <ArrowRight className="h-3 w-3" /> matches existing lead:
+                              <ArrowRight className="h-3 w-3" /> already exists as:
                               <span className="font-medium text-foreground">{item.existing_lead_name}</span>
                             </p>
                           </div>
                           <div className="flex gap-2 flex-shrink-0">
-                            <Button
-                              size="sm"
-                              className="bg-amber-600 hover:bg-amber-700"
-                              disabled={resolvingKey === item.key}
-                              onClick={() => handleResolveDuplicateUpdate(item)}
-                            >
-                              {resolvingKey === item.key ? (
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                              )}
-                              Update Existing
-                            </Button>
                             <Button size="sm" variant="ghost" onClick={() => handleDiscardDuplicate(item)}>
-                              <X className="mr-1 h-3.5 w-3.5" />Skip
+                              <X className="mr-1 h-3.5 w-3.5" />Dismiss
                             </Button>
                           </div>
                         </div>
@@ -1932,9 +1915,12 @@ export default function Leads() {
               Total Leads: <span className="text-primary">{filtered.length}</span>
               {filtered.length !== leads.length && <span className="text-muted-foreground font-normal"> (filtered from {leads.length})</span>}
             </p>
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="mr-2 h-3 w-3" />Export Excel
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleExportByStage(filterStage)}>
+                <Download className="mr-2 h-3 w-3" />
+                Export {filterStage === "all" ? "Current View" : formatStageLabel(filterStage)}
+              </Button>
+            </div>
           </div>
 
           {filtered.length === 0 ? (
