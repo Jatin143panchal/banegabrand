@@ -494,7 +494,10 @@ export default function Leads() {
           
           if (payload.eventType === 'INSERT') {
             console.log("📥 New lead added:", payload.new);
-            setLeads(prev => [payload.new as DbLead, ...prev]);
+            setLeads(prev => {
+              if (prev.some(l => l.id === (payload.new as DbLead).id)) return prev;
+              return [payload.new as DbLead, ...prev];
+            });
           } else if (payload.eventType === 'UPDATE') {
             console.log("🔄 Lead updated:", payload.new);
             setLeads(prev => prev.map(lead => 
@@ -746,43 +749,53 @@ export default function Leads() {
     }
   }, [detailLead?.id, fetchAgreementStatus]);
 
-  // ── Mark Lead as Lost ──
+  // ── Mark Lead as Lost (optimistic — updates instantly, no full refetch) ──
   const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
+    const lostDate = new Date().toISOString();
+    const patch = {
+      stage: "lost",
+      status: "lost",
+      lost_reason: reason,
+      lost_date: lostDate,
+      business_status: "no-go",
+    };
+
+    // Update UI immediately — single-shot change, no waiting on a refetch
+    setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, ...patch } : l)));
+    if (detailLead && detailLead.id === leadId) {
+      setDetailLead(null);
+    }
+    setLostLeadDialog(null);
+
     try {
-      const lostDate = new Date().toISOString();
       const { error } = await supabase
         .from("leads")
-        .update({ 
-          stage: "lost", 
-          status: "lost",
-          lost_reason: reason,
-          lost_date: lostDate,
-          business_status: "no-go"
-        })
+        .update(patch)
         .eq("id", leadId);
-      
+
       if (error) throw error;
-      
-      await fetchLeads();
-      
-      if (detailLead && detailLead.id === leadId) {
-        setDetailLead(null);
-      }
-      
+
       logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
       toast.success("Lead marked as lost");
-      setLostLeadDialog(null);
     } catch (error: any) {
       toast.error(error.message || "Failed to mark lead as lost");
+      // Roll back on failure
+      await fetchLeads();
     }
-  }, [fetchLeads, detailLead, logActivity]);
+  }, [detailLead, logActivity, fetchLeads]);
 
-  // ── Assign Lead ──
+  // ── Assign Lead (optimistic) ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
       const assign_date = finalAssignedTo ? new Date().toISOString() : null;
-      
+
+      // Update UI immediately
+      setLeads(prev => prev.map(l => (l.id === id ? { ...l, assigned_to: finalAssignedTo, assign_date } : l)));
+      if (detailLead && detailLead.id === id) {
+        setDetailLead(prev => (prev ? { ...prev, assigned_to: finalAssignedTo, assign_date } : prev));
+      }
+
       const { error } = await supabase
         .from("leads")
         .update({ 
@@ -793,13 +806,6 @@ export default function Leads() {
         
       if (error) throw error;
       
-      await fetchLeads();
-      
-      if (detailLead && detailLead.id === id) {
-        const updatedLead = leads.find(l => l.id === id);
-        if (updatedLead) setDetailLead(updatedLead);
-      }
-      
       return { id, assigned_to: finalAssignedTo };
     },
     onSuccess: () => {
@@ -807,6 +813,7 @@ export default function Leads() {
     },
     onError: (e: Error) => {
       toast.error(e.message || "Failed to assign lead");
+      fetchLeads(); // roll back on failure
     },
   });
 
@@ -816,27 +823,32 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   }, [profiles]);
 
-  // ── UPDATE STAGE ──
+  // ── UPDATE STAGE (optimistic — happens in one shot, no full reload) ──
   const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
+    const updateData: any = { 
+      stage, 
+      sub_stage: subStage,
+    };
+    
+    const existingLead = leads.find(l => l.id === id);
+    
+    if (stage === "converted") {
+      updateData.status = "converted";
+      updateData.business_status = "done";
+    } else if (stage === "lost") {
+      updateData.status = "lost";
+      updateData.business_status = "no-go";
+    } else if (existingLead) {
+      updateData.status = existingLead.status || stage;
+    }
+
+    // Update UI immediately — single update, not two separate steps
+    setLeads(prev => prev.map(l => (l.id === id ? { ...l, ...updateData } : l)));
+    if (detailLead && detailLead.id === id) {
+      setDetailLead(prev => (prev ? { ...prev, ...updateData } : prev));
+    }
+
     try {
-      const updateData: any = { 
-        stage, 
-        sub_stage: subStage,
-      };
-      
-      if (stage === "converted") {
-        updateData.status = "converted";
-        updateData.business_status = "done";
-      } else if (stage === "lost") {
-        updateData.status = "lost";
-        updateData.business_status = "no-go";
-      } else {
-        const lead = leads.find(l => l.id === id);
-        if (lead) {
-          updateData.status = lead.status || stage;
-        }
-      }
-      
       const { error } = await supabase
         .from("leads")
         .update(updateData)
@@ -844,24 +856,14 @@ export default function Leads() {
       
       if (error) throw error;
       
-      await fetchLeads();
-      
-      if (detailLead && detailLead.id === id) {
-        const updatedLead = leads.find(l => l.id === id);
-        if (updatedLead) {
-          setDetailLead(updatedLead);
-        } else {
-          setDetailLead(null);
-        }
-      }
-      
       toast.success(`Stage updated to ${formatStageLabel(stage)}`);
       logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
     } catch (error: any) {
       console.error("Stage update error:", error);
       toast.error(error.message || "Failed to update stage");
+      await fetchLeads(); // roll back on failure
     }
-  }, [fetchLeads, detailLead, leads, logActivity]);
+  }, [leads, detailLead, logActivity, fetchLeads]);
 
   const openLeadDetail = useCallback((lead: DbLead) => {
     setDetailLead(lead);
@@ -965,24 +967,29 @@ export default function Leads() {
     });
   }, []);
 
-  // ── Bulk Assign ──
+  // ── Bulk Assign (optimistic) ──
   const handleBulkAssign = useCallback(async () => {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
+    const assign_date = new Date().toISOString();
+    const ids = Array.from(selectedIds);
+
+    // Update UI immediately
+    setLeads(prev => prev.map(l => (ids.includes(l.id) ? { ...l, assigned_to: bulkAssignTo, assign_date } : l)));
+
     try {
-      const assign_date = new Date().toISOString();
       const { error } = await supabase
         .from("leads")
         .update({ assigned_to: bulkAssignTo, assign_date })
-        .in("id", Array.from(selectedIds));
+        .in("id", ids);
       
       if (error) throw error;
       
       toast.success(`${selectedIds.size} leads assigned successfully`);
       setSelectedIds(new Set());
       setBulkAssignTo("");
-      await fetchLeads();
     } catch (e: unknown) { 
       toast.error(e instanceof Error ? e.message : "Assign failed"); 
+      await fetchLeads(); // roll back on failure
     }
   }, [selectedIds, bulkAssignTo, fetchLeads]);
 
@@ -1008,8 +1015,10 @@ export default function Leads() {
           address:    row.Address || row.address || "",
           cx_comment: row["CX Comment"] || row.cx_comment || row.Comment || "",
           budget:     row.Budget || row.budget || "",
-          stage:      row.Stage || row.stage || "ringing",
-          sub_stage:  row["Sub Stage"] || row.sub_stage || "",
+          // Imported leads always start life in the "New" stage — the
+          // agent then moves them forward manually (Ringing, Callback, etc).
+          stage:      "new",
+          sub_stage:  "",
           remark:     row.Remark || row.remark || row.Remarks || "",
           temperature: row.Temperature || row.temperature || row["Lead Temperature"] || "warm",
         })).filter((r: any) => r.name);
@@ -1023,7 +1032,7 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── Bulk Import ──
+  // ── Bulk Import — every imported lead is inserted with stage = "new" ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1046,8 +1055,10 @@ export default function Leads() {
             address: lead.address,
             cx_comment: lead.cx_comment,
             budget: lead.budget,
-            stage: lead.stage || "ringing",
-            sub_stage: lead.sub_stage,
+            // Always land new imports in the "New" stage, regardless of
+            // what the Excel sheet said.
+            stage: "new",
+            sub_stage: "",
             remark: lead.remark,
             temperature: lead.temperature || "warm",
           });
@@ -1071,7 +1082,7 @@ export default function Leads() {
 
     setImportSummary({ imported: success });
 
-    toast.success(`${success} leads imported successfully!`);
+    toast.success(`${success} leads imported successfully into "New" stage!`);
     setUploadOpen(false);
   }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
 
@@ -1104,15 +1115,16 @@ export default function Leads() {
       
       if (error) throw error;
       
+      // Update UI immediately instead of a full refetch
+      setLeads(prev => prev.map(l => (l.id === editLead.id ? { ...l, ...editLead } : l)));
       logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
       setEditLead(null);
       toast.success("Lead updated");
-      await fetchLeads();
     } catch (error: any) {
       console.error("Update error:", error);
       toast.error(error.message || "Failed to update lead");
     }
-  }, [editLead, logActivity, fetchLeads]);
+  }, [editLead, logActivity]);
 
   // ── DELETE LEAD ──
   const handleDelete = useCallback(async (id: string) => {
@@ -1125,14 +1137,14 @@ export default function Leads() {
       
       if (error) throw error;
       
+      setLeads(prev => prev.filter(l => l.id !== id));
       setDetailLead(null);
       toast.success("Lead deleted");
-      await fetchLeads();
       await fetchLiveTotalCount();
     } catch (error: any) {
       toast.error(error.message || "Failed to delete lead");
     }
-  }, [fetchLeads, fetchLiveTotalCount]);
+  }, [fetchLiveTotalCount]);
 
   // ── Shared row mapper used by every export ──
   const buildExportRows = useCallback((rows: DbLead[]) => rows.map(l => ({
@@ -1187,8 +1199,14 @@ export default function Leads() {
     setCurrentPage(1);
   }, []);
 
-  // ── Temperature update ──
+  // ── Temperature update (optimistic — single-shot, no full reload) ──
   const handleTemperatureUpdate = useCallback(async (leadId: string, temperature: string) => {
+    // Update UI immediately
+    setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, temperature } : l)));
+    if (detailLead && detailLead.id === leadId) {
+      setDetailLead(prev => (prev ? { ...prev, temperature } : prev));
+    }
+
     try {
       const { error } = await supabase
         .from("leads")
@@ -1197,19 +1215,13 @@ export default function Leads() {
       
       if (error) throw error;
       
-      await fetchLeads();
-      
-      if (detailLead && detailLead.id === leadId) {
-        const updatedLead = leads.find(l => l.id === leadId);
-        if (updatedLead) setDetailLead(updatedLead);
-      }
-      
       logActivity(leadId, "updated", `Temperature changed to: ${temperature}`);
       toast.success(`Temperature updated to ${temperature.toUpperCase()}`);
     } catch (error: any) {
       toast.error(error.message || "Failed to update temperature");
+      await fetchLeads(); // roll back on failure
     }
-  }, [fetchLeads, detailLead, leads, logActivity]);
+  }, [detailLead, logActivity, fetchLeads]);
 
   // ── Stats ──
   const stats = useMemo(() => {
@@ -1296,7 +1308,11 @@ export default function Leads() {
                   <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
+                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Remark, Temperature
+                  </p>
+                  <p className="text-xs text-blue-600 mb-2 flex items-center justify-center gap-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    All imported leads start in the "New" stage — move them forward manually after import
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
@@ -1335,7 +1351,7 @@ export default function Leads() {
                 {importSummary && (
                   <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
-                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported successfully
+                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported successfully into "New" stage
                     </span>
                   </div>
                 )}
@@ -2236,8 +2252,6 @@ function downloadExcelTemplate() {
       "Address": "Mumbai, India",
       "CX Comment": "Interested in products",
       "Budget": "₹5l+",
-      "Stage": "ringing",
-      "Sub Stage": "ringing_1st",
       "Remark": "Call after 2 PM",
       "Temperature": "Hot"
     }
