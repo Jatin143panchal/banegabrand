@@ -546,9 +546,8 @@ export default function Leads() {
   // ── Export by stage (e.g. "PG" leads only) ──
   const [exportStage, setExportStage] = useState("all");
 
-  // ── Import duplicate-resolution queue ──
-  const [duplicateQueue, setDuplicateQueue] = useState<any[]>([]);
-  const [importSummary, setImportSummary] = useState<{ imported: number; duplicates: number } | null>(null);
+  // ── Import summary ──
+  const [importSummary, setImportSummary] = useState<{ imported: number } | null>(null);
 
   // ── Live total-count ──
   const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
@@ -590,48 +589,6 @@ export default function Leads() {
     temperature: "warm",
   };
   const [form, setForm] = useState(emptyForm);
-
-  // ── DIRECT DUPLICATE CHECK (Phone / Mobile number ONLY) ──
-  // This never modifies existing data — it only checks whether a phone number
-  // already exists in the leads table so we can flag it and SKIP it instead
-  // of overwriting the existing lead's information.
-  const checkForDuplicate = useCallback(async (leadData: any, excludeId?: string) => {
-    try {
-      const normalizedPhone = (leadData.phone || "").toString().trim();
-      if (!normalizedPhone) {
-        return { is_duplicate: false };
-      }
-
-      let query = supabase
-        .from("leads")
-        .select("id, name, email, phone")
-        .eq("phone", normalizedPhone);
-
-      if (excludeId) {
-        query = query.neq("id", excludeId);
-      }
-
-      const { data, error } = await query.limit(1);
-
-      if (error) {
-        console.error("Duplicate check error:", error);
-        return { is_duplicate: false };
-      }
-
-      if (data && data.length > 0) {
-        return {
-          is_duplicate: true,
-          existing_lead_name: data[0].name,
-          existing_lead_id: data[0].id
-        };
-      }
-
-      return { is_duplicate: false };
-    } catch (error) {
-      console.error("Error checking duplicate:", error);
-      return { is_duplicate: false };
-    }
-  }, []);
 
   const handleSendAgreement = useCallback(async (lead: DbLead) => {
     if (!lead.email) {
@@ -919,12 +876,6 @@ export default function Leads() {
     }
     
     try {
-      const duplicate = await checkForDuplicate(form);
-      if (duplicate && duplicate.is_duplicate) {
-        toast.error(`Duplicate mobile number: ${duplicate.existing_lead_name} already has this number. Lead was NOT added/replaced.`);
-        return;
-      }
-      
       const { error } = await supabase
         .from("leads")
         .insert({
@@ -955,7 +906,7 @@ export default function Leads() {
       console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
     }
-  }, [form, fetchLeads, checkForDuplicate, emptyForm]);
+  }, [form, fetchLeads, emptyForm]);
 
   // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
@@ -1038,7 +989,6 @@ export default function Leads() {
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setDuplicateQueue([]);
     setImportSummary(null);
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -1074,30 +1024,14 @@ export default function Leads() {
   }, []);
 
   // ── Bulk Import ──
-  // IMPORTANT: duplicates (matched by phone/mobile number) are NEVER
-  // overwritten/updated automatically. They are simply skipped and shown
-  // in a review list so existing data always stays untouched.
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
     let success = 0;
-    const newDuplicateQueue: any[] = [];
 
     for (let i = 0; i < uploadPreview.length; i++) {
       const lead = uploadPreview[i];
       try {
-        const duplicate = await checkForDuplicate(lead);
-
-        if (duplicate && duplicate.is_duplicate) {
-          newDuplicateQueue.push({
-            key: `${lead.phone || lead.email || lead.name}-${i}`,
-            importData: lead,
-            existing_lead_id: duplicate.existing_lead_id,
-            existing_lead_name: duplicate.existing_lead_name,
-          });
-          continue;
-        }
-
         const { error } = await supabase
           .from("leads")
           .insert({
@@ -1135,44 +1069,17 @@ export default function Leads() {
     await fetchLeads();
     await fetchLiveTotalCount();
 
-    setImportSummary({ imported: success, duplicates: newDuplicateQueue.length });
-    setDuplicateQueue(newDuplicateQueue);
+    setImportSummary({ imported: success });
 
-    if (newDuplicateQueue.length > 0) {
-      if (success > 0) {
-        toast.warning(
-          `${success} leads imported. ${newDuplicateQueue.length} leads had a mobile number that already exists — they were NOT imported and existing data was NOT changed.`,
-          { duration: 6000 }
-        );
-      } else {
-        toast.error(`All ${newDuplicateQueue.length} leads had mobile numbers that already exist. Nothing was imported or overwritten.`);
-      }
-    } else {
-      toast.success(`${success} leads imported successfully!`);
-      setUploadOpen(false);
-    }
-  }, [uploadPreview, checkForDuplicate, fetchLeads, fetchLiveTotalCount]);
-
-  // ── Acknowledge / dismiss a duplicate from the review list ──
-  // Note: there is intentionally NO "update existing lead" action here.
-  // Duplicates are matched by mobile number and existing lead data is
-  // never replaced/overwritten from an import.
-  const handleDiscardDuplicate = useCallback((item: any) => {
-    setDuplicateQueue(prev => prev.filter(q => q.key !== item.key));
-    toast.info(`Skipped duplicate (mobile number already exists) for ${item.existing_lead_name}`);
-  }, []);
+    toast.success(`${success} leads imported successfully!`);
+    setUploadOpen(false);
+  }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
 
   // ── UPDATE LEAD ──
   const handleUpdate = useCallback(async () => {
     if (!editLead) return;
     
     try {
-      const duplicate = await checkForDuplicate(editLead, editLead.id);
-      if (duplicate && duplicate.is_duplicate) {
-        toast.error(`This mobile number already belongs to ${duplicate.existing_lead_name}. Save cancelled to avoid duplicate/overwrite.`);
-        return;
-      }
-      
       const { error } = await supabase
         .from("leads")
         .update({
@@ -1205,7 +1112,7 @@ export default function Leads() {
       console.error("Update error:", error);
       toast.error(error.message || "Failed to update lead");
     }
-  }, [editLead, logActivity, fetchLeads, checkForDuplicate]);
+  }, [editLead, logActivity, fetchLeads]);
 
   // ── DELETE LEAD ──
   const handleDelete = useCallback(async (id: string) => {
@@ -1227,7 +1134,7 @@ export default function Leads() {
     }
   }, [fetchLeads, fetchLiveTotalCount]);
 
-  // ── Shared row mapper used by every export (never mutates `leads`) ──
+  // ── Shared row mapper used by every export ──
   const buildExportRows = useCallback((rows: DbLead[]) => rows.map(l => ({
     Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
     "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
@@ -1244,7 +1151,7 @@ export default function Leads() {
     "Temperature": l.temperature || "Warm",
   })), [getProfileName]);
 
-  // ── Export ALL leads (unchanged behaviour) ──
+  // ── Export ALL leads ──
   const handleExport = useCallback(() => {
     const exportData = buildExportRows(leads);
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -1254,9 +1161,7 @@ export default function Leads() {
     toast.success("Leads exported!");
   }, [leads, buildExportRows]);
 
-  // ── NEW: Export only a specific stage's leads (e.g. only "PG" leads) ──
-  // This is READ-ONLY — it just filters the in-memory leads and writes a
-  // separate file. It never touches / overwrites any data in the database.
+  // ── Export by stage ──
   const handleExportByStage = useCallback((stage: string) => {
     const source = stage === "all" ? leads : leads.filter(l => l.stage === stage);
     if (source.length === 0) {
@@ -1355,7 +1260,7 @@ export default function Leads() {
           <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {/* Export by stage — e.g. select "PG" to export only PG leads */}
+          {/* Export by stage */}
           <div className="flex items-center gap-1.5">
             <Select value={exportStage} onValueChange={setExportStage}>
               <SelectTrigger className="w-36 h-9"><SelectValue placeholder="Export Stage" /></SelectTrigger>
@@ -1369,7 +1274,7 @@ export default function Leads() {
               Export {exportStage === "all" ? "All" : formatStageLabel(exportStage)}
             </Button>
           </div>
-          <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setDuplicateQueue([]); setImportSummary(null); if (fileRef.current) fileRef.current.value = ""; } }}>
+          <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setImportSummary(null); if (fileRef.current) fileRef.current.value = ""; } }}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="flex-1 sm:flex-none"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
             </DialogTrigger>
@@ -1392,10 +1297,6 @@ export default function Leads() {
                   <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
                   <p className="text-xs text-muted-foreground mb-3">
                     Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Stage, Sub Stage, Remark, Temperature
-                  </p>
-                  <p className="text-xs text-amber-600 mb-2 flex items-center justify-center gap-1">
-                    <ShieldCheck className="h-3 w-3" />
-                    Duplicates are matched by mobile number and are only skipped — existing data is never overwritten
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
@@ -1434,51 +1335,8 @@ export default function Leads() {
                 {importSummary && (
                   <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
-                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported
+                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported successfully
                     </span>
-                    {importSummary.duplicates > 0 && (
-                      <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
-                        <AlertTriangle className="h-4 w-4" /> {importSummary.duplicates} duplicate mobile numbers skipped
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {duplicateQueue.length > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/60">
-                    <div className="flex items-center justify-between p-3 border-b border-amber-200 flex-wrap gap-2">
-                      <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4" />
-                        Skipped Duplicates ({duplicateQueue.length})
-                      </p>
-                      <p className="text-xs text-amber-700">These mobile numbers already exist — data was NOT changed or overwritten</p>
-                    </div>
-                    <div className="max-h-80 overflow-y-auto divide-y divide-amber-100">
-                      {duplicateQueue.map(item => (
-                        <div key={item.key} className="p-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-800 text-[10px] font-semibold uppercase tracking-wide">
-                                Duplicate Mobile
-                              </Badge>
-                              <span className="text-sm font-semibold truncate">{item.importData.name}</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1 truncate">
-                              {item.importData.phone || item.importData.email || "No contact info"}
-                            </p>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <ArrowRight className="h-3 w-3" /> already exists as:
-                              <span className="font-medium text-foreground">{item.existing_lead_name}</span>
-                            </p>
-                          </div>
-                          <div className="flex gap-2 flex-shrink-0">
-                            <Button size="sm" variant="ghost" onClick={() => handleDiscardDuplicate(item)}>
-                              <X className="mr-1 h-3.5 w-3.5" />Dismiss
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 )}
               </div>
@@ -1488,7 +1346,7 @@ export default function Leads() {
                     {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
                   </Button>
                 )}
-                {uploadPreview.length === 0 && (importSummary || duplicateQueue.length > 0) && (
+                {uploadPreview.length === 0 && importSummary && (
                   <Button variant="outline" onClick={() => { setUploadOpen(false); }}>Done</Button>
                 )}
               </DialogFooter>
