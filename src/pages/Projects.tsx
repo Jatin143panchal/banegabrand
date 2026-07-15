@@ -14,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import * as XLSX from 'xlsx';
 import {
   Plus, Search, Loader2, Trash2, Edit, Eye, Download, X,
   Users, Phone, Mail, Calendar, TrendingUp, Flag, XCircle,
@@ -27,7 +28,8 @@ import {
   CircleDot, EyeOff, Filter, Users2, Briefcase, PieChart,
   Layers, Link2, ExternalLink, Archive, BookOpen, CheckSquare,
   ListChecks, CalendarDays, Timer, Hourglass, AlarmClock,
-  UserPlus, UserMinus, Settings, SlidersHorizontal
+  UserPlus, UserMinus, Settings, SlidersHorizontal, FileSpreadsheet,
+  Import, Table as TableIcon, FileDown, FileUp
 } from "lucide-react";
 import { format, isBefore, isToday, isThisWeek, startOfDay } from "date-fns";
 
@@ -58,7 +60,6 @@ const PROJECT_TYPES = [
   { value: "supplements", label: "Supplements", icon: "💊" },
 ];
 
-// NEW: project-level priority (high / medium / low)
 const PROJECT_PRIORITIES = [
   { value: "high", label: "High", color: "#ef4444", icon: "🔴" },
   { value: "medium", label: "Medium", color: "#f59e0b", icon: "🟡" },
@@ -125,7 +126,7 @@ interface Project {
   current_stage: string;
   completion_percentage: number;
   status: string;
-  priority: string; // NEW: 'high' | 'medium' | 'low'
+  priority: string;
   client_address: string | null;
   client_phone: string | null;
   created_at: string;
@@ -236,7 +237,7 @@ interface Communication {
 interface ProjectNote {
   id: string;
   project_id: string;
-  note_type: string; // 'general' | 'documentation'
+  note_type: string;
   title: string | null;
   content: string;
   created_by: string | null;
@@ -253,7 +254,6 @@ interface ITTeamMember {
   active: boolean;
 }
 
-// NEW: My Tasks (cross-project) row shape
 interface MyTaskRow extends ProjectTask {
   projects: {
     name: string;
@@ -262,7 +262,6 @@ interface MyTaskRow extends ProjectTask {
   } | null;
 }
 
-// NEW: Internal chat message
 interface InternalMessage {
   id: string;
   sender_email: string;
@@ -322,12 +321,10 @@ function getPriorityColor(priority: string) {
   return colors[priority] || colors.medium;
 }
 
-// NEW: project priority meta lookup
 function getProjectPriorityMeta(priority: string) {
   return PROJECT_PRIORITIES.find(p => p.value === priority) || PROJECT_PRIORITIES[1];
 }
 
-// NEW: bucket a due date into overdue / today / this_week / later
 function getDueBucket(dueDate: string | null) {
   if (!dueDate) return "no_date";
   const d = startOfDay(new Date(dueDate));
@@ -411,7 +408,7 @@ function StageBadge({ stage }: { stage: string }) {
   );
 }
 
-// ── Project Priority Badge ── NEW ──────────────────────────────
+// ── Project Priority Badge ──────────────────────────────────
 function ProjectPriorityBadge({ priority }: { priority: string }) {
   const meta = getProjectPriorityMeta(priority);
   return (
@@ -536,7 +533,6 @@ function TaskCard({ task, itTeam, onStatusChange, onAssign, onDelete }: {
             )}
           </div>
 
-          {/* 👇 Employee's progress/comment — visible to admin */}
           {task.employee_remarks && (
             <div className="mt-2 ml-9 bg-blue-50 border border-blue-100 rounded-md p-2 max-w-md">
               <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
@@ -740,20 +736,27 @@ export default function Projects() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
-  // ── NEW: Top-level page switcher (Projects / My Tasks / Team Chat) ──
+  // ── Top-level page switcher ──
   const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat">("projects");
   
   // ── States ──────────────────────────────────────────────────
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all"); // NEW
-  const [sortBy, setSortBy] = useState<"date_asc" | "date_desc" | "priority">("date_asc"); // NEW
+  const [filterPriority, setFilterPriority] = useState("all");
+  const [sortBy, setSortBy] = useState<"date_asc" | "date_desc" | "priority">("date_asc");
   const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState("all"); // 'all' | 'mine' | email
+  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState("all");
+  
+  // Import/Export states
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<any[]>([]);
   
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -782,24 +785,17 @@ export default function Projects() {
   const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // ── IT Team (fetched from Supabase) ──
+  // ── IT Team ──
   const { data: itTeam = [], error, isLoading: itLoading } = useQuery({
     queryKey: ["it_team_members"],
     queryFn: async () => {
-      console.log("🔄 Fetching IT Team members...");
-      
       const { data, error } = await supabase
         .from("it_team_members")
         .select("*")
         .eq("active", true)
         .order("name");
       
-      if (error) {
-        console.error("❌ Supabase error:", error);
-        throw error;
-      }
-      
-      console.log(`✅ Fetched ${data?.length || 0} IT Team members:`, data);
+      if (error) throw error;
       return data as ITTeamMember[];
     },
     staleTime: 0,
@@ -808,20 +804,10 @@ export default function Projects() {
     retry: 2,
   });
 
-  // Debug log (component render mein)
-  console.log("📊 IT Team render state:", {
-    count: itTeam.length,
-    members: itTeam.map(m => m.name),
-    loading: itLoading,
-    error: error?.message,
-  });
-
-  // ════════════════════════════════════════════════════════════
-  // NEW: MY TASKS (cross-project, filtered to logged-in employee)
-  // ════════════════════════════════════════════════════════════
+  // ── MY TASKS ──
   const [myTaskPriorityFilter, setMyTaskPriorityFilter] = useState("all");
   const [myTaskStatusFilter, setMyTaskStatusFilter] = useState("all");
-  const [myTaskDueFilter, setMyTaskDueFilter] = useState("all"); // all | overdue | today | this_week | later
+  const [myTaskDueFilter, setMyTaskDueFilter] = useState("all");
   const [myTaskClientFilter, setMyTaskClientFilter] = useState("all");
   const [myTaskRemarksDraft, setMyTaskRemarksDraft] = useState<Record<string, string>>({});
 
@@ -894,16 +880,14 @@ export default function Projects() {
         .update({ employee_remarks: remarks })
         .eq("id", taskId);
       if (error) throw error;
-      toast.success("Update saved — admin ko dikh jayega");
+      toast.success("Update saved");
       queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  // ════════════════════════════════════════════════════════════
-  // NEW: INTERNAL TEAM CHAT
-  // ════════════════════════════════════════════════════════════
+  // ── INTERNAL CHAT ──
   const myEmail = user?.email || "";
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const [activeChatMember, setActiveChatMember] = useState<ITTeamMember | null>(null);
@@ -991,7 +975,6 @@ export default function Projects() {
     return () => {
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myEmail, activeChatMember, mainView]);
 
   useEffect(() => {
@@ -1015,13 +998,12 @@ export default function Projects() {
     }
   };
 
-  // ── New Stage State ──
+  // ── Form States ──
   const [newStage, setNewStage] = useState({
     stage_name: "",
     status: "pending"
   });
 
-  // ── New Task State ──
   const [newTask, setNewTask] = useState({
     task_name: "",
     description: "",
@@ -1032,7 +1014,6 @@ export default function Projects() {
     assigned_to_email: "",
   });
 
-  // ── New Manufacturing State ──
   const [newManufacturing, setNewManufacturing] = useState({
     stage: "",
     status: "pending",
@@ -1041,7 +1022,6 @@ export default function Projects() {
     start_date: "",
   });
 
-  // ── New Branding State ──
   const [newBranding, setNewBranding] = useState({
     category: "",
     item_name: "",
@@ -1049,14 +1029,12 @@ export default function Projects() {
     notes: "",
   });
 
-  // ── New Document State ──
   const [newDocument, setNewDocument] = useState({
     folder: "",
     file_name: "",
     file: null as File | null,
   });
 
-  // ── New Communication State ──
   const [newCommunication, setNewCommunication] = useState({
     type: "comment",
     subject: "",
@@ -1064,14 +1042,13 @@ export default function Projects() {
     next_followup: "",
   });
 
-  // ── New / Editing Note State ──
   const [newNote, setNewNote] = useState({
     title: "",
     content: "",
   });
   const [editingNote, setEditingNote] = useState<ProjectNote | null>(null);
 
-  // ── Fetch Projects ─────────────────────────────────────────
+  // ── Fetch Projects ──
   const { data: projects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
@@ -1085,7 +1062,7 @@ export default function Projects() {
     },
   });
 
-  // ── Stats ──────────────────────────────────────────────────
+  // ── Stats ──
   const stats = {
     total: projects.length,
     active: projects.filter((p: Project) => p.status === "active").length,
@@ -1094,7 +1071,7 @@ export default function Projects() {
     totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
   };
 
-  // ── Filter + Sort Projects ─────────────────────────────────
+  // ── Filter + Sort Projects ──
   const PROJECT_PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
   const filteredProjects = projects
@@ -1119,22 +1096,21 @@ export default function Projects() {
       return sortBy === "date_asc" ? da - db : db - da;
     });
 
-  // ── Filtered tasks (by assignee) ──────────────────────────
+  // ── Filtered tasks ──
   const filteredTasks = projectTasks.filter(task => {
     if (taskAssigneeFilter === "all") return true;
     if (taskAssigneeFilter === "mine") return task.assigned_to_email === user?.email;
     return task.assigned_to_email === taskAssigneeFilter;
   });
 
-  // ── Documentation note (single pinned note) ──
+  // ── Documentation note ──
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
   const generalNotes = notes.filter(n => n.note_type === "general");
 
-  // ── Fetch Project Details ──────────────────────────────────
+  // ── Fetch Project Details ──
   const fetchProjectDetails = async (projectId: string) => {
     setLoadingDetail(true);
     try {
-      // Fetch stages
       const { data: stagesData } = await supabase
         .from("project_stages")
         .select("*")
@@ -1142,7 +1118,6 @@ export default function Projects() {
         .order("stage_order");
       if (stagesData) setProjectStages(stagesData);
 
-      // Fetch tasks
       const { data: tasksData } = await supabase
         .from("project_tasks")
         .select("*")
@@ -1150,14 +1125,12 @@ export default function Projects() {
         .order("due_date");
       if (tasksData) setProjectTasks(tasksData);
 
-      // Fetch agreements
       const { data: agreementsData } = await supabase
         .from("agreements")
         .select("*")
         .eq("project_id", projectId);
       if (agreementsData) setAgreements(agreementsData);
 
-      // Fetch payments
       const { data: paymentsData } = await supabase
         .from("payments")
         .select("*")
@@ -1165,7 +1138,6 @@ export default function Projects() {
         .order("due_date");
       if (paymentsData) setPayments(paymentsData);
 
-      // Fetch manufacturing
       const { data: manufacturingData } = await supabase
         .from("manufacturing_tracker")
         .select("*")
@@ -1173,14 +1145,12 @@ export default function Projects() {
         .order("stage");
       if (manufacturingData) setManufacturing(manufacturingData);
 
-      // Fetch branding
       const { data: brandingData } = await supabase
         .from("branding_tracker")
         .select("*")
         .eq("project_id", projectId);
       if (brandingData) setBrandingItems(brandingData);
 
-      // Fetch documents
       const { data: documentsData } = await supabase
         .from("project_documents")
         .select("*")
@@ -1188,7 +1158,6 @@ export default function Projects() {
         .order("created_at", { ascending: false });
       if (documentsData) setDocuments(documentsData);
 
-      // Fetch communications
       const { data: communicationsData } = await supabase
         .from("client_communications")
         .select("*")
@@ -1196,7 +1165,6 @@ export default function Projects() {
         .order("communication_date", { ascending: false });
       if (communicationsData) setCommunications(communicationsData);
 
-      // Fetch notes (general + documentation)
       const { data: notesData } = await supabase
         .from("project_notes")
         .select("*")
@@ -1218,7 +1186,7 @@ export default function Projects() {
     }
   };
 
-  // ── Handle Project Click ──────────────────────────────────
+  // ── Handle Project Click ──
   const handleProjectClick = (project: Project) => {
     setSelectedProject(project);
     setViewMode("detail");
@@ -1242,13 +1210,13 @@ export default function Projects() {
     setDocNoteContent("");
   };
 
-  // ── Create Project ──────────────────────────────────────────
+  // ── Create Project ──
   const [newProject, setNewProject] = useState({
     name: "",
     brand_name: "",
     project_type: "perfume",
     project_value: "",
-    priority: "medium", // NEW
+    priority: "medium",
     start_date: "",
     expected_launch_date: "",
     client_address: "",
@@ -1272,7 +1240,7 @@ export default function Projects() {
           brand_name: newProject.brand_name || null,
           project_type: newProject.project_type || null,
           project_value: Number(newProject.project_value) || 0,
-          priority: newProject.priority || "medium", // NEW
+          priority: newProject.priority || "medium",
           start_date: newProject.start_date || null,
           expected_launch_date: newProject.expected_launch_date || null,
           client_address: newProject.client_address || null,
@@ -1286,7 +1254,6 @@ export default function Projects() {
 
       if (error) throw error;
 
-      // Create 6 stages
       const stages = PROJECT_STAGES.map((stage, index) => ({
         project_id: data.id,
         stage_name: stage.label,
@@ -1296,7 +1263,6 @@ export default function Projects() {
 
       await supabase.from("project_stages").insert(stages);
 
-      // Create a starter documentation note for the project
       await supabase.from("project_notes").insert({
         project_id: data.id,
         note_type: "documentation",
@@ -1325,7 +1291,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Project ──────────────────────────────────────────
+  // ── Update Project ──
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   const updateProject = async () => {
@@ -1339,7 +1305,7 @@ export default function Projects() {
           brand_name: editingProject.brand_name,
           project_type: editingProject.project_type,
           project_value: editingProject.project_value,
-          priority: editingProject.priority, // NEW
+          priority: editingProject.priority,
           start_date: editingProject.start_date,
           expected_launch_date: editingProject.expected_launch_date,
           status: editingProject.status,
@@ -1363,7 +1329,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Stage ──────────────────────────────────────────────
+  // ── Add Stage ──
   const addStage = async () => {
     if (!newStage.stage_name || !selectedProject) {
       toast.error("Stage name is required");
@@ -1395,7 +1361,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Stage Status ────────────────────────────────────
+  // ── Update Stage Status ──
   const updateStageStatus = async (stageId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -1414,7 +1380,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Task Status (also recalculates project completion %) ──
+  // ── Update Task Status ──
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -1427,7 +1393,6 @@ export default function Projects() {
       toast.success("Task updated successfully");
 
       if (selectedProject) {
-        // Get the freshest task list for this project so the % is accurate
         const { data: tasksData, error: tasksError } = await supabase
           .from("project_tasks")
           .select("*")
@@ -1437,7 +1402,6 @@ export default function Projects() {
           const completedCount = tasksData.filter((t: any) => t.status === "completed").length;
           const newPercentage = Math.round((completedCount / tasksData.length) * 100);
 
-          // Push the recalculated % onto the project itself
           const { error: projectUpdateError } = await supabase
             .from("projects")
             .update({ completion_percentage: newPercentage })
@@ -1449,14 +1413,14 @@ export default function Projects() {
         }
 
         fetchProjectDetails(selectedProject.id);
-        refetch(); // keep dashboard list + stats in sync too
+        refetch();
       }
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  // ── Assign / Reassign Task ──────────────────────────────────
+  // ── Assign Task ──
   const assignTask = async (taskId: string, email: string, name: string) => {
     try {
       const { error } = await supabase
@@ -1475,7 +1439,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Task ─────────────────────────────────────────────────
+  // ── Add Task ──
   const addTask = async () => {
     if (!newTask.task_name || !selectedProject) {
       toast.error("Task name is required");
@@ -1484,10 +1448,7 @@ export default function Projects() {
 
     try {
       const assignee = itTeam.find(m => m.email === newTask.assigned_to_email);
-
-      // "none" is a placeholder value used by the Stage select — never send it to the DB
-      const stageIdToSave =
-        newTask.stage_id && newTask.stage_id !== "none" ? newTask.stage_id : null;
+      const stageIdToSave = newTask.stage_id && newTask.stage_id !== "none" ? newTask.stage_id : null;
 
       const { error } = await supabase
         .from("project_tasks")
@@ -1526,7 +1487,7 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Task ─────────────────────────────────────────────
+  // ── Delete Task ──
   const deleteTask = async (taskId: string) => {
     if (!confirm("Delete this task?")) return;
 
@@ -1547,7 +1508,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Payment Status ──────────────────────────────────
+  // ── Update Payment Status ──
   const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
     try {
       const updates: any = { status };
@@ -1574,7 +1535,7 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Payment ──────────────────────────────────────────
+  // ── Delete Payment ──
   const deletePayment = async (paymentId: string) => {
     if (!confirm("Delete this payment record?")) return;
 
@@ -1595,7 +1556,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Agreement ────────────────────────────────────────────
+  // ── Add Agreement ──
   const [newAgreement, setNewAgreement] = useState({
     title: "",
     agreement_type: "banega_brand",
@@ -1631,7 +1592,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Payment ──────────────────────────────────────────────
+  // ── Add Payment ──
   const [newPayment, setNewPayment] = useState({
     payment_type: "client",
     milestone: "",
@@ -1671,7 +1632,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update Manufacturing ──────────────────────────────────
+  // ── Add Manufacturing ──
   const addManufacturing = async () => {
     if (!newManufacturing.stage || !selectedProject) {
       toast.error("Stage is required");
@@ -1679,7 +1640,6 @@ export default function Projects() {
     }
 
     try {
-      // Check if stage already exists
       const { data: existing } = await supabase
         .from("manufacturing_tracker")
         .select("id")
@@ -1687,11 +1647,8 @@ export default function Projects() {
         .eq("stage", newManufacturing.stage)
         .single();
 
-      let result;
-      
       if (existing) {
-        // Update existing
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from("manufacturing_tracker")
           .update({
             status: newManufacturing.status,
@@ -1700,16 +1657,12 @@ export default function Projects() {
             start_date: newManufacturing.start_date || new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
-          .eq("id", existing.id)
-          .select()
-          .single();
+          .eq("id", existing.id);
 
         if (error) throw error;
-        result = data;
         toast.success("Manufacturing stage updated successfully!");
       } else {
-        // Insert new
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from("manufacturing_tracker")
           .insert({
             project_id: selectedProject.id,
@@ -1718,12 +1671,9 @@ export default function Projects() {
             remarks: newManufacturing.remarks || null,
             responsible_person: newManufacturing.responsible_person || null,
             start_date: newManufacturing.start_date || new Date().toISOString(),
-          })
-          .select()
-          .single();
+          });
 
         if (error) throw error;
-        result = data;
         toast.success("Manufacturing stage added successfully!");
       }
 
@@ -1745,7 +1695,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Branding Item ──────────────────────────────────────
+  // ── Add Branding ──
   const addBranding = async () => {
     if (!newBranding.category || !newBranding.item_name || !selectedProject) {
       toast.error("Category and item name are required");
@@ -1753,7 +1703,6 @@ export default function Projects() {
     }
 
     try {
-      // Check if item already exists
       const { data: existing } = await supabase
         .from("branding_tracker")
         .select("id")
@@ -1767,7 +1716,7 @@ export default function Projects() {
         return;
       }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("branding_tracker")
         .insert({
           project_id: selectedProject.id,
@@ -1775,9 +1724,7 @@ export default function Projects() {
           item_name: newBranding.item_name,
           status: newBranding.status,
           notes: newBranding.notes || null,
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
@@ -1799,7 +1746,7 @@ export default function Projects() {
     }
   };
 
-  // ── Upload Document ────────────────────────────────────────
+  // ── Upload Document ──
   const uploadDocument = async () => {
     if (!newDocument.folder || !newDocument.file || !selectedProject) {
       toast.error("Folder and file are required");
@@ -1812,20 +1759,17 @@ export default function Projects() {
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `projects/${selectedProject.id}/documents/${newDocument.folder}/${fileName}`;
 
-      // Upload to storage
       const { error: uploadError } = await supabase.storage
         .from('project_files')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from('project_files')
         .getPublicUrl(filePath);
 
-      // Save to database
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("project_documents")
         .insert({
           project_id: selectedProject.id,
@@ -1836,9 +1780,7 @@ export default function Projects() {
           file_type: file.type,
           uploaded_by: user?.id,
           version: 1,
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
@@ -1862,7 +1804,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add Communication ──────────────────────────────────────
+  // ── Add Communication ──
   const addCommunication = async () => {
     if (!newCommunication.message || !selectedProject) {
       toast.error("Message is required");
@@ -1870,7 +1812,7 @@ export default function Projects() {
     }
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("client_communications")
         .insert({
           project_id: selectedProject.id,
@@ -1880,9 +1822,7 @@ export default function Projects() {
           next_followup_date: newCommunication.next_followup || null,
           user_id: user?.id,
           communication_date: new Date().toISOString(),
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
@@ -1904,7 +1844,7 @@ export default function Projects() {
     }
   };
 
-  // ── Add General Note ────────────────────────────────────────
+  // ── Add Note ──
   const addNote = async () => {
     if (!newNote.content || !selectedProject) {
       toast.error("Note content is required");
@@ -1937,7 +1877,7 @@ export default function Projects() {
     }
   };
 
-  // ── Update General Note ───────────────────────────────────
+  // ── Update Note ──
   const updateNote = async () => {
     if (!editingNote) return;
 
@@ -1964,7 +1904,7 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Note ─────────────────────────────────────────────
+  // ── Delete Note ──
   const deleteNote = async (noteId: string) => {
     if (!confirm("Delete this note?")) return;
 
@@ -1985,7 +1925,7 @@ export default function Projects() {
     }
   };
 
-  // ── Save Project Documentation Note ───────────────────────
+  // ── Save Documentation Note ──
   const saveDocumentationNote = async () => {
     if (!selectedProject) return;
 
@@ -2018,7 +1958,7 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Project ──────────────────────────────────────────
+  // ── Delete Project ──
   const deleteProject = async (id: string) => {
     if (!confirm("Delete this project? All data will be lost.")) return;
 
@@ -2040,7 +1980,7 @@ export default function Projects() {
     }
   };
 
-  // ── Calculate Payment Summary ──────────────────────────────
+  // ── Calculate Payment Summary ──
   const getPaymentSummary = () => {
     const clientPayments = payments.filter(p => p.payment_type === 'client');
     const manufacturerPayments = payments.filter(p => p.payment_type === 'manufacturer');
@@ -2065,18 +2005,211 @@ export default function Projects() {
   };
 
   // ════════════════════════════════════════════════════════════
-  // RENDER
+  // EXCEL IMPORT / EXPORT FUNCTIONS
   // ════════════════════════════════════════════════════════════
-  
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
 
-  // ── NEW: Top-level nav shown above every view ──
+  // ── Export Projects to Excel ──
+  const exportToExcel = () => {
+    try {
+      const exportData = projects.map((project: Project) => ({
+        'Project ID': project.project_id,
+        'Client Name': project.name,
+        'Brand Name': project.brand_name || '',
+        'Project Type': project.project_type || '',
+        'Priority': project.priority || 'medium',
+        'Project Value (₹)': project.project_value || 0,
+        'Status': project.status,
+        'Current Stage': project.current_stage,
+        'Completion %': project.completion_percentage || 0,
+        'Start Date': project.start_date ? format(new Date(project.start_date), 'dd-MM-yyyy') : '',
+        'Expected Launch': project.expected_launch_date ? format(new Date(project.expected_launch_date), 'dd-MM-yyyy') : '',
+        'Client Phone': project.client_phone || '',
+        'Client Address': project.client_address || '',
+        'Created At': project.created_at ? format(new Date(project.created_at), 'dd-MM-yyyy') : '',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Projects');
+      
+      // Auto-column widths
+      const colWidths = Object.keys(exportData[0] || {}).map(() => ({ wch: 20 }));
+      ws['!cols'] = colWidths;
+
+      XLSX.writeFile(wb, `Projects_Export_${format(new Date(), 'dd-MM-yyyy')}.xlsx`);
+      toast.success('Projects exported successfully!');
+    } catch (error: any) {
+      toast.error('Failed to export: ' + error.message);
+    }
+  };
+
+  // ── Handle Excel File Selection ──
+  const handleExcelFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel'
+    ];
+    
+    if (!validTypes.includes(file.type) && !file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      toast.error('Please select a valid Excel file (.xlsx or .xls)');
+      return;
+    }
+
+    setImportFile(file);
+    previewExcelFile(file);
+  };
+
+  // ── Preview Excel File ──
+  const previewExcelFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+        setImportPreview(jsonData.slice(0, 10)); // Show first 10 rows as preview
+        toast.success(`Found ${jsonData.length} rows in the file`);
+      } catch (error: any) {
+        toast.error('Failed to read file: ' + error.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // ── Import Projects from Excel ──
+  const importFromExcel = async () => {
+    if (!importFile) {
+      toast.error('Please select a file first');
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const reader = new FileReader();
+      const fileData = await new Promise((resolve, reject) => {
+        reader.onload = (e) => resolve(e.target?.result);
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(importFile);
+      });
+
+      const workbook = XLSX.read(fileData as ArrayBuffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+      if (!jsonData || jsonData.length === 0) {
+        toast.error('No data found in the file');
+        setImporting(false);
+        return;
+      }
+
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      for (const row of jsonData) {
+        const clientName = (row as any)['Client Name'] || (row as any)['client_name'] || (row as any)['name'];
+        
+        if (!clientName) {
+          skippedCount++;
+          continue;
+        }
+
+        const projectId = `PRJ-${Date.now().toString().slice(-6)}${importedCount}`;
+        
+        const projectData = {
+          project_id: projectId,
+          name: clientName,
+          brand_name: (row as any)['Brand Name'] || (row as any)['brand_name'] || null,
+          project_type: (row as any)['Project Type'] || (row as any)['project_type'] || 'perfume',
+          priority: (row as any)['Priority'] || (row as any)['priority'] || 'medium',
+          project_value: Number((row as any)['Project Value'] || (row as any)['project_value'] || 0) || 0,
+          status: (row as any)['Status'] || (row as any)['status'] || 'active',
+          current_stage: (row as any)['Current Stage'] || (row as any)['current_stage'] || 'discovery',
+          completion_percentage: Number((row as any)['Completion %'] || (row as any)['completion'] || 0) || 0,
+          start_date: (row as any)['Start Date'] || (row as any)['start_date'] || null,
+          expected_launch_date: (row as any)['Expected Launch'] || (row as any)['expected_launch'] || null,
+          client_phone: (row as any)['Client Phone'] || (row as any)['client_phone'] || null,
+          client_address: (row as any)['Client Address'] || (row as any)['client_address'] || null,
+        };
+
+        // Parse dates if they are strings
+        if (projectData.start_date && typeof projectData.start_date === 'string') {
+          try {
+            const parts = projectData.start_date.split('-');
+            if (parts.length === 3) {
+              projectData.start_date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+          } catch (e) {}
+        }
+
+        if (projectData.expected_launch_date && typeof projectData.expected_launch_date === 'string') {
+          try {
+            const parts = projectData.expected_launch_date.split('-');
+            if (parts.length === 3) {
+              projectData.expected_launch_date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+          } catch (e) {}
+        }
+
+        try {
+          const { data, error } = await supabase
+            .from('projects')
+            .insert(projectData)
+            .select()
+            .single();
+
+          if (error) {
+            console.error('Error importing project:', error);
+            skippedCount++;
+            continue;
+          }
+
+          // Create default stages for the project
+          const stages = PROJECT_STAGES.map((stage, index) => ({
+            project_id: data.id,
+            stage_name: stage.label,
+            stage_order: index + 1,
+            status: index === 0 ? 'in_progress' : 'pending',
+          }));
+
+          await supabase.from('project_stages').insert(stages);
+
+          // Create a documentation note
+          await supabase.from('project_notes').insert({
+            project_id: data.id,
+            note_type: 'documentation',
+            title: 'Project Documentation',
+            content: 'test',
+            created_by: user?.email || null,
+            created_by_email: user?.email || null,
+          });
+
+          importedCount++;
+        } catch (err) {
+          skippedCount++;
+          console.error('Error importing row:', err);
+        }
+      }
+
+      toast.success(`Imported ${importedCount} projects successfully! ${skippedCount} rows skipped.`);
+      setImportDialogOpen(false);
+      setImportFile(null);
+      setImportPreview([]);
+      if (excelInputRef.current) {
+        excelInputRef.current.value = '';
+      }
+      refetch();
+    } catch (error: any) {
+      toast.error('Import failed: ' + error.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ── Top Navigation ──
   const TopNav = (
     <div className="flex items-center gap-2 flex-wrap border-b pb-3">
       <Button
@@ -2113,7 +2246,7 @@ export default function Projects() {
   );
 
   // ════════════════════════════════════════════════════════════
-  // NEW: MY TASKS VIEW
+  // MY TASKS VIEW
   // ════════════════════════════════════════════════════════════
   if (mainView === "my_tasks") {
     return (
@@ -2130,7 +2263,6 @@ export default function Projects() {
           </div>
         ) : (
           <>
-            {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card><CardContent className="p-4 flex items-center justify-between">
                 <div><p className="text-sm text-muted-foreground">Total</p><p className="text-2xl font-bold">{myTaskStats.total}</p></div>
@@ -2150,7 +2282,6 @@ export default function Projects() {
               </CardContent></Card>
             </div>
 
-            {/* Filters */}
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap gap-2">
@@ -2211,7 +2342,6 @@ export default function Projects() {
               </CardHeader>
             </Card>
 
-            {/* Task list */}
             <div className="space-y-3">
               {filteredMyTasks.length === 0 && (
                 <Card><CardContent className="p-8 text-center text-muted-foreground">
@@ -2260,7 +2390,6 @@ export default function Projects() {
                         </Select>
                       </div>
 
-                      {/* Employee remarks / progress update */}
                       <div className="mt-3 pt-3 border-t">
                         <p className="text-xs text-muted-foreground mb-1">Apna update / progress note likhein:</p>
                         <div className="flex gap-2">
@@ -2286,7 +2415,7 @@ export default function Projects() {
   }
 
   // ════════════════════════════════════════════════════════════
-  // NEW: TEAM CHAT VIEW
+  // TEAM CHAT VIEW
   // ════════════════════════════════════════════════════════════
   if (mainView === "chat") {
     return (
@@ -2300,7 +2429,6 @@ export default function Projects() {
         <Card>
           <CardContent className="p-0">
             <div className="grid grid-cols-1 md:grid-cols-3 h-[550px]">
-              {/* Sidebar: team members */}
               <div className="border-r overflow-y-auto">
                 {itLoading ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -2328,7 +2456,6 @@ export default function Projects() {
                 )}
               </div>
 
-              {/* Conversation */}
               <div className="md:col-span-2 flex flex-col">
                 {!activeChatMember ? (
                   <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm gap-2">
@@ -2402,7 +2529,6 @@ export default function Projects() {
     return (
       <div className="space-y-6">
         {TopNav}
-        {/* ── Header ── */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={handleBack}>
@@ -2431,7 +2557,6 @@ export default function Projects() {
             </Badge>
             <ProjectPriorityBadge priority={selectedProject.priority || "medium"} />
             
-            {/* ── Action Buttons ── */}
             <Button size="sm" variant="outline" onClick={() => setTaskDialogOpen(true)}>
               <ClipboardList className="h-4 w-4 mr-2" />
               Add Task
@@ -2483,7 +2608,6 @@ export default function Projects() {
           </div>
         </div>
 
-        {/* ── Progress ── */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>Project Progress</span>
@@ -2496,7 +2620,6 @@ export default function Projects() {
           </div>
         </div>
 
-        {/* ── Tabs ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-9 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -2510,43 +2633,16 @@ export default function Projects() {
             <TabsTrigger value="notes">Notes</TabsTrigger>
           </TabsList>
 
-          {/* ── OVERVIEW TAB ── */}
           <TabsContent value="overview" className="space-y-4 mt-4">
-            {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-4">
-                  <p className="text-sm text-muted-foreground">Status</p>
-                  <StatusBadge status={selectedProject.status} />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <p className="text-sm text-muted-foreground">Stage</p>
-                  <StageBadge stage={selectedProject.current_stage} />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <p className="text-sm text-muted-foreground">Project Value</p>
-                  <p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <p className="text-sm text-muted-foreground">Tasks</p>
-                  <p className="text-xl font-bold">
-                    {projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}
-                  </p>
-                </CardContent>
-              </Card>
+              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Status</p><StatusBadge status={selectedProject.status} /></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Stage</p><StageBadge stage={selectedProject.current_stage} /></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Project Value</p><p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Tasks</p><p className="text-xl font-bold">{projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}</p></CardContent></Card>
             </div>
 
-            {/* Client Details */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Client Details</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-lg">Client Details</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex items-center gap-2">
@@ -2567,42 +2663,23 @@ export default function Projects() {
               </CardContent>
             </Card>
 
-            {/* Payment Summary */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Payment Summary</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-lg">Payment Summary</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Client</p>
-                    <p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Received</p>
-                    <p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Pending</p>
-                    <p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Gross Profit</p>
-                    <p className="text-lg font-semibold text-blue-600">{formatCurrency(paymentSummary.grossProfit)}</p>
-                  </div>
+                  <div><p className="text-sm text-muted-foreground">Total Client</p><p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p></div>
+                  <div><p className="text-sm text-muted-foreground">Received</p><p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p></div>
+                  <div><p className="text-sm text-muted-foreground">Pending</p><p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p></div>
+                  <div><p className="text-sm text-muted-foreground">Gross Profit</p><p className="text-lg font-semibold text-blue-600">{formatCurrency(paymentSummary.grossProfit)}</p></div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Recent Tasks */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Recent Tasks</CardTitle>
-                  <Button size="sm" onClick={() => setTaskDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Task
-                  </Button>
+                  <Button size="sm" onClick={() => setTaskDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Task</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2612,43 +2689,26 @@ export default function Projects() {
                   <div className="space-y-2">
                     {projectTasks.slice(0, 5).map(task => (
                       <div key={task.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                        <div className={`w-2 h-2 rounded-full ${
-                          task.status === 'completed' ? 'bg-green-500' :
-                          task.status === 'in_progress' ? 'bg-blue-500' :
-                          task.status === 'blocked' ? 'bg-red-500' :
-                          'bg-gray-300'
-                        }`} />
-                        <span className={`flex-1 ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
-                          {task.task_name}
-                        </span>
-                        {task.assigned_to_name && (
-                          <span className="text-xs text-indigo-600">👤 {task.assigned_to_name}</span>
-                        )}
-                        <span className="text-xs text-muted-foreground">
-                          {task.due_date ? format(new Date(task.due_date), "dd MMM") : "No due"}
-                        </span>
+                        <div className={`w-2 h-2 rounded-full ${task.status === 'completed' ? 'bg-green-500' : task.status === 'in_progress' ? 'bg-blue-500' : task.status === 'blocked' ? 'bg-red-500' : 'bg-gray-300'}`} />
+                        <span className={`flex-1 ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>{task.task_name}</span>
+                        {task.assigned_to_name && <span className="text-xs text-indigo-600">👤 {task.assigned_to_name}</span>}
+                        <span className="text-xs text-muted-foreground">{task.due_date ? format(new Date(task.due_date), "dd MMM") : "No due"}</span>
                         <Badge variant="outline" className="text-xs">{task.status}</Badge>
                       </div>
                     ))}
-                    {projectTasks.length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">No tasks yet</p>
-                    )}
+                    {projectTasks.length === 0 && <p className="text-center text-muted-foreground py-4">No tasks yet</p>}
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ── STAGES TAB ── */}
           <TabsContent value="stages" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Project Stages</CardTitle>
-                  <Button size="sm" onClick={() => setStageDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Stage
-                  </Button>
+                  <Button size="sm" onClick={() => setStageDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Stage</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2664,16 +2724,9 @@ export default function Projects() {
                             <p className="text-sm text-muted-foreground">Order: {stage.stage_order}</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">
-                              {stage.status || "pending"}
-                            </Badge>
-                            <Select 
-                              value={stage.status || "pending"} 
-                              onValueChange={(v) => updateStageStatus(stage.id, v)}
-                            >
-                              <SelectTrigger className="w-32 h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
+                            <Badge variant="outline" className="text-xs">{stage.status || "pending"}</Badge>
+                            <Select value={stage.status || "pending"} onValueChange={(v) => updateStageStatus(stage.id, v)}>
+                              <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="pending">Pending</SelectItem>
                                 <SelectItem value="in_progress">In Progress</SelectItem>
@@ -2691,16 +2744,13 @@ export default function Projects() {
                         )}
                       </div>
                     ))}
-                    {projectStages.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">No stages yet</p>
-                    )}
+                    {projectStages.length === 0 && <p className="text-center text-muted-foreground py-8">No stages yet</p>}
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ── TASKS TAB ── */}
           <TabsContent value="tasks" className="mt-4">
             <Card>
               <CardHeader>
@@ -2708,21 +2758,14 @@ export default function Projects() {
                   <CardTitle className="text-lg">Project Tasks</CardTitle>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Select value={taskAssigneeFilter} onValueChange={setTaskAssigneeFilter}>
-                      <SelectTrigger className="w-44 h-8 text-xs">
-                        <SelectValue placeholder="Filter by assignee" />
-                      </SelectTrigger>
+                      <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Filter by assignee" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Tasks</SelectItem>
                         <SelectItem value="mine">My Tasks</SelectItem>
-                        {itTeam.map(m => (
-                          <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
-                        ))}
+                        {itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Button size="sm" onClick={() => setTaskDialogOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Task
-                    </Button>
+                    <Button size="sm" onClick={() => setTaskDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Task</Button>
                   </div>
                 </div>
               </CardHeader>
@@ -2732,136 +2775,64 @@ export default function Projects() {
                 ) : (
                   <div className="space-y-3">
                     {filteredTasks.map(task => (
-                      <TaskCard 
-                        key={task.id} 
-                        task={task} 
-                        itTeam={itTeam}
-                        onStatusChange={updateTaskStatus}
-                        onAssign={assignTask}
-                        onDelete={deleteTask}
-                      />
+                      <TaskCard key={task.id} task={task} itTeam={itTeam} onStatusChange={updateTaskStatus} onAssign={assignTask} onDelete={deleteTask} />
                     ))}
-                    {filteredTasks.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">No tasks found</p>
-                    )}
+                    {filteredTasks.length === 0 && <p className="text-center text-muted-foreground py-8">No tasks found</p>}
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ── PAYMENTS TAB ── */}
           <TabsContent value="payments" className="mt-4">
             <div className="space-y-4">
-              {/* Payment Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Total Client</p>
-                    <p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Received</p>
-                    <p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Pending</p>
-                    <p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Manufacturer Pending</p>
-                    <p className="text-lg font-semibold text-orange-600">{formatCurrency(paymentSummary.manufacturerPending)}</p>
-                  </CardContent>
-                </Card>
+                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Total Client</p><p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Received</p><p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Pending</p><p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Manufacturer Pending</p><p className="text-lg font-semibold text-orange-600">{formatCurrency(paymentSummary.manufacturerPending)}</p></CardContent></Card>
               </div>
 
-              {/* Client Payments */}
               <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">Client Payments</CardTitle>
-                    <Button size="sm" onClick={() => setPaymentDialogOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Payment
-                    </Button>
-                  </div>
-                </CardHeader>
+                <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-lg">Client Payments</CardTitle><Button size="sm" onClick={() => setPaymentDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Payment</Button></div></CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {payments.filter(p => p.payment_type === 'client').map(payment => (
-                      <PaymentCard 
-                        key={payment.id} 
-                        payment={payment} 
-                        onStatusChange={updatePaymentStatus}
-                        onDelete={deletePayment}
-                      />
-                    ))}
-                    {payments.filter(p => p.payment_type === 'client').length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">No client payments</p>
-                    )}
+                    {payments.filter(p => p.payment_type === 'client').map(payment => <PaymentCard key={payment.id} payment={payment} onStatusChange={updatePaymentStatus} onDelete={deletePayment} />)}
+                    {payments.filter(p => p.payment_type === 'client').length === 0 && <p className="text-center text-muted-foreground py-4">No client payments</p>}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Manufacturer Payments */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Manufacturer Payments</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-lg">Manufacturer Payments</CardTitle></CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {payments.filter(p => p.payment_type === 'manufacturer').map(payment => (
-                      <PaymentCard 
-                        key={payment.id} 
-                        payment={payment} 
-                        onStatusChange={updatePaymentStatus}
-                        onDelete={deletePayment}
-                      />
-                    ))}
-                    {payments.filter(p => p.payment_type === 'manufacturer').length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">No manufacturer payments</p>
-                    )}
+                    {payments.filter(p => p.payment_type === 'manufacturer').map(payment => <PaymentCard key={payment.id} payment={payment} onStatusChange={updatePaymentStatus} onDelete={deletePayment} />)}
+                    {payments.filter(p => p.payment_type === 'manufacturer').length === 0 && <p className="text-center text-muted-foreground py-4">No manufacturer payments</p>}
                   </div>
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
 
-          {/* ── MANUFACTURING TAB ── */}
           <TabsContent value="manufacturing" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Manufacturing Tracker</CardTitle>
-                  <Button size="sm" onClick={() => setManufacturingDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Update Manufacturing
-                  </Button>
+                  <Button size="sm" onClick={() => setManufacturingDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Update Manufacturing</Button>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {/* Progress Bar */}
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Manufacturing Progress</span>
-                      <span className="font-semibold">
-                        {manufacturing.filter(m => m.status === 'completed').length}/{MANUFACTURING_STAGES.length}
-                      </span>
+                      <span className="font-semibold">{manufacturing.filter(m => m.status === 'completed').length}/{MANUFACTURING_STAGES.length}</span>
                     </div>
-                    <Progress 
-                      value={(manufacturing.filter(m => m.status === 'completed').length / MANUFACTURING_STAGES.length) * 100} 
-                      className="h-2" 
-                    />
+                    <Progress value={(manufacturing.filter(m => m.status === 'completed').length / MANUFACTURING_STAGES.length) * 100} className="h-2" />
                   </div>
 
-                  {/* Timeline */}
                   <div className="relative">
                     {MANUFACTURING_STAGES.map((stage, index) => {
                       const item = manufacturing.find(m => m.stage === stage);
@@ -2871,35 +2842,20 @@ export default function Projects() {
                       return (
                         <div key={index} className="flex items-start gap-4 mb-4">
                           <div className="flex flex-col items-center">
-                            <div className={`
-                              w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-medium
-                              ${isCompleted ? 'bg-green-500 border-green-500 text-white' : 
-                                isInProgress ? 'bg-blue-500 border-blue-500 text-white' : 
-                                'border-gray-300 text-gray-400'}
-                            `}>
+                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-medium ${isCompleted ? 'bg-green-500 border-green-500 text-white' : isInProgress ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-300 text-gray-400'}`}>
                               {isCompleted ? '✓' : isInProgress ? '●' : index + 1}
                             </div>
-                            {index < MANUFACTURING_STAGES.length - 1 && (
-                              <div className={`w-0.5 h-8 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`} />
-                            )}
+                            {index < MANUFACTURING_STAGES.length - 1 && <div className={`w-0.5 h-8 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`} />}
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center justify-between">
                               <div>
                                 <p className="font-medium">{stage}</p>
-                                {item?.remarks && (
-                                  <p className="text-sm text-muted-foreground">{item.remarks}</p>
-                                )}
+                                {item?.remarks && <p className="text-sm text-muted-foreground">{item.remarks}</p>}
                               </div>
                               <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {item?.status || 'pending'}
-                                </Badge>
-                                {item?.file_url && (
-                                  <Button variant="ghost" size="icon" className="h-7 w-7">
-                                    <Download className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
+                                <Badge variant="outline" className="text-xs">{item?.status || 'pending'}</Badge>
+                                {item?.file_url && <Button variant="ghost" size="icon" className="h-7 w-7"><Download className="h-3.5 w-3.5" /></Button>}
                               </div>
                             </div>
                             {item?.start_date && (
@@ -2919,16 +2875,12 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── BRANDING TAB ── */}
           <TabsContent value="branding" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Branding & Digital Tracker</CardTitle>
-                  <Button size="sm" onClick={() => setBrandingDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Item
-                  </Button>
+                  <Button size="sm" onClick={() => setBrandingDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Item</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2942,28 +2894,18 @@ export default function Projects() {
                       <div key={category} className="border rounded-lg p-4">
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium">{category}</h4>
-                          <Badge variant="outline" className="text-xs">
-                            {completed}/{total}
-                          </Badge>
+                          <Badge variant="outline" className="text-xs">{completed}/{total}</Badge>
                         </div>
                         <Progress value={total > 0 ? (completed / total) * 100 : 0} className="h-1" />
                         <div className="mt-2 space-y-1">
                           {items.map(item => (
                             <div key={item.id} className="flex items-center gap-2 text-sm">
-                              <span className={`w-2 h-2 rounded-full ${
-                                item.status === 'completed' ? 'bg-green-500' :
-                                item.status === 'approved' ? 'bg-blue-500' :
-                                item.status === 'review' ? 'bg-orange-500' :
-                                item.status === 'in_progress' ? 'bg-yellow-500' :
-                                'bg-gray-300'
-                              }`} />
+                              <span className={`w-2 h-2 rounded-full ${item.status === 'completed' ? 'bg-green-500' : item.status === 'approved' ? 'bg-blue-500' : item.status === 'review' ? 'bg-orange-500' : item.status === 'in_progress' ? 'bg-yellow-500' : 'bg-gray-300'}`} />
                               <span>{item.item_name}</span>
                               <Badge variant="outline" className="text-xs ml-auto">{item.status}</Badge>
                             </div>
                           ))}
-                          {items.length === 0 && (
-                            <p className="text-xs text-muted-foreground">No items in this category</p>
-                          )}
+                          {items.length === 0 && <p className="text-xs text-muted-foreground">No items in this category</p>}
                         </div>
                       </div>
                     );
@@ -2973,16 +2915,12 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── DOCUMENTS TAB ── */}
           <TabsContent value="documents" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Documents</CardTitle>
-                  <Button size="sm" onClick={() => setDocumentDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Upload Document
-                  </Button>
+                  <Button size="sm" onClick={() => setDocumentDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Upload Document</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -3004,9 +2942,7 @@ export default function Projects() {
                                 <span className="truncate">{file.file_name}</span>
                               </div>
                             ))}
-                            {files.length > 3 && (
-                              <p className="text-xs text-muted-foreground">+{files.length - 3} more</p>
-                            )}
+                            {files.length > 3 && <p className="text-xs text-muted-foreground">+{files.length - 3} more</p>}
                           </div>
                         )}
                       </div>
@@ -3017,29 +2953,19 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── COMMUNICATION TAB ── */}
           <TabsContent value="communication" className="mt-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Communication Center</CardTitle>
-                  <Button size="sm" onClick={() => setCommunicationDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Communication
-                  </Button>
+                  <Button size="sm" onClick={() => setCommunicationDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Communication</Button>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {communications.map(comm => (
                     <div key={comm.id} className="border-l-4 pl-4 py-2" style={{
-                      borderColor: 
-                        comm.communication_type === 'call' ? '#3b82f6' :
-                        comm.communication_type === 'email' ? '#8b5cf6' :
-                        comm.communication_type === 'whatsapp' ? '#25D366' :
-                        comm.communication_type === 'meeting' ? '#f59e0b' :
-                        comm.communication_type === 'followup' ? '#ef4444' :
-                        '#94a3b8'
+                      borderColor: comm.communication_type === 'call' ? '#3b82f6' : comm.communication_type === 'email' ? '#8b5cf6' : comm.communication_type === 'whatsapp' ? '#25D366' : comm.communication_type === 'meeting' ? '#f59e0b' : comm.communication_type === 'followup' ? '#ef4444' : '#94a3b8'
                     }}>
                       <div className="flex items-center gap-2">
                         {comm.communication_type === 'call' && <Phone className="h-4 w-4 text-blue-500" />}
@@ -3049,30 +2975,20 @@ export default function Projects() {
                         {comm.communication_type === 'followup' && <Bell className="h-4 w-4 text-red-500" />}
                         {comm.communication_type === 'comment' && <MessageSquare className="h-4 w-4 text-gray-500" />}
                         <span className="text-xs font-medium uppercase text-muted-foreground">{comm.communication_type}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {format(new Date(comm.communication_date), "dd MMM yyyy, hh:mm a")}
-                        </span>
+                        <span className="text-xs text-muted-foreground">{format(new Date(comm.communication_date), "dd MMM yyyy, hh:mm a")}</span>
                       </div>
                       {comm.subject && <p className="font-medium mt-1">{comm.subject}</p>}
                       <p className="text-sm text-muted-foreground mt-1">{comm.message}</p>
-                      {comm.next_followup_date && (
-                        <p className="text-xs text-red-500 mt-1">
-                          🔔 Follow-up: {format(new Date(comm.next_followup_date), "dd MMM yyyy")}
-                        </p>
-                      )}
+                      {comm.next_followup_date && <p className="text-xs text-red-500 mt-1">🔔 Follow-up: {format(new Date(comm.next_followup_date), "dd MMM yyyy")}</p>}
                     </div>
                   ))}
-                  {communications.length === 0 && (
-                    <p className="text-center text-muted-foreground py-8">No communications yet</p>
-                  )}
+                  {communications.length === 0 && <p className="text-center text-muted-foreground py-8">No communications yet</p>}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ── NOTES TAB ── */}
           <TabsContent value="notes" className="mt-4 space-y-4">
-            {/* Project Documentation - pinned, editable */}
             <Card className="border-primary/30">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -3081,693 +2997,167 @@ export default function Projects() {
                     Project Documentation
                   </CardTitle>
                   {!docNoteEditing ? (
-                    <Button size="sm" variant="outline" onClick={() => setDocNoteEditing(true)}>
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit
-                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setDocNoteEditing(true)}><Edit className="h-4 w-4 mr-2" />Edit</Button>
                   ) : (
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => {
-                        setDocNoteEditing(false);
-                        setDocNoteContent(documentationNote?.content || "");
-                      }}>
-                        Cancel
-                      </Button>
-                      <Button size="sm" onClick={saveDocumentationNote}>
-                        <Save className="h-4 w-4 mr-2" />
-                        Save
-                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setDocNoteEditing(false); setDocNoteContent(documentationNote?.content || ""); }}>Cancel</Button>
+                      <Button size="sm" onClick={saveDocumentationNote}><Save className="h-4 w-4 mr-2" />Save</Button>
                     </div>
                   )}
                 </div>
               </CardHeader>
               <CardContent>
                 {docNoteEditing ? (
-                  <Textarea 
-                    value={docNoteContent}
-                    onChange={(e) => setDocNoteContent(e.target.value)}
-                    rows={8}
-                    placeholder="Project scope, requirements, links, credentials, notes for the team..."
-                  />
+                  <Textarea value={docNoteContent} onChange={(e) => setDocNoteContent(e.target.value)} rows={8} placeholder="Project scope, requirements, links, credentials, notes for the team..." />
                 ) : (
-                  <p className="text-sm whitespace-pre-wrap">
-                    {documentationNote?.content || "test"}
-                  </p>
+                  <p className="text-sm whitespace-pre-wrap">{documentationNote?.content || "test"}</p>
                 )}
-                {documentationNote?.updated_at && (
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Last updated: {format(new Date(documentationNote.updated_at), "dd MMM yyyy, hh:mm a")}
-                  </p>
-                )}
+                {documentationNote?.updated_at && <p className="text-xs text-muted-foreground mt-3">Last updated: {format(new Date(documentationNote.updated_at), "dd MMM yyyy, hh:mm a")}</p>}
               </CardContent>
             </Card>
 
-            {/* General running notes */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Notes</CardTitle>
-                  <Button size="sm" onClick={() => {
-                    setEditingNote(null);
-                    setNewNote({ title: "", content: "" });
-                    setNoteDialogOpen(true);
-                  }}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Note
-                  </Button>
+                  <Button size="sm" onClick={() => { setEditingNote(null); setNewNote({ title: "", content: "" }); setNoteDialogOpen(true); }}><Plus className="h-4 w-4 mr-2" />Add Note</Button>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {generalNotes.map(note => (
-                    <NoteCard
-                      key={note.id}
-                      note={note}
-                      onEdit={(n) => {
-                        setEditingNote(n);
-                        setNewNote({ title: n.title || "", content: n.content });
-                        setNoteDialogOpen(true);
-                      }}
-                      onDelete={deleteNote}
-                    />
-                  ))}
-                  {generalNotes.length === 0 && (
-                    <p className="text-center text-muted-foreground py-8">No notes yet</p>
-                  )}
+                  {generalNotes.map(note => <NoteCard key={note.id} note={note} onEdit={(n) => { setEditingNote(n); setNewNote({ title: n.title || "", content: n.content }); setNoteDialogOpen(true); }} onDelete={deleteNote} />)}
+                  {generalNotes.length === 0 && <p className="text-center text-muted-foreground py-8">No notes yet</p>}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
 
-        {/* ════════════════════════════════════════════════════════════ */}
-        {/* ALL DIALOGS */}
-        {/* ════════════════════════════════════════════════════════════ */}
-
-        {/* ── Add Stage Dialog ── */}
+        {/* ── All Dialogs ── */}
         <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Add New Stage</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Add New Stage</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Stage Name *</Label>
-                <Input 
-                  value={newStage.stage_name} 
-                  onChange={(e) => setNewStage({ ...newStage, stage_name: e.target.value })}
-                  placeholder="Enter stage name"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select 
-                  value={newStage.status} 
-                  onValueChange={(v) => setNewStage({ ...newStage, status: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <div className="grid gap-2"><Label>Stage Name *</Label><Input value={newStage.stage_name} onChange={(e) => setNewStage({ ...newStage, stage_name: e.target.value })} placeholder="Enter stage name" /></div>
+              <div className="grid gap-2"><Label>Status</Label><Select value={newStage.status} onValueChange={(v) => setNewStage({ ...newStage, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setStageDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addStage}>Add Stage</Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setStageDialogOpen(false)}>Cancel</Button><Button onClick={addStage}>Add Stage</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Add Task Dialog ── */}
         <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <ClipboardList className="h-5 w-5 text-blue-500" />
-                Add New Task
-              </DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5 text-blue-500" />Add New Task</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Task Name *</Label>
-                <Input 
-                  value={newTask.task_name} 
-                  onChange={(e) => setNewTask({ ...newTask, task_name: e.target.value })}
-                  placeholder="Enter task name"
-                  className="focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Description</Label>
-                <Textarea 
-                  value={newTask.description} 
-                  onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                  placeholder="Enter description"
-                  rows={3}
-                />
-              </div>
+              <div className="grid gap-2"><Label>Task Name *</Label><Input value={newTask.task_name} onChange={(e) => setNewTask({ ...newTask, task_name: e.target.value })} placeholder="Enter task name" /></div>
+              <div className="grid gap-2"><Label>Description</Label><Textarea value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} placeholder="Enter description" rows={3} /></div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Department</Label>
-                  <Select value={newTask.department} onValueChange={(v) => setNewTask({ ...newTask, department: v })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Design">🎨 Design</SelectItem>
-                      <SelectItem value="Development">💻 Development</SelectItem>
-                      <SelectItem value="Manufacturing">🏭 Manufacturing</SelectItem>
-                      <SelectItem value="Marketing">📢 Marketing</SelectItem>
-                      <SelectItem value="Sales">💼 Sales</SelectItem>
-                      <SelectItem value="Legal">⚖️ Legal</SelectItem>
-                      <SelectItem value="Finance">💰 Finance</SelectItem>
-                      <SelectItem value="IT">🖥️ IT</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Priority</Label>
-                  <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">🟢 Low</SelectItem>
-                      <SelectItem value="medium">🟡 Medium</SelectItem>
-                      <SelectItem value="high">🟠 High</SelectItem>
-                      <SelectItem value="urgent">🔴 Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="grid gap-2"><Label>Department</Label><Select value={newTask.department} onValueChange={(v) => setNewTask({ ...newTask, department: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="Design">🎨 Design</SelectItem><SelectItem value="Development">💻 Development</SelectItem><SelectItem value="Manufacturing">🏭 Manufacturing</SelectItem><SelectItem value="Marketing">📢 Marketing</SelectItem><SelectItem value="Sales">💼 Sales</SelectItem><SelectItem value="Legal">⚖️ Legal</SelectItem><SelectItem value="Finance">💰 Finance</SelectItem><SelectItem value="IT">🖥️ IT</SelectItem></SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Priority</Label><Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">🟢 Low</SelectItem><SelectItem value="medium">🟡 Medium</SelectItem><SelectItem value="high">🟠 High</SelectItem><SelectItem value="urgent">🔴 Urgent</SelectItem></SelectContent></Select></div>
               </div>
-              <div className="grid gap-2">
-                <Label>Assign To (IT Team)</Label>
-                <Select value={newTask.assigned_to_email} onValueChange={(v) => setNewTask({ ...newTask, assigned_to_email: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select team member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {itTeam.map(m => (
-                      <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Stage (Optional)</Label>
-                <Select value={newTask.stage_id} onValueChange={(v) => setNewTask({ ...newTask, stage_id: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select stage" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {projectStages.map(s => (
-                      <SelectItem key={s.id} value={s.id}>{s.stage_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Due Date</Label>
-                <Input 
-                  type="date" 
-                  value={newTask.due_date} 
-                  onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
-                />
-              </div>
+              <div className="grid gap-2"><Label>Assign To (IT Team)</Label><Select value={newTask.assigned_to_email} onValueChange={(v) => setNewTask({ ...newTask, assigned_to_email: v })}><SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger><SelectContent>{itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Stage (Optional)</Label><Select value={newTask.stage_id} onValueChange={(v) => setNewTask({ ...newTask, stage_id: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{projectStages.map(s => <SelectItem key={s.id} value={s.id}>{s.stage_name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Due Date</Label><Input type="date" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} /></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setTaskDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addTask} disabled={!newTask.task_name}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Task
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setTaskDialogOpen(false)}>Cancel</Button><Button onClick={addTask} disabled={!newTask.task_name}><Plus className="h-4 w-4 mr-2" />Add Task</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Add Payment Dialog ── */}
         <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Add Payment</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Payment Type</Label>
-                <Select value={newPayment.payment_type} onValueChange={(v) => setNewPayment({ ...newPayment, payment_type: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="client">Client Payment</SelectItem>
-                    <SelectItem value="manufacturer">Manufacturer Payment</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Milestone *</Label>
-                <Input 
-                  value={newPayment.milestone} 
-                  onChange={(e) => setNewPayment({ ...newPayment, milestone: e.target.value })}
-                  placeholder="e.g., Booking Amount"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Amount (₹) *</Label>
-                <Input 
-                  type="number"
-                  value={newPayment.amount} 
-                  onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
-                  placeholder="Enter amount"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Due Date</Label>
-                <Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment({ ...newPayment, due_date: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select value={newPayment.status} onValueChange={(v) => setNewPayment({ ...newPayment, status: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <div className="grid gap-2"><Label>Payment Type</Label><Select value={newPayment.payment_type} onValueChange={(v) => setNewPayment({ ...newPayment, payment_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="client">Client Payment</SelectItem><SelectItem value="manufacturer">Manufacturer Payment</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Milestone *</Label><Input value={newPayment.milestone} onChange={(e) => setNewPayment({ ...newPayment, milestone: e.target.value })} placeholder="e.g., Booking Amount" /></div>
+              <div className="grid gap-2"><Label>Amount (₹) *</Label><Input type="number" value={newPayment.amount} onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })} placeholder="Enter amount" /></div>
+              <div className="grid gap-2"><Label>Due Date</Label><Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment({ ...newPayment, due_date: e.target.value })} /></div>
+              <div className="grid gap-2"><Label>Status</Label><Select value={newPayment.status} onValueChange={(v) => setNewPayment({ ...newPayment, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="paid">Paid</SelectItem><SelectItem value="overdue">Overdue</SelectItem></SelectContent></Select></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addPayment}>Add Payment</Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button><Button onClick={addPayment}>Add Payment</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Update Manufacturing Dialog ── */}
         <Dialog open={manufacturingDialogOpen} onOpenChange={setManufacturingDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5 text-orange-500" />
-                Update Manufacturing
-              </DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-orange-500" />Update Manufacturing</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Stage *</Label>
-                <Select value={newManufacturing.stage} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, stage: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select stage" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MANUFACTURING_STAGES.map(s => (
-                      <SelectItem key={s} value={s}>
-                        {manufacturing.find(m => m.stage === s)?.status === 'completed' ? '✅ ' : ''}
-                        {manufacturing.find(m => m.stage === s)?.status === 'in_progress' ? '⏳ ' : ''}
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select value={newManufacturing.status} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, status: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">⏸️ Pending</SelectItem>
-                    <SelectItem value="in_progress">⏳ In Progress</SelectItem>
-                    <SelectItem value="completed">✅ Completed</SelectItem>
-                    <SelectItem value="blocked">🚫 Blocked</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Remarks</Label>
-                <Textarea 
-                  value={newManufacturing.remarks} 
-                  onChange={(e) => setNewManufacturing({ ...newManufacturing, remarks: e.target.value })}
-                  placeholder="Enter remarks"
-                  rows={2}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Responsible Person</Label>
-                <Input 
-                  value={newManufacturing.responsible_person} 
-                  onChange={(e) => setNewManufacturing({ ...newManufacturing, responsible_person: e.target.value })}
-                  placeholder="Enter name"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Start Date</Label>
-                <Input 
-                  type="date" 
-                  value={newManufacturing.start_date} 
-                  onChange={(e) => setNewManufacturing({ ...newManufacturing, start_date: e.target.value })}
-                />
-              </div>
+              <div className="grid gap-2"><Label>Stage *</Label><Select value={newManufacturing.stage} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, stage: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent>{MANUFACTURING_STAGES.map(s => <SelectItem key={s} value={s}>{manufacturing.find(m => m.stage === s)?.status === 'completed' ? '✅ ' : ''}{manufacturing.find(m => m.stage === s)?.status === 'in_progress' ? '⏳ ' : ''}{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Status</Label><Select value={newManufacturing.status} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">⏸️ Pending</SelectItem><SelectItem value="in_progress">⏳ In Progress</SelectItem><SelectItem value="completed">✅ Completed</SelectItem><SelectItem value="blocked">🚫 Blocked</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Remarks</Label><Textarea value={newManufacturing.remarks} onChange={(e) => setNewManufacturing({ ...newManufacturing, remarks: e.target.value })} placeholder="Enter remarks" rows={2} /></div>
+              <div className="grid gap-2"><Label>Responsible Person</Label><Input value={newManufacturing.responsible_person} onChange={(e) => setNewManufacturing({ ...newManufacturing, responsible_person: e.target.value })} placeholder="Enter name" /></div>
+              <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newManufacturing.start_date} onChange={(e) => setNewManufacturing({ ...newManufacturing, start_date: e.target.value })} /></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setManufacturingDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addManufacturing} disabled={!newManufacturing.stage}>
-                <Save className="h-4 w-4 mr-2" />
-                {manufacturing.find(m => m.stage === newManufacturing.stage) ? "Update" : "Add"} Manufacturing
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setManufacturingDialogOpen(false)}>Cancel</Button><Button onClick={addManufacturing} disabled={!newManufacturing.stage}><Save className="h-4 w-4 mr-2" />{manufacturing.find(m => m.stage === newManufacturing.stage) ? "Update" : "Add"} Manufacturing</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Add Branding Item Dialog ── */}
         <Dialog open={brandingDialogOpen} onOpenChange={setBrandingDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Award className="h-5 w-5 text-purple-500" />
-                Add Branding Item
-              </DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Award className="h-5 w-5 text-purple-500" />Add Branding Item</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Category *</Label>
-                <Select value={newBranding.category} onValueChange={(v) => setNewBranding({ ...newBranding, category: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BRANDING_CATEGORIES.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Item Name *</Label>
-                <Input 
-                  value={newBranding.item_name} 
-                  onChange={(e) => setNewBranding({ ...newBranding, item_name: e.target.value })}
-                  placeholder="Enter item name"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select value={newBranding.status} onValueChange={(v) => setNewBranding({ ...newBranding, status: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">⏸️ Pending</SelectItem>
-                    <SelectItem value="in_progress">⏳ In Progress</SelectItem>
-                    <SelectItem value="review">🔍 Review</SelectItem>
-                    <SelectItem value="approved">✅ Approved</SelectItem>
-                    <SelectItem value="completed">🎯 Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Notes</Label>
-                <Textarea 
-                  value={newBranding.notes} 
-                  onChange={(e) => setNewBranding({ ...newBranding, notes: e.target.value })}
-                  placeholder="Enter notes"
-                  rows={2}
-                />
-              </div>
+              <div className="grid gap-2"><Label>Category *</Label><Select value={newBranding.category} onValueChange={(v) => setNewBranding({ ...newBranding, category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{BRANDING_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Item Name *</Label><Input value={newBranding.item_name} onChange={(e) => setNewBranding({ ...newBranding, item_name: e.target.value })} placeholder="Enter item name" /></div>
+              <div className="grid gap-2"><Label>Status</Label><Select value={newBranding.status} onValueChange={(v) => setNewBranding({ ...newBranding, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">⏸️ Pending</SelectItem><SelectItem value="in_progress">⏳ In Progress</SelectItem><SelectItem value="review">🔍 Review</SelectItem><SelectItem value="approved">✅ Approved</SelectItem><SelectItem value="completed">🎯 Completed</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Notes</Label><Textarea value={newBranding.notes} onChange={(e) => setNewBranding({ ...newBranding, notes: e.target.value })} placeholder="Enter notes" rows={2} /></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setBrandingDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addBranding} disabled={!newBranding.category || !newBranding.item_name}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Item
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setBrandingDialogOpen(false)}>Cancel</Button><Button onClick={addBranding} disabled={!newBranding.category || !newBranding.item_name}><Plus className="h-4 w-4 mr-2" />Add Item</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Upload Document Dialog ── */}
         <Dialog open={documentDialogOpen} onOpenChange={setDocumentDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-500" />
-                Upload Document
-              </DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-blue-500" />Upload Document</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Folder *</Label>
-                <Select value={newDocument.folder} onValueChange={(v) => setNewDocument({ ...newDocument, folder: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select folder" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DOCUMENT_FOLDERS.map(f => (
-                      <SelectItem key={f} value={f}>{f}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>File *</Label>
-                <div className="border-2 border-dashed rounded-lg p-4 text-center hover:border-primary transition-colors cursor-pointer">
-                  <input 
-                    ref={fileInputRef}
-                    type="file" 
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setNewDocument({ 
-                          ...newDocument, 
-                          file: file,
-                          file_name: file.name 
-                        });
-                      }
-                    }}
-                    className="hidden" 
-                    id="file-upload"
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer block">
-                    {newDocument.file ? (
-                      <div className="flex items-center justify-center gap-2">
-                        <File className="h-8 w-8 text-green-500" />
-                        <span className="text-sm">{newDocument.file.name}</span>
-                        <Button variant="ghost" size="sm" onClick={(e) => {
-                          e.preventDefault();
-                          setNewDocument({ ...newDocument, file: null, file_name: "" });
-                          if (fileInputRef.current) fileInputRef.current.value = "";
-                        }}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div>
-                        <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground mt-2">
-                          Click to upload or drag and drop
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          PDF, DOC, XLS, JPG, PNG (Max 10MB)
-                        </p>
-                      </div>
-                    )}
-                  </label>
-                </div>
-              </div>
+              <div className="grid gap-2"><Label>Folder *</Label><Select value={newDocument.folder} onValueChange={(v) => setNewDocument({ ...newDocument, folder: v })}><SelectTrigger><SelectValue placeholder="Select folder" /></SelectTrigger><SelectContent>{DOCUMENT_FOLDERS.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>File *</Label><div className="border-2 border-dashed rounded-lg p-4 text-center hover:border-primary transition-colors cursor-pointer"><input ref={fileInputRef} type="file" onChange={(e) => { const file = e.target.files?.[0]; if (file) { setNewDocument({ ...newDocument, file: file, file_name: file.name }); } }} className="hidden" id="file-upload" /><label htmlFor="file-upload" className="cursor-pointer block">{newDocument.file ? <div className="flex items-center justify-center gap-2"><File className="h-8 w-8 text-green-500" /><span className="text-sm">{newDocument.file.name}</span><Button variant="ghost" size="sm" onClick={(e) => { e.preventDefault(); setNewDocument({ ...newDocument, file: null, file_name: "" }); if (fileInputRef.current) fileInputRef.current.value = ""; }}><X className="h-4 w-4" /></Button></div> : <div><Upload className="h-8 w-8 mx-auto text-muted-foreground" /><p className="text-sm text-muted-foreground mt-2">Click to upload or drag and drop</p><p className="text-xs text-muted-foreground">PDF, DOC, XLS, JPG, PNG (Max 10MB)</p></div>}</label></div></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDocumentDialogOpen(false)}>Cancel</Button>
-              <Button onClick={uploadDocument} disabled={!newDocument.folder || !newDocument.file}>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload Document
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setDocumentDialogOpen(false)}>Cancel</Button><Button onClick={uploadDocument} disabled={!newDocument.folder || !newDocument.file}><Upload className="h-4 w-4 mr-2" />Upload Document</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Add Communication Dialog ── */}
         <Dialog open={communicationDialogOpen} onOpenChange={setCommunicationDialogOpen}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-blue-500" />
-                Add Communication
-              </DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-blue-500" />Add Communication</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Type</Label>
-                <Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="call">📞 Call</SelectItem>
-                    <SelectItem value="email">✉️ Email</SelectItem>
-                    <SelectItem value="whatsapp">💬 WhatsApp</SelectItem>
-                    <SelectItem value="meeting">📅 Meeting</SelectItem>
-                    <SelectItem value="comment">💭 Comment</SelectItem>
-                    <SelectItem value="followup">🔔 Follow-up</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Subject</Label>
-                <Input 
-                  value={newCommunication.subject} 
-                  onChange={(e) => setNewCommunication({ ...newCommunication, subject: e.target.value })}
-                  placeholder="Enter subject"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Message *</Label>
-                <Textarea 
-                  value={newCommunication.message} 
-                  onChange={(e) => setNewCommunication({ ...newCommunication, message: e.target.value })}
-                  placeholder="Enter message"
-                  rows={3}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Next Follow-up</Label>
-                <Input 
-                  type="datetime-local" 
-                  value={newCommunication.next_followup} 
-                  onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })}
-                />
-              </div>
+              <div className="grid gap-2"><Label>Type</Label><Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="call">📞 Call</SelectItem><SelectItem value="email">✉️ Email</SelectItem><SelectItem value="whatsapp">💬 WhatsApp</SelectItem><SelectItem value="meeting">📅 Meeting</SelectItem><SelectItem value="comment">💭 Comment</SelectItem><SelectItem value="followup">🔔 Follow-up</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Subject</Label><Input value={newCommunication.subject} onChange={(e) => setNewCommunication({ ...newCommunication, subject: e.target.value })} placeholder="Enter subject" /></div>
+              <div className="grid gap-2"><Label>Message *</Label><Textarea value={newCommunication.message} onChange={(e) => setNewCommunication({ ...newCommunication, message: e.target.value })} placeholder="Enter message" rows={3} /></div>
+              <div className="grid gap-2"><Label>Next Follow-up</Label><Input type="datetime-local" value={newCommunication.next_followup} onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })} /></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCommunicationDialogOpen(false)}>Cancel</Button>
-              <Button onClick={addCommunication} disabled={!newCommunication.message}>
-                <Send className="h-4 w-4 mr-2" />
-                Add Communication
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setCommunicationDialogOpen(false)}>Cancel</Button><Button onClick={addCommunication} disabled={!newCommunication.message}><Send className="h-4 w-4 mr-2" />Add Communication</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Add / Edit Note Dialog ── */}
-        <Dialog open={noteDialogOpen} onOpenChange={(open) => {
-          setNoteDialogOpen(open);
-          if (!open) { setEditingNote(null); setNewNote({ title: "", content: "" }); }
-        }}>
+        <Dialog open={noteDialogOpen} onOpenChange={(open) => { setNoteDialogOpen(open); if (!open) { setEditingNote(null); setNewNote({ title: "", content: "" }); } }}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <StickyNote className="h-5 w-5 text-yellow-500" />
-                {editingNote ? "Edit Note" : "Add Note"}
-              </DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><StickyNote className="h-5 w-5 text-yellow-500" />{editingNote ? "Edit Note" : "Add Note"}</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Title (Optional)</Label>
-                <Input 
-                  value={newNote.title} 
-                  onChange={(e) => setNewNote({ ...newNote, title: e.target.value })}
-                  placeholder="Enter title"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Note *</Label>
-                <Textarea 
-                  value={newNote.content} 
-                  onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
-                  placeholder="Enter note"
-                  rows={5}
-                />
-              </div>
+              <div className="grid gap-2"><Label>Title (Optional)</Label><Input value={newNote.title} onChange={(e) => setNewNote({ ...newNote, title: e.target.value })} placeholder="Enter title" /></div>
+              <div className="grid gap-2"><Label>Note *</Label><Textarea value={newNote.content} onChange={(e) => setNewNote({ ...newNote, content: e.target.value })} placeholder="Enter note" rows={5} /></div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button>
-              <Button onClick={editingNote ? updateNote : addNote} disabled={!newNote.content}>
-                <Save className="h-4 w-4 mr-2" />
-                {editingNote ? "Update Note" : "Save Note"}
-              </Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button><Button onClick={editingNote ? updateNote : addNote} disabled={!newNote.content}><Save className="h-4 w-4 mr-2" />{editingNote ? "Update Note" : "Save Note"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ── Edit Project Dialog ── */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader><DialogTitle>Edit Project</DialogTitle></DialogHeader>
             {editingProject && (
               <div className="grid gap-4 py-4 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label>Client Name *</Label>
-                  <Input value={editingProject.name} onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Brand Name</Label>
-                  <Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Client Phone Number</Label>
-                  <Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Client Address</Label>
-                  <Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Project Type</Label>
-                  <Select value={editingProject.project_type || "perfume"} onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Priority</Label>
-                  <Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Project Value (₹)</Label>
-                  <Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Status</Label>
-                  <Select value={editingProject.status} onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Current Stage</Label>
-                  <Select value={editingProject.current_stage} onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Start Date</Label>
-                  <Input type="date" value={editingProject.start_date || ""} onChange={(e) => setEditingProject({ ...editingProject, start_date: e.target.value })} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Expected Launch Date</Label>
-                  <Input type="date" value={editingProject.expected_launch_date || ""} onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })} />
-                </div>
+                <div className="grid gap-2"><Label>Client Name *</Label><Input value={editingProject.name} onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })} /></div>
+                <div className="grid gap-2"><Label>Brand Name</Label><Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} /></div>
+                <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
+                <div className="grid gap-2"><Label>Client Address</Label><Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" /></div>
+                <div className="grid gap-2"><Label>Project Type</Label><Select value={editingProject.project_type || "perfume"} onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Priority</Label><Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} /></div>
+                <div className="grid gap-2"><Label>Status</Label><Select value={editingProject.status} onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Current Stage</Label><Select value={editingProject.current_stage} onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={editingProject.start_date || ""} onChange={(e) => setEditingProject({ ...editingProject, start_date: e.target.value })} /></div>
+                <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={editingProject.expected_launch_date || ""} onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })} /></div>
               </div>
             )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-              <Button onClick={updateProject}>Save Changes</Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button><Button onClick={updateProject}>Save Changes</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -3780,19 +3170,25 @@ export default function Projects() {
   return (
     <div className="space-y-6">
       {TopNav}
-      {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground text-sm">
-            Manage all client projects from one dashboard
-          </p>
+          <p className="text-muted-foreground text-sm">Manage all client projects from one dashboard</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm">
-            <Download className="mr-2 h-4 w-4" />
-            Export
+          {/* ── Export Button ── */}
+          <Button variant="outline" size="sm" onClick={exportToExcel}>
+            <FileDown className="mr-2 h-4 w-4" />
+            Export Excel
           </Button>
+          
+          {/* ── Import Button ── */}
+          <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
+            <FileUp className="mr-2 h-4 w-4" />
+            Import Excel
+          </Button>
+          
+          {/* ── New Project Button ── */}
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -3803,57 +3199,17 @@ export default function Projects() {
             <DialogContent className="max-w-2xl">
               <DialogHeader><DialogTitle>Create New Project</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label>Client Name *</Label>
-                  <Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Brand Name</Label>
-                  <Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Client Phone Number</Label>
-                  <Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Client Address</Label>
-                  <Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Project Type</Label>
-                  <Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Priority</Label>
-                  <Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Project Value (₹)</Label>
-                  <Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Start Date</Label>
-                  <Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Expected Launch Date</Label>
-                  <Input type="date" value={newProject.expected_launch_date} onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })} />
-                </div>
+                <div className="grid gap-2"><Label>Client Name *</Label><Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" /></div>
+                <div className="grid gap-2"><Label>Brand Name</Label><Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" /></div>
+                <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
+                <div className="grid gap-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
+                <div className="grid gap-2"><Label>Project Type</Label><Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Priority</Label><Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" /></div>
+                <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} /></div>
+                <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={newProject.expected_launch_date} onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })} /></div>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button onClick={createProject}>Create Project</Button>
-              </DialogFooter>
+              <DialogFooter><Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button onClick={createProject}>Create Project</Button></DialogFooter>
             </DialogContent>
           </Dialog>
         </div>
@@ -3861,30 +3217,10 @@ export default function Projects() {
 
       {/* ── Stats Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
-          icon={FolderKanban}
-          label="Total Projects"
-          value={stats.total}
-          color="blue"
-        />
-        <StatCard 
-          icon={CheckCircle}
-          label="Active"
-          value={stats.active}
-          color="green"
-        />
-        <StatCard 
-          icon={AlertTriangle}
-          label="On Hold"
-          value={stats.onHold}
-          color="red"
-        />
-        <StatCard 
-          icon={DollarSign}
-          label="Total Value"
-          value={formatCurrency(stats.totalValue)}
-          color="purple"
-        />
+        <StatCard icon={FolderKanban} label="Total Projects" value={stats.total} color="blue" />
+        <StatCard icon={CheckCircle} label="Active" value={stats.active} color="green" />
+        <StatCard icon={AlertTriangle} label="On Hold" value={stats.onHold} color="red" />
+        <StatCard icon={DollarSign} label="Total Value" value={formatCurrency(stats.totalValue)} color="purple" />
       </div>
 
       {/* ── Filters ── */}
@@ -3893,53 +3229,26 @@ export default function Projects() {
           <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search projects..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
+              <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
             </div>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                {PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-              </SelectContent>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Status</SelectItem>{PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={filterStage} onValueChange={setFilterStage}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Stage" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stages</SelectItem>
-                {PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
-              </SelectContent>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Stage" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Stages</SelectItem>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={filterPriority} onValueChange={setFilterPriority}>
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder="Priority" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Priority</SelectItem>
-                {PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}
-              </SelectContent>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Priority" /></SelectTrigger>
+              <SelectContent><SelectItem value="all">All Priority</SelectItem>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="date_asc">🚀 Launch Date (Nearest)</SelectItem>
-                <SelectItem value="date_desc">🚀 Launch Date (Farthest)</SelectItem>
-                <SelectItem value="priority">⚡ Priority (High → Low)</SelectItem>
-              </SelectContent>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Sort by" /></SelectTrigger>
+              <SelectContent><SelectItem value="date_asc">🚀 Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">🚀 Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
             </Select>
             <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("date_asc"); }}>
-              <X className="h-4 w-4 mr-1" />
-              Clear
+              <X className="h-4 w-4 mr-1" />Clear
             </Button>
           </div>
         </CardHeader>
@@ -3954,22 +3263,128 @@ export default function Projects() {
                 <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No projects found</p>
                 <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Your First Project
+                  <Plus className="h-4 w-4 mr-2" />Create Your First Project
                 </Button>
               </div>
             ) : (
-              filteredProjects.map((project: Project) => (
-                <ProjectCard 
-                  key={project.id} 
-                  project={project} 
-                  onClick={() => handleProjectClick(project)}
-                />
-              ))
+              filteredProjects.map((project: Project) => <ProjectCard key={project.id} project={project} onClick={() => handleProjectClick(project)} />)
             )}
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Import Excel Dialog ── */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-green-600" />
+              Import Projects from Excel
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
+              <input
+                ref={excelInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleExcelFileSelect}
+                className="hidden"
+                id="excel-upload"
+              />
+              <label htmlFor="excel-upload" className="cursor-pointer block">
+                {importFile ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <FileSpreadsheet className="h-10 w-10 text-green-600" />
+                    <div className="text-left">
+                      <p className="font-medium">{importFile.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {(importFile.size / 1024).toFixed(1)} KB • {importPreview.length} rows found
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setImportFile(null);
+                        setImportPreview([]);
+                        if (excelInputRef.current) excelInputRef.current.value = "";
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <FileSpreadsheet className="h-12 w-12 mx-auto text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Click to upload Excel file (.xlsx or .xls)
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      File should have columns: Client Name, Brand Name, Project Type, Priority, etc.
+                    </p>
+                  </div>
+                )}
+              </label>
+            </div>
+
+            {importPreview.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Preview (first {importPreview.length} rows):</p>
+                <div className="border rounded-lg overflow-auto max-h-60">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted sticky top-0">
+                      <tr>
+                        {Object.keys(importPreview[0] || {}).map((key) => (
+                          <th key={key} className="px-3 py-2 text-left font-medium border-b">{key}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.map((row, idx) => (
+                        <tr key={idx} className="border-b hover:bg-muted/30">
+                          {Object.values(row).map((val: any, colIdx) => (
+                            <td key={colIdx} className="px-3 py-1.5 max-w-[150px] truncate">{String(val || '')}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+              <p className="font-medium">⚠️ Important Notes:</p>
+              <ul className="list-disc list-inside mt-1 space-y-0.5 text-xs">
+                <li>Required column: <strong>Client Name</strong></li>
+                <li>Optional columns: Brand Name, Project Type, Priority, Project Value, Status, etc.</li>
+                <li>Priority values: high, medium, low</li>
+                <li>Status values: active, on_hold, completed, cancelled</li>
+                <li>Project Type values: perfume, ayurveda, cosmetics, food, supplements</li>
+                <li>Duplicates will be skipped automatically</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
+            <Button onClick={importFromExcel} disabled={!importFile || importing}>
+              {importing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <Import className="h-4 w-4 mr-2" />
+                  Import Projects
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
