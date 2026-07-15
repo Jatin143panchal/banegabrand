@@ -23,9 +23,10 @@ import {
   FileText, CreditCard, ClipboardList, Building2, Send,
   ChevronRight, ArrowLeft, Bell, File, Image, Video,
   Shield, Award, Coffee, Globe, Zap, Target, BarChart3,
-  RefreshCw, Save, Copy, Upload, StickyNote, MapPin, PhoneCall
+  RefreshCw, Save, Copy, Upload, StickyNote, MapPin, PhoneCall,
+  CircleDot
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, isBefore, isToday, isThisWeek, startOfDay } from "date-fns";
 
 // ============================================================
 // CONSTANTS
@@ -52,6 +53,13 @@ const PROJECT_TYPES = [
   { value: "cosmetics", label: "Cosmetics", icon: "💄" },
   { value: "food", label: "Food", icon: "🍽️" },
   { value: "supplements", label: "Supplements", icon: "💊" },
+];
+
+// NEW: project-level priority (high / medium / low)
+const PROJECT_PRIORITIES = [
+  { value: "high", label: "High", color: "#ef4444", icon: "🔴" },
+  { value: "medium", label: "Medium", color: "#f59e0b", icon: "🟡" },
+  { value: "low", label: "Low", color: "#10b981", icon: "🟢" },
 ];
 
 const MANUFACTURING_STAGES = [
@@ -114,6 +122,7 @@ interface Project {
   current_stage: string;
   completion_percentage: number;
   status: string;
+  priority: string; // NEW: 'high' | 'medium' | 'low'
   client_address: string | null;
   client_phone: string | null;
   created_at: string;
@@ -241,6 +250,25 @@ interface ITTeamMember {
   active: boolean;
 }
 
+// NEW: My Tasks (cross-project) row shape
+interface MyTaskRow extends ProjectTask {
+  projects: {
+    name: string;
+    project_id: string;
+    brand_name: string | null;
+  } | null;
+}
+
+// NEW: Internal chat message
+interface InternalMessage {
+  id: string;
+  sender_email: string;
+  receiver_email: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}
+
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
@@ -289,6 +317,22 @@ function getPriorityColor(priority: string) {
     low: "text-gray-600 bg-gray-100 border-gray-200"
   };
   return colors[priority] || colors.medium;
+}
+
+// NEW: project priority meta lookup
+function getProjectPriorityMeta(priority: string) {
+  return PROJECT_PRIORITIES.find(p => p.value === priority) || PROJECT_PRIORITIES[1];
+}
+
+// NEW: bucket a due date into overdue / today / this_week / later
+function getDueBucket(dueDate: string | null) {
+  if (!dueDate) return "no_date";
+  const d = startOfDay(new Date(dueDate));
+  const today = startOfDay(new Date());
+  if (isBefore(d, today)) return "overdue";
+  if (isToday(d)) return "today";
+  if (isThisWeek(d)) return "this_week";
+  return "later";
 }
 
 // ============================================================
@@ -364,6 +408,19 @@ function StageBadge({ stage }: { stage: string }) {
   );
 }
 
+// ── Project Priority Badge ── NEW ──────────────────────────────
+function ProjectPriorityBadge({ priority }: { priority: string }) {
+  const meta = getProjectPriorityMeta(priority);
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{ color: meta.color, background: `${meta.color}20`, border: `1px solid ${meta.color}30` }}
+    >
+      {meta.icon} {meta.label}
+    </span>
+  );
+}
+
 // ── Priority Badge ────────────────────────────────────────────
 function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = {
@@ -405,6 +462,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <StageBadge stage={project.current_stage} />
             <StatusBadge status={project.status} />
+            <ProjectPriorityBadge priority={project.priority || "medium"} />
             {project.project_value && project.project_value > 0 && (
               <span className="text-sm font-medium text-green-600">
                 {formatCurrency(project.project_value)}
@@ -679,11 +737,16 @@ export default function Projects() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── NEW: Top-level page switcher (Projects / My Tasks / Team Chat) ──
+  const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat">("projects");
   
   // ── States ──────────────────────────────────────────────────
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
+  const [filterPriority, setFilterPriority] = useState("all"); // NEW
+  const [sortBy, setSortBy] = useState<"date_asc" | "date_desc" | "priority">("date_asc"); // NEW
   const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
@@ -750,6 +813,206 @@ console.log("📊 IT Team render state:", {
   loading: itLoading,
   error: error?.message,
 });
+
+  // ════════════════════════════════════════════════════════════
+  // NEW: MY TASKS (cross-project, filtered to logged-in employee)
+  // ════════════════════════════════════════════════════════════
+  const [myTaskPriorityFilter, setMyTaskPriorityFilter] = useState("all");
+  const [myTaskStatusFilter, setMyTaskStatusFilter] = useState("all");
+  const [myTaskDueFilter, setMyTaskDueFilter] = useState("all"); // all | overdue | today | this_week | later
+  const [myTaskClientFilter, setMyTaskClientFilter] = useState("all");
+  const [myTaskRemarksDraft, setMyTaskRemarksDraft] = useState<Record<string, string>>({});
+
+  const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
+    queryKey: ["my_tasks", user?.email],
+    enabled: !!user?.email && mainView === "my_tasks",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_tasks")
+        .select(`
+          id, project_id, stage_id, task_name, description, department,
+          assigned_to, assigned_to_email, assigned_to_name, assigned_by,
+          priority, status, start_date, due_date, completion_date, employee_remarks,
+          projects ( name, project_id, brand_name )
+        `)
+        .eq("assigned_to_email", user?.email)
+        .order("due_date", { ascending: true });
+
+      if (error) throw error;
+      return data as unknown as MyTaskRow[];
+    },
+  });
+
+  const MY_TASK_PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+
+  const myTaskClients = Array.from(
+    new Map(
+      myTasks.filter(t => t.projects).map(t => [t.projects!.name, t.projects!.name])
+    ).values()
+  );
+
+  const filteredMyTasks = myTasks
+    .filter(t => myTaskPriorityFilter === "all" || t.priority === myTaskPriorityFilter)
+    .filter(t => myTaskStatusFilter === "all" || t.status === myTaskStatusFilter)
+    .filter(t => myTaskDueFilter === "all" || getDueBucket(t.due_date) === myTaskDueFilter)
+    .filter(t => myTaskClientFilter === "all" || t.projects?.name === myTaskClientFilter)
+    .sort((a, b) => {
+      const pa = MY_TASK_PRIORITY_ORDER[a.priority] ?? 2;
+      const pb = MY_TASK_PRIORITY_ORDER[b.priority] ?? 2;
+      if (pa !== pb) return pa - pb;
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+    });
+
+  const myTaskStats = {
+    total: myTasks.length,
+    pending: myTasks.filter(t => t.status !== "completed").length,
+    overdue: myTasks.filter(t => getDueBucket(t.due_date) === "overdue" && t.status !== "completed").length,
+    completed: myTasks.filter(t => t.status === "completed").length,
+  };
+
+  const updateMyTaskStatus = async (taskId: string, status: string) => {
+    try {
+      const { error } = await supabase.from("project_tasks").update({ status }).eq("id", taskId);
+      if (error) throw error;
+      toast.success("Task updated");
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  const saveMyTaskRemarks = async (taskId: string) => {
+    const remarks = myTaskRemarksDraft[taskId];
+    if (remarks === undefined) return;
+    try {
+      const { error } = await supabase
+        .from("project_tasks")
+        .update({ employee_remarks: remarks })
+        .eq("id", taskId);
+      if (error) throw error;
+      toast.success("Update saved — admin ko dikh jayega");
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  // ════════════════════════════════════════════════════════════
+  // NEW: INTERNAL TEAM CHAT
+  // ════════════════════════════════════════════════════════════
+  const myEmail = user?.email || "";
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const [activeChatMember, setActiveChatMember] = useState<ITTeamMember | null>(null);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatMessages, setChatMessages] = useState<InternalMessage[]>([]);
+  const [chatMessagesLoading, setChatMessagesLoading] = useState(false);
+
+  const chatTeamList = itTeam.filter(m => m.email !== myEmail);
+
+  const { data: chatUnread = [] } = useQuery({
+    queryKey: ["internal_unread", myEmail],
+    enabled: !!myEmail && mainView === "chat",
+    refetchInterval: 15000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("internal_messages")
+        .select("sender_email")
+        .eq("receiver_email", myEmail)
+        .eq("is_read", false);
+      if (error) throw error;
+      return data.map((d: any) => d.sender_email) as string[];
+    },
+  });
+
+  const loadChatConversation = async (otherEmail: string) => {
+    setChatMessagesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("internal_messages")
+        .select("*")
+        .or(
+          `and(sender_email.eq.${myEmail},receiver_email.eq.${otherEmail}),and(sender_email.eq.${otherEmail},receiver_email.eq.${myEmail})`
+        )
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setChatMessages(data as InternalMessage[]);
+
+      await supabase
+        .from("internal_messages")
+        .update({ is_read: true })
+        .eq("sender_email", otherEmail)
+        .eq("receiver_email", myEmail)
+        .eq("is_read", false);
+
+      queryClient.invalidateQueries({ queryKey: ["internal_unread", myEmail] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load messages");
+    } finally {
+      setChatMessagesLoading(false);
+    }
+  };
+
+  const selectChatMember = (member: ITTeamMember) => {
+    setActiveChatMember(member);
+    loadChatConversation(member.email);
+  };
+
+  useEffect(() => {
+    if (!myEmail || mainView !== "chat") return;
+    const channel = supabase
+      .channel("internal_messages_realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "internal_messages" },
+        (payload) => {
+          const msg = payload.new as InternalMessage;
+          const involvesMe = msg.sender_email === myEmail || msg.receiver_email === myEmail;
+          if (!involvesMe) return;
+
+          if (
+            activeChatMember &&
+            (msg.sender_email === activeChatMember.email || msg.receiver_email === activeChatMember.email)
+          ) {
+            setChatMessages((prev) => [...prev, msg]);
+            if (msg.receiver_email === myEmail) {
+              supabase.from("internal_messages").update({ is_read: true }).eq("id", msg.id).then();
+            }
+          } else {
+            queryClient.invalidateQueries({ queryKey: ["internal_unread", myEmail] });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myEmail, activeChatMember, mainView]);
+
+  useEffect(() => {
+    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [chatMessages]);
+
+  const sendChatMessage = async () => {
+    if (!chatDraft.trim() || !activeChatMember || !myEmail) return;
+    const text = chatDraft.trim();
+    setChatDraft("");
+    try {
+      const { error } = await supabase.from("internal_messages").insert({
+        sender_email: myEmail,
+        receiver_email: activeChatMember.email,
+        message: text,
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      toast.error(error.message || "Failed to send message");
+      setChatDraft(text);
+    }
+  };
+
   // ── New Stage State ──
   const [newStage, setNewStage] = useState({
     stage_name: "",
@@ -829,18 +1092,30 @@ console.log("📊 IT Team render state:", {
     totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
   };
 
-  // ── Filter Projects ────────────────────────────────────────
-  const filteredProjects = projects.filter((project: Project) => {
-    const matchSearch = 
-      project.name.toLowerCase().includes(search.toLowerCase()) ||
-      (project.brand_name || "").toLowerCase().includes(search.toLowerCase()) ||
-      project.project_id.toLowerCase().includes(search.toLowerCase());
-    
-    const matchStatus = filterStatus === "all" || project.status === filterStatus;
-    const matchStage = filterStage === "all" || project.current_stage === filterStage;
-    
-    return matchSearch && matchStatus && matchStage;
-  });
+  // ── Filter + Sort Projects ─────────────────────────────────
+  const PROJECT_PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+  const filteredProjects = projects
+    .filter((project: Project) => {
+      const matchSearch = 
+        project.name.toLowerCase().includes(search.toLowerCase()) ||
+        (project.brand_name || "").toLowerCase().includes(search.toLowerCase()) ||
+        project.project_id.toLowerCase().includes(search.toLowerCase());
+      
+      const matchStatus = filterStatus === "all" || project.status === filterStatus;
+      const matchStage = filterStage === "all" || project.current_stage === filterStage;
+      const matchPriority = filterPriority === "all" || project.priority === filterPriority;
+      
+      return matchSearch && matchStatus && matchStage && matchPriority;
+    })
+    .sort((a, b) => {
+      if (sortBy === "priority") {
+        return (PROJECT_PRIORITY_RANK[a.priority] ?? 1) - (PROJECT_PRIORITY_RANK[b.priority] ?? 1);
+      }
+      const da = a.expected_launch_date ? new Date(a.expected_launch_date).getTime() : Infinity;
+      const db = b.expected_launch_date ? new Date(b.expected_launch_date).getTime() : Infinity;
+      return sortBy === "date_asc" ? da - db : db - da;
+    });
 
   // ── Filtered tasks (by assignee) ──────────────────────────
   const filteredTasks = projectTasks.filter(task => {
@@ -971,6 +1246,7 @@ console.log("📊 IT Team render state:", {
     brand_name: "",
     project_type: "perfume",
     project_value: "",
+    priority: "medium", // NEW
     start_date: "",
     expected_launch_date: "",
     client_address: "",
@@ -994,6 +1270,7 @@ console.log("📊 IT Team render state:", {
           brand_name: newProject.brand_name || null,
           project_type: newProject.project_type || null,
           project_value: Number(newProject.project_value) || 0,
+          priority: newProject.priority || "medium", // NEW
           start_date: newProject.start_date || null,
           expected_launch_date: newProject.expected_launch_date || null,
           client_address: newProject.client_address || null,
@@ -1034,6 +1311,7 @@ console.log("📊 IT Team render state:", {
         brand_name: "",
         project_type: "perfume",
         project_value: "",
+        priority: "medium",
         start_date: "",
         expected_launch_date: "",
         client_address: "",
@@ -1059,6 +1337,7 @@ console.log("📊 IT Team render state:", {
           brand_name: editingProject.brand_name,
           project_type: editingProject.project_type,
           project_value: editingProject.project_value,
+          priority: editingProject.priority, // NEW
           start_date: editingProject.start_date,
           expected_launch_date: editingProject.expected_launch_date,
           status: editingProject.status,
@@ -1795,6 +2074,323 @@ console.log("📊 IT Team render state:", {
     );
   }
 
+  // ── NEW: Top-level nav shown above every view ──
+  const TopNav = (
+    <div className="flex items-center gap-2 flex-wrap border-b pb-3">
+      <Button
+        variant={mainView === "projects" ? "default" : "outline"}
+        size="sm"
+        onClick={() => setMainView("projects")}
+      >
+        <FolderKanban className="h-4 w-4 mr-2" />
+        Projects
+      </Button>
+      <Button
+        variant={mainView === "my_tasks" ? "default" : "outline"}
+        size="sm"
+        onClick={() => setMainView("my_tasks")}
+      >
+        <ClipboardList className="h-4 w-4 mr-2" />
+        My Tasks
+        {myTaskStats.overdue > 0 && (
+          <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">{myTaskStats.overdue}</Badge>
+        )}
+      </Button>
+      <Button
+        variant={mainView === "chat" ? "default" : "outline"}
+        size="sm"
+        onClick={() => setMainView("chat")}
+      >
+        <MessageSquare className="h-4 w-4 mr-2" />
+        Team Chat
+        {chatUnread.length > 0 && (
+          <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">{chatUnread.length}</Badge>
+        )}
+      </Button>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════════
+  // NEW: MY TASKS VIEW
+  // ════════════════════════════════════════════════════════════
+  if (mainView === "my_tasks") {
+    return (
+      <div className="space-y-6">
+        {TopNav}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
+          <p className="text-muted-foreground text-sm">Sirf aapko assign kiye gaye tasks yahan dikhte hain</p>
+        </div>
+
+        {myTasksLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card><CardContent className="p-4 flex items-center justify-between">
+                <div><p className="text-sm text-muted-foreground">Total</p><p className="text-2xl font-bold">{myTaskStats.total}</p></div>
+                <ClipboardList className="h-5 w-5 text-blue-600" />
+              </CardContent></Card>
+              <Card><CardContent className="p-4 flex items-center justify-between">
+                <div><p className="text-sm text-muted-foreground">Pending</p><p className="text-2xl font-bold">{myTaskStats.pending}</p></div>
+                <Clock className="h-5 w-5 text-yellow-600" />
+              </CardContent></Card>
+              <Card><CardContent className="p-4 flex items-center justify-between">
+                <div><p className="text-sm text-muted-foreground">Overdue</p><p className="text-2xl font-bold text-red-600">{myTaskStats.overdue}</p></div>
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+              </CardContent></Card>
+              <Card><CardContent className="p-4 flex items-center justify-between">
+                <div><p className="text-sm text-muted-foreground">Completed</p><p className="text-2xl font-bold text-green-600">{myTaskStats.completed}</p></div>
+                <CheckCircle className="h-5 w-5 text-green-600" />
+              </CardContent></Card>
+            </div>
+
+            {/* Filters */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap gap-2">
+                  <Select value={myTaskDueFilter} onValueChange={setMyTaskDueFilter}>
+                    <SelectTrigger className="w-40"><SelectValue placeholder="Due date" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Dates</SelectItem>
+                      <SelectItem value="overdue">Overdue</SelectItem>
+                      <SelectItem value="today">Due Today</SelectItem>
+                      <SelectItem value="this_week">This Week</SelectItem>
+                      <SelectItem value="later">Later</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={myTaskPriorityFilter} onValueChange={setMyTaskPriorityFilter}>
+                    <SelectTrigger className="w-36"><SelectValue placeholder="Priority" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Priority</SelectItem>
+                      <SelectItem value="urgent">🔴 Urgent</SelectItem>
+                      <SelectItem value="high">🟠 High</SelectItem>
+                      <SelectItem value="medium">🟡 Medium</SelectItem>
+                      <SelectItem value="low">🟢 Low</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={myTaskStatusFilter} onValueChange={setMyTaskStatusFilter}>
+                    <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="not_started">Not Started</SelectItem>
+                      <SelectItem value="in_progress">Processing</SelectItem>
+                      <SelectItem value="review">Review</SelectItem>
+                      <SelectItem value="completed">Done</SelectItem>
+                      <SelectItem value="blocked">Blocked</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={myTaskClientFilter} onValueChange={setMyTaskClientFilter}>
+                    <SelectTrigger className="w-44"><SelectValue placeholder="Client" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Clients</SelectItem>
+                      {myTaskClients.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setMyTaskDueFilter("all");
+                      setMyTaskPriorityFilter("all");
+                      setMyTaskStatusFilter("all");
+                      setMyTaskClientFilter("all");
+                    }}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Clear
+                  </Button>
+                </div>
+              </CardHeader>
+            </Card>
+
+            {/* Task list */}
+            <div className="space-y-3">
+              {filteredMyTasks.length === 0 && (
+                <Card><CardContent className="p-8 text-center text-muted-foreground">
+                  Koi task nahi mila is filter ke saath
+                </CardContent></Card>
+              )}
+              {filteredMyTasks.map((task) => {
+                const bucket = getDueBucket(task.due_date);
+                return (
+                  <Card key={task.id} className={bucket === "overdue" && task.status !== "completed" ? "border-red-300" : ""}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between flex-wrap gap-2">
+                        <div className="flex-1 min-w-[200px]">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{task.task_name}</span>
+                            <PriorityBadge priority={task.priority} />
+                            <StatusBadge status={task.status} />
+                            {bucket === "overdue" && task.status !== "completed" && (
+                              <Badge variant="destructive" className="text-xs">Overdue</Badge>
+                            )}
+                          </div>
+                          {task.projects && (
+                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                              <Building2 className="h-3 w-3" /> {task.projects.name}
+                              {task.projects.brand_name ? ` • ${task.projects.brand_name}` : ""}
+                            </p>
+                          )}
+                          {task.description && (
+                            <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                          )}
+                          {task.due_date && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}
+                            </p>
+                          )}
+                        </div>
+                        <Select value={task.status} onValueChange={(v) => updateMyTaskStatus(task.id, v)}>
+                          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="not_started">Not Started</SelectItem>
+                            <SelectItem value="in_progress">Processing</SelectItem>
+                            <SelectItem value="review">Review</SelectItem>
+                            <SelectItem value="completed">Done</SelectItem>
+                            <SelectItem value="blocked">Blocked</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Employee remarks / progress update */}
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs text-muted-foreground mb-1">Apna update / progress note likhein:</p>
+                        <div className="flex gap-2">
+                          <Textarea
+                            rows={2}
+                            defaultValue={task.employee_remarks || ""}
+                            onChange={(e) => setMyTaskRemarksDraft((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                            placeholder="e.g. Sample bhej diya hai, client ka reply pending hai..."
+                            className="text-sm"
+                          />
+                          <Button size="sm" onClick={() => saveMyTaskRemarks(task.id)}>Save</Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // NEW: TEAM CHAT VIEW
+  // ════════════════════════════════════════════════════════════
+  if (mainView === "chat") {
+    return (
+      <div className="space-y-4">
+        {TopNav}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Team Chat</h1>
+          <p className="text-muted-foreground text-sm">IT team ke saath internal messaging</p>
+        </div>
+
+        <Card>
+          <CardContent className="p-0">
+            <div className="grid grid-cols-1 md:grid-cols-3 h-[550px]">
+              {/* Sidebar: team members */}
+              <div className="border-r overflow-y-auto">
+                {itLoading ? (
+                  <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                ) : (
+                  chatTeamList.map((member) => (
+                    <button
+                      key={member.id}
+                      onClick={() => selectChatMember(member)}
+                      className={`w-full text-left px-4 py-3 border-b hover:bg-muted/40 transition-colors flex items-center justify-between ${
+                        activeChatMember?.id === member.id ? "bg-muted/60" : ""
+                      }`}
+                    >
+                      <div>
+                        <p className="font-medium text-sm">{member.name}</p>
+                        <p className="text-xs text-muted-foreground">{member.role || member.email}</p>
+                      </div>
+                      {chatUnread.includes(member.email) && (
+                        <CircleDot className="h-3 w-3 text-blue-500" />
+                      )}
+                    </button>
+                  ))
+                )}
+                {!itLoading && chatTeamList.length === 0 && (
+                  <p className="text-sm text-muted-foreground p-4">Koi aur IT team member nahi mila</p>
+                )}
+              </div>
+
+              {/* Conversation */}
+              <div className="md:col-span-2 flex flex-col">
+                {!activeChatMember ? (
+                  <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm gap-2">
+                    <MessageSquare className="h-5 w-5" /> Chat karne ke liye kisi team member ko select karein
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-4 py-3 border-b">
+                      <p className="font-medium text-sm">{activeChatMember.name}</p>
+                    </div>
+                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2">
+                      {chatMessagesLoading ? (
+                        <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                      ) : (
+                        chatMessages.map((m) => {
+                          const mine = m.sender_email === myEmail;
+                          return (
+                            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                              <div
+                                className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                                  mine ? "bg-primary text-primary-foreground" : "bg-muted"
+                                }`}
+                              >
+                                <p className="whitespace-pre-wrap">{m.message}</p>
+                                <p className={`text-[10px] mt-1 ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                                  {format(new Date(m.created_at), "hh:mm a")}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                      {!chatMessagesLoading && chatMessages.length === 0 && (
+                        <p className="text-center text-xs text-muted-foreground py-8">
+                          Abhi tak koi message nahi. Baat shuru karein!
+                        </p>
+                      )}
+                    </div>
+                    <div className="p-3 border-t flex gap-2">
+                      <Input
+                        value={chatDraft}
+                        onChange={(e) => setChatDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            sendChatMessage();
+                          }
+                        }}
+                        placeholder="Message likhein..."
+                      />
+                      <Button size="icon" onClick={sendChatMessage} disabled={!chatDraft.trim()}>
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // ════════════════════════════════════════════════════════════
   // DETAIL VIEW
   // ════════════════════════════════════════════════════════════
@@ -1803,6 +2399,7 @@ console.log("📊 IT Team render state:", {
     
     return (
       <div className="space-y-6">
+        {TopNav}
         {/* ── Header ── */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
@@ -1830,6 +2427,7 @@ console.log("📊 IT Team render state:", {
               {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"} 
               {selectedProject.project_type || "N/A"}
             </Badge>
+            <ProjectPriorityBadge priority={selectedProject.priority || "medium"} />
             
             {/* ── Action Buttons ── */}
             <Button size="sm" variant="outline" onClick={() => setTaskDialogOpen(true)}>
@@ -3124,6 +3722,15 @@ console.log("📊 IT Team render state:", {
                   </Select>
                 </div>
                 <div className="grid gap-2">
+                  <Label>Priority</Label>
+                  <Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
                   <Label>Project Value (₹)</Label>
                   <Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} />
                 </div>
@@ -3170,6 +3777,7 @@ console.log("📊 IT Team render state:", {
   // ════════════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
+      {TopNav}
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -3215,6 +3823,15 @@ console.log("📊 IT Team render state:", {
                     <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                     <SelectContent>
                       {PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Priority</Label>
+                  <Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -3299,7 +3916,26 @@ console.log("📊 IT Team render state:", {
                 {PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); }}>
+            <Select value={filterPriority} onValueChange={setFilterPriority}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Priority" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Priority</SelectItem>
+                {PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date_asc">🚀 Launch Date (Nearest)</SelectItem>
+                <SelectItem value="date_desc">🚀 Launch Date (Farthest)</SelectItem>
+                <SelectItem value="priority">⚡ Priority (High → Low)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("date_asc"); }}>
               <X className="h-4 w-4 mr-1" />
               Clear
             </Button>
