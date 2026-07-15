@@ -24,7 +24,10 @@ import {
   ChevronRight, ArrowLeft, Bell, File, Image, Video,
   Shield, Award, Coffee, Globe, Zap, Target, BarChart3,
   RefreshCw, Save, Copy, Upload, StickyNote, MapPin, PhoneCall,
-  CircleDot
+  CircleDot, EyeOff, Filter, Users2, Briefcase, PieChart,
+  Layers, Link2, ExternalLink, Archive, BookOpen, CheckSquare,
+  ListChecks, CalendarDays, Timer, Hourglass, AlarmClock,
+  UserPlus, UserMinus, Settings, SlidersHorizontal
 } from "lucide-react";
 import { format, isBefore, isToday, isThisWeek, startOfDay } from "date-fns";
 
@@ -779,40 +782,39 @@ export default function Projects() {
   const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+  // ── IT Team (fetched from Supabase) ──
+  const { data: itTeam = [], error, isLoading: itLoading } = useQuery({
+    queryKey: ["it_team_members"],
+    queryFn: async () => {
+      console.log("🔄 Fetching IT Team members...");
+      
+      const { data, error } = await supabase
+        .from("it_team_members")
+        .select("*")
+        .eq("active", true)
+        .order("name");
+      
+      if (error) {
+        console.error("❌ Supabase error:", error);
+        throw error;
+      }
+      
+      console.log(`✅ Fetched ${data?.length || 0} IT Team members:`, data);
+      return data as ITTeamMember[];
+    },
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    retry: 2,
+  });
 
-// ── IT Team (fetched from Supabase) ──
-const { data: itTeam = [], error, isLoading: itLoading } = useQuery({
-  queryKey: ["it_team_members"],
-  queryFn: async () => {
-    console.log("🔄 Fetching IT Team members...");
-    
-    const { data, error } = await supabase
-      .from("it_team_members")
-      .select("*")
-      .eq("active", true)
-      .order("name");
-    
-    if (error) {
-      console.error("❌ Supabase error:", error);
-      throw error;
-    }
-    
-    console.log(`✅ Fetched ${data?.length || 0} IT Team members:`, data);
-    return data as ITTeamMember[];
-  },
-  staleTime: 0,
-  refetchOnMount: true,
-  refetchOnWindowFocus: true,
-  retry: 2,
-});
-
-// Debug log (component render mein)
-console.log("📊 IT Team render state:", {
-  count: itTeam.length,
-  members: itTeam.map(m => m.name),
-  loading: itLoading,
-  error: error?.message,
-});
+  // Debug log (component render mein)
+  console.log("📊 IT Team render state:", {
+    count: itTeam.length,
+    members: itTeam.map(m => m.name),
+    loading: itLoading,
+    error: error?.message,
+  });
 
   // ════════════════════════════════════════════════════════════
   // NEW: MY TASKS (cross-project, filtered to logged-in employee)
