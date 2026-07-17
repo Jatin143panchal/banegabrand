@@ -20,7 +20,7 @@ import {
   MessageCircle, Calendar, TrendingUp, Flag, XCircle,
   FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
   AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio, BarChart3,
-  PieChart, PieChartIcon, ChartColumn, ShieldCheck
+  PieChart, PieChartIcon, ChartColumn, ShieldCheck, ListChecks, Clock, CalendarClock
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
@@ -133,6 +133,38 @@ interface DbLead {
   leegality_status?: string | null;
   leegality_signed_at?: string | null;
   temperature?: string | null;
+}
+
+// ── Daily Task types ──
+interface DbDailyTask {
+  id: string;
+  employee_id: string;
+  title: string;
+  description: string | null;
+  priority: "low" | "medium" | "high";
+  status: "pending" | "in_progress" | "completed";
+  due_date: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+const TASK_PRIORITIES = [
+  { value: "low",    label: "Low",    color: "#3b82f6", bg: "#eff6ff" },
+  { value: "medium", label: "Medium", color: "#f97316", bg: "#fff7ed" },
+  { value: "high",   label: "High",   color: "#ef4444", bg: "#fef2f2" },
+];
+
+const TASK_STATUSES = [
+  { value: "pending",     label: "Pending",     color: "#94a3b8", bg: "#f8fafc" },
+  { value: "in_progress", label: "In Progress", color: "#f97316", bg: "#fff7ed" },
+  { value: "completed",   label: "Completed",   color: "#10b981", bg: "#ecfdf5" },
+];
+
+function getPriorityConfig(p: string | null | undefined) {
+  return TASK_PRIORITIES.find(t => t.value === p) || TASK_PRIORITIES[1];
+}
+function getTaskStatusConfig(s: string | null | undefined) {
+  return TASK_STATUSES.find(t => t.value === s) || TASK_STATUSES[0];
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma","Perfume", "Nutraceutical", "Other"];
@@ -378,6 +410,219 @@ function LeadCharts({ leads }: { leads: DbLead[] }) {
   );
 }
 
+// ── Daily Tasks Section ──
+function DailyTasksSection({
+  tasks,
+  currentUserId,
+  isAdmin,
+  profiles,
+  onAddTask,
+  onUpdateStatus,
+  onDeleteTask,
+}: {
+  tasks: DbDailyTask[];
+  currentUserId: string | undefined;
+  isAdmin: boolean;
+  profiles: { user_id: string; display_name: string | null }[];
+  onAddTask: (task: { title: string; description: string; priority: string; due_date: string; employee_id: string }) => Promise<void>;
+  onUpdateStatus: (id: string, status: string) => void;
+  onDeleteTask: (id: string) => void;
+}) {
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [taskTab, setTaskTab] = useState<"mine" | "all">("mine");
+  const emptyTaskForm = {
+    title: "", description: "", priority: "medium", due_date: "",
+    employee_id: currentUserId || "",
+  };
+  const [taskForm, setTaskForm] = useState(emptyTaskForm);
+  const [savingTask, setSavingTask] = useState(false);
+
+  const visibleTasks = useMemo(() => {
+    if (isAdmin && taskTab === "all") return tasks;
+    return tasks.filter(t => t.employee_id === currentUserId);
+  }, [tasks, isAdmin, taskTab, currentUserId]);
+
+  const todayTasks = visibleTasks.filter(t => t.due_date && isToday(new Date(t.due_date)));
+  const pendingCount = visibleTasks.filter(t => t.status !== "completed").length;
+  const completedCount = visibleTasks.filter(t => t.status === "completed").length;
+
+  const handleSave = async () => {
+    if (!taskForm.title) { toast.error("Task title is required"); return; }
+    if (!taskForm.employee_id) { toast.error("Please select an employee"); return; }
+    setSavingTask(true);
+    try {
+      await onAddTask(taskForm);
+      setTaskForm({ ...emptyTaskForm, employee_id: currentUserId || "" });
+      setTaskDialogOpen(false);
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const getName = (id: string) => {
+    if (id === currentUserId) return "You";
+    return profiles.find(p => p.user_id === id)?.display_name || "Unknown";
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <ListChecks className="h-5 w-5" />
+              Daily Tasks
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {pendingCount} pending · {completedCount} completed{todayTasks.length > 0 ? ` · ${todayTasks.length} due today` : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Select value={taskTab} onValueChange={(v: "mine" | "all") => setTaskTab(v)}>
+                <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mine">My Tasks</SelectItem>
+                  <SelectItem value="all">All Employees</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm"><Plus className="mr-2 h-4 w-4" />Add Task</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader><DialogTitle>Add Daily Task</DialogTitle></DialogHeader>
+                <div className="grid gap-4 py-2">
+                  <div className="grid gap-2">
+                    <Label>Task Title *</Label>
+                    <Input
+                      value={taskForm.title}
+                      onChange={e => setTaskForm({ ...taskForm, title: e.target.value })}
+                      placeholder="e.g., Call 10 fresh leads"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Description</Label>
+                    <Textarea
+                      value={taskForm.description}
+                      onChange={e => setTaskForm({ ...taskForm, description: e.target.value })}
+                      placeholder="Task details..."
+                    />
+                  </div>
+                  {isAdmin && (
+                    <div className="grid gap-2">
+                      <Label>Assign To</Label>
+                      <Select value={taskForm.employee_id} onValueChange={v => setTaskForm({ ...taskForm, employee_id: v })}>
+                        <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                        <SelectContent>
+                          {currentUserId && <SelectItem value={currentUserId}>Myself</SelectItem>}
+                          {profiles.map(p => (
+                            <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-2">
+                      <Label>Priority</Label>
+                      <Select value={taskForm.priority} onValueChange={v => setTaskForm({ ...taskForm, priority: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {TASK_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Due Date</Label>
+                      <Input type="date" value={taskForm.due_date} onChange={e => setTaskForm({ ...taskForm, due_date: e.target.value })} />
+                    </div>
+                  </div>
+                  <Button onClick={handleSave} disabled={savingTask}>
+                    {savingTask ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                    Save Task
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {visibleTasks.length === 0 ? (
+          <div className="text-center py-8">
+            <ListChecks className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+            <p className="text-sm text-muted-foreground">No tasks yet. Add your first daily task.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visibleTasks
+              .slice()
+              .sort((a, b) => {
+                if (a.status === "completed" && b.status !== "completed") return 1;
+                if (a.status !== "completed" && b.status === "completed") return -1;
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+              })
+              .map(task => {
+                const prio = getPriorityConfig(task.priority);
+                const stat = getTaskStatusConfig(task.status);
+                const overdue = task.due_date && task.status !== "completed" && new Date(task.due_date) < new Date(new Date().toDateString());
+                return (
+                  <div key={task.id} className={`flex items-start gap-3 p-3 rounded-lg border ${task.status === "completed" ? "bg-muted/30" : "bg-white"}`}>
+                    <Checkbox
+                      checked={task.status === "completed"}
+                      onCheckedChange={(checked) => onUpdateStatus(task.id, checked ? "completed" : "pending")}
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className={`text-sm font-semibold ${task.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
+                          {task.title}
+                        </p>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ color: prio.color, background: prio.bg, borderColor: `${prio.color}30` }}>
+                          {prio.label}
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ color: stat.color, background: stat.bg, borderColor: `${stat.color}30` }}>
+                          {stat.label}
+                        </span>
+                        {overdue && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-red-600 bg-red-50 border-red-200 flex items-center gap-1">
+                            <Clock className="h-2.5 w-2.5" />Overdue
+                          </span>
+                        )}
+                      </div>
+                      {task.description && (
+                        <p className="text-xs text-muted-foreground mt-1">{task.description}</p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
+                        {isAdmin && <span>👤 {getName(task.employee_id)}</span>}
+                        {task.due_date && (
+                          <span className="flex items-center gap-1"><CalendarClock className="h-3 w-3" />{format(new Date(task.due_date), "dd MMM yyyy")}</span>
+                        )}
+                        <span>Added {format(new Date(task.created_at), "dd MMM")}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {task.status !== "in_progress" && task.status !== "completed" && (
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => onUpdateStatus(task.id, "in_progress")}>
+                          Start
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDeleteTask(task.id)} title="Delete">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
@@ -391,6 +636,10 @@ export default function Leads() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
+
+  // ── Daily Tasks state ──
+  const [dailyTasks, setDailyTasks] = useState<DbDailyTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
   
   // ── FIXED: Fetch leads function with role-based filtering ──
   const fetchLeads = useCallback(async () => {
@@ -441,14 +690,104 @@ export default function Leads() {
       setIsLoading(false);
     }
   }, [user?.id]);
+
+  // ── Fetch daily tasks (own tasks for employees, all tasks for admins) ──
+  const fetchDailyTasks = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      setTasksLoading(true);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user.id)
+        .single();
+      const isAdmin = profile?.role === "admin";
+
+      let query = supabase
+        .from("employee_tasks")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!isAdmin) {
+        query = query.eq("employee_id", user.id);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setDailyTasks((data as DbDailyTask[]) || []);
+    } catch (error) {
+      console.error("❌ Error fetching daily tasks:", error);
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [user?.id]);
   
   // ── Initial fetch ──
   useEffect(() => {
     if (isInitialFetch) {
       fetchLeads();
+      fetchDailyTasks();
       setIsInitialFetch(false);
     }
-  }, [fetchLeads, isInitialFetch]);
+  }, [fetchLeads, fetchDailyTasks, isInitialFetch]);
+
+  // ── Add a daily task (optimistic) ──
+  const handleAddTask = useCallback(async (task: { title: string; description: string; priority: string; due_date: string; employee_id: string }) => {
+    try {
+      const { data, error } = await supabase
+        .from("employee_tasks")
+        .insert({
+          employee_id: task.employee_id,
+          title: task.title,
+          description: task.description || null,
+          priority: task.priority,
+          due_date: task.due_date || null,
+          status: "pending",
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setDailyTasks(prev => [data as DbDailyTask, ...prev]);
+      toast.success("Task added");
+    } catch (error: any) {
+      console.error("Add task error:", error);
+      toast.error(error.message || "Failed to add task");
+    }
+  }, []);
+
+  // ── Update task status (optimistic) ──
+  const handleUpdateTaskStatus = useCallback(async (id: string, status: string) => {
+    const completed_at = status === "completed" ? new Date().toISOString() : null;
+    setDailyTasks(prev => prev.map(t => (t.id === id ? { ...t, status: status as DbDailyTask["status"], completed_at } : t)));
+
+    try {
+      const { error } = await supabase
+        .from("employee_tasks")
+        .update({ status, completed_at })
+        .eq("id", id);
+      if (error) throw error;
+      if (status === "completed") toast.success("Task marked complete");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update task");
+      await fetchDailyTasks();
+    }
+  }, [fetchDailyTasks]);
+
+  // ── Delete task (optimistic) ──
+  const handleDeleteTask = useCallback(async (id: string) => {
+    if (!confirm("Delete this task?")) return;
+    setDailyTasks(prev => prev.filter(t => t.id !== id));
+    try {
+      const { error } = await supabase.from("employee_tasks").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Task deleted");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete task");
+      await fetchDailyTasks();
+    }
+  }, [fetchDailyTasks]);
   
   // ── FIXED: Real-time subscription with role-based filtering ──
   useEffect(() => {
@@ -1542,6 +1881,17 @@ export default function Leads() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Daily Tasks Section ── */}
+      <DailyTasksSection
+        tasks={dailyTasks}
+        currentUserId={user?.id}
+        isAdmin={canAssign}
+        profiles={typedProfiles}
+        onAddTask={handleAddTask}
+        onUpdateStatus={handleUpdateTaskStatus}
+        onDeleteTask={handleDeleteTask}
+      />
 
       {/* ── Charts Section ── */}
       <LeadCharts leads={leads} />
