@@ -20,12 +20,13 @@ import {
   MessageCircle, Calendar, TrendingUp, Flag, XCircle,
   FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
   AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio, BarChart3,
-  PieChart, PieChartIcon, ChartColumn, ShieldCheck, ListChecks, Clock, CalendarClock
+  PieChart, PieChartIcon, ChartColumn, ShieldCheck,
+  PhoneCall, Layers, ChevronDown, ChevronUp
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import LeadCommentsPanel from "@/components/LeadCommentsPanel";
 import { useBulkAssignLeads } from "@/hooks/useLeadComments";
-import { isToday, subDays, format } from "date-fns";
+import { isToday, isPast, isFuture, subDays, format, startOfDay } from "date-fns";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import {
@@ -135,36 +136,24 @@ interface DbLead {
   temperature?: string | null;
 }
 
-// ── Daily Task types ──
-interface DbDailyTask {
-  id: string;
-  employee_id: string;
-  title: string;
-  description: string | null;
-  priority: "low" | "medium" | "high";
-  status: "pending" | "in_progress" | "completed";
-  due_date: string | null;
-  created_at: string;
-  completed_at: string | null;
-}
-
-const TASK_PRIORITIES = [
-  { value: "low",    label: "Low",    color: "#3b82f6", bg: "#eff6ff" },
-  { value: "medium", label: "Medium", color: "#f97316", bg: "#fff7ed" },
-  { value: "high",   label: "High",   color: "#ef4444", bg: "#fef2f2" },
+// ── Follow-up urgency config (colors used across the Follow-up section) ──
+const FOLLOWUP_BUCKETS = [
+  { value: "overdue", label: "Overdue",   color: "#ef4444", bg: "#fef2f2", icon: "⏰" },
+  { value: "today",   label: "Today",     color: "#f97316", bg: "#fff7ed", icon: "📅" },
+  { value: "upcoming",label: "Upcoming",  color: "#3b82f6", bg: "#eff6ff", icon: "🔜" },
 ];
 
-const TASK_STATUSES = [
-  { value: "pending",     label: "Pending",     color: "#94a3b8", bg: "#f8fafc" },
-  { value: "in_progress", label: "In Progress", color: "#f97316", bg: "#fff7ed" },
-  { value: "completed",   label: "Completed",   color: "#10b981", bg: "#ecfdf5" },
-];
-
-function getPriorityConfig(p: string | null | undefined) {
-  return TASK_PRIORITIES.find(t => t.value === p) || TASK_PRIORITIES[1];
+function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" | "today" | "upcoming" | null {
+  if (!nextCallDate) return null;
+  const d = startOfDay(new Date(nextCallDate));
+  const today = startOfDay(new Date());
+  if (d.getTime() < today.getTime()) return "overdue";
+  if (d.getTime() === today.getTime()) return "today";
+  return "upcoming";
 }
-function getTaskStatusConfig(s: string | null | undefined) {
-  return TASK_STATUSES.find(t => t.value === s) || TASK_STATUSES[0];
+
+function getFollowupBucketConfig(bucket: string | null) {
+  return FOLLOWUP_BUCKETS.find(b => b.value === bucket) || null;
 }
 
 const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma","Perfume", "Nutraceutical", "Other"];
@@ -238,6 +227,21 @@ function StagePill({ stage, subStage }: { stage: string | null; subStage: string
       {subStage && (
         <span className="text-[10px] text-muted-foreground">{formatStageLabel(subStage)}</span>
       )}
+    </div>
+  );
+}
+
+// ── Follow-up bucket pill (used in Follow-up section + table) ──
+function FollowupPill({ nextCallDate }: { nextCallDate: string | null | undefined }) {
+  const bucket = getFollowupBucket(nextCallDate);
+  const cfg = getFollowupBucketConfig(bucket);
+  if (!cfg || !nextCallDate) return <span className="text-xs text-muted-foreground">-</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ color: cfg.color, background: cfg.bg, borderColor: `${cfg.color}30` }}>
+        <span>{cfg.icon}</span>{cfg.label}
+      </span>
+      <span className="text-[10px] text-muted-foreground">{format(new Date(nextCallDate), "dd MMM yyyy")}</span>
     </div>
   );
 }
@@ -410,215 +414,179 @@ function LeadCharts({ leads }: { leads: DbLead[] }) {
   );
 }
 
-// ── Daily Tasks Section ──
-function DailyTasksSection({
-  tasks,
-  currentUserId,
-  isAdmin,
-  profiles,
-  onAddTask,
-  onUpdateStatus,
-  onDeleteTask,
+// ── Follow-up Section ──────────────────────────────────────────────────────
+function FollowUpSection({
+  leads,
+  onOpenLead,
 }: {
-  tasks: DbDailyTask[];
-  currentUserId: string | undefined;
-  isAdmin: boolean;
-  profiles: { user_id: string; display_name: string | null }[];
-  onAddTask: (task: { title: string; description: string; priority: string; due_date: string; employee_id: string }) => Promise<void>;
-  onUpdateStatus: (id: string, status: string) => void;
-  onDeleteTask: (id: string) => void;
+  leads: DbLead[];
+  onOpenLead: (lead: DbLead) => void;
 }) {
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [taskTab, setTaskTab] = useState<"mine" | "all">("mine");
-  const emptyTaskForm = {
-    title: "", description: "", priority: "medium", due_date: "",
-    employee_id: currentUserId || "",
-  };
-  const [taskForm, setTaskForm] = useState(emptyTaskForm);
-  const [savingTask, setSavingTask] = useState(false);
+  const [bucketFilter, setBucketFilter] = useState<"all" | "overdue" | "today" | "upcoming">("all");
+  const [fuDateFrom, setFuDateFrom] = useState("");
+  const [fuDateTo, setFuDateTo] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
 
-  const visibleTasks = useMemo(() => {
-    if (isAdmin && taskTab === "all") return tasks;
-    return tasks.filter(t => t.employee_id === currentUserId);
-  }, [tasks, isAdmin, taskTab, currentUserId]);
+  const followupLeads = useMemo(() => {
+    return leads
+      .filter(l => !!l.next_call_date)
+      .filter(l => l.stage !== "converted" && l.stage !== "lost")
+      .filter(l => {
+        const bucket = getFollowupBucket(l.next_call_date);
+        if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
+        if (fuDateFrom && new Date(l.next_call_date as string) < new Date(fuDateFrom)) return false;
+        if (fuDateTo && new Date(l.next_call_date as string) > new Date(fuDateTo + "T23:59:59")) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(a.next_call_date as string).getTime() - new Date(b.next_call_date as string).getTime());
+  }, [leads, bucketFilter, fuDateFrom, fuDateTo]);
 
-  const todayTasks = visibleTasks.filter(t => t.due_date && isToday(new Date(t.due_date)));
-  const pendingCount = visibleTasks.filter(t => t.status !== "completed").length;
-  const completedCount = visibleTasks.filter(t => t.status === "completed").length;
-
-  const handleSave = async () => {
-    if (!taskForm.title) { toast.error("Task title is required"); return; }
-    if (!taskForm.employee_id) { toast.error("Please select an employee"); return; }
-    setSavingTask(true);
-    try {
-      await onAddTask(taskForm);
-      setTaskForm({ ...emptyTaskForm, employee_id: currentUserId || "" });
-      setTaskDialogOpen(false);
-    } finally {
-      setSavingTask(false);
-    }
-  };
-
-  const getName = (id: string) => {
-    if (id === currentUserId) return "You";
-    return profiles.find(p => p.user_id === id)?.display_name || "Unknown";
-  };
+  const counts = useMemo(() => {
+    const base = leads.filter(l => !!l.next_call_date && l.stage !== "converted" && l.stage !== "lost");
+    return {
+      overdue: base.filter(l => getFollowupBucket(l.next_call_date) === "overdue").length,
+      today: base.filter(l => getFollowupBucket(l.next_call_date) === "today").length,
+      upcoming: base.filter(l => getFollowupBucket(l.next_call_date) === "upcoming").length,
+    };
+  }, [leads]);
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="border-orange-200 shadow-md">
+      <CardHeader className="pb-3 bg-gradient-to-r from-orange-50 to-white">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <ListChecks className="h-5 w-5" />
-              Daily Tasks
+              <PhoneCall className="h-5 w-5" style={{ color: "#f97316" }} />
+              Follow-ups
+              <Badge className="ml-2 bg-orange-500 text-white">
+                {counts.overdue + counts.today} Due Today/Overdue
+              </Badge>
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              {pendingCount} pending · {completedCount} completed{todayTasks.length > 0 ? ` · ${todayTasks.length} due today` : ""}
+              {counts.overdue + counts.today} leads need attention today - filter by status or date
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {isAdmin && (
-              <Select value={taskTab} onValueChange={(v: "mine" | "all") => setTaskTab(v)}>
-                <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mine">My Tasks</SelectItem>
-                  <SelectItem value="all">All Employees</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-            <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm"><Plus className="mr-2 h-4 w-4" />Add Task</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>Add Daily Task</DialogTitle></DialogHeader>
-                <div className="grid gap-4 py-2">
-                  <div className="grid gap-2">
-                    <Label>Task Title *</Label>
-                    <Input
-                      value={taskForm.title}
-                      onChange={e => setTaskForm({ ...taskForm, title: e.target.value })}
-                      placeholder="e.g., Call 10 fresh leads"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Description</Label>
-                    <Textarea
-                      value={taskForm.description}
-                      onChange={e => setTaskForm({ ...taskForm, description: e.target.value })}
-                      placeholder="Task details..."
-                    />
-                  </div>
-                  {isAdmin && (
-                    <div className="grid gap-2">
-                      <Label>Assign To</Label>
-                      <Select value={taskForm.employee_id} onValueChange={v => setTaskForm({ ...taskForm, employee_id: v })}>
-                        <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                        <SelectContent>
-                          {currentUserId && <SelectItem value={currentUserId}>Myself</SelectItem>}
-                          {profiles.map(p => (
-                            <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label>Priority</Label>
-                      <Select value={taskForm.priority} onValueChange={v => setTaskForm({ ...taskForm, priority: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {TASK_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Due Date</Label>
-                      <Input type="date" value={taskForm.due_date} onChange={e => setTaskForm({ ...taskForm, due_date: e.target.value })} />
-                    </div>
-                  </div>
-                  <Button onClick={handleSave} disabled={savingTask}>
-                    {savingTask ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                    Save Task
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
+              {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </Button>
           </div>
         </div>
+
+        {/* Bucket filter chips */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button
+            onClick={() => setBucketFilter("all")}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all text-sm"
+            style={{ borderColor: bucketFilter === "all" ? "#64748b" : "#e2e8f0", background: bucketFilter === "all" ? "#f8fafc" : "white" }}
+          >
+            <span style={{ color: bucketFilter === "all" ? "#334155" : "#374151" }}>All</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "#64748b" }}>
+              {counts.overdue + counts.today + counts.upcoming}
+            </span>
+          </button>
+          {FOLLOWUP_BUCKETS.map(b => {
+            const active = bucketFilter === b.value;
+            const isUrgent = b.value === "today" || b.value === "overdue";
+            return (
+              <button
+                key={b.value}
+                onClick={() => setBucketFilter(active ? "all" : (b.value as any))}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all text-sm"
+                style={{ 
+                  borderColor: active ? b.color : (isUrgent ? "#f97316" : "#e2e8f0"), 
+                  background: active ? b.bg : (isUrgent ? "#fff7ed" : "white"),
+                }}
+              >
+                <span>{b.icon}</span>
+                <span style={{ color: active ? b.color : (isUrgent ? "#f97316" : "#374151") }}>{b.label}</span>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: b.color }}>
+                  {counts[b.value as keyof typeof counts]}
+                </span>
+                {isUrgent && !active && counts[b.value as keyof typeof counts] > 0 && (
+                  <span className="text-[10px] text-orange-500 animate-pulse">●</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Date range filter */}
+        <div className="flex items-center gap-2 flex-wrap mt-3">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <Input type="date" value={fuDateFrom} onChange={e => setFuDateFrom(e.target.value)} className="w-36 text-sm" />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input type="date" value={fuDateTo} onChange={e => setFuDateTo(e.target.value)} className="w-36 text-sm" />
+          {(fuDateFrom || fuDateTo || bucketFilter !== "all") && (
+            <Button variant="ghost" size="sm" onClick={() => { setFuDateFrom(""); setFuDateTo(""); setBucketFilter("all"); }}>
+              <X className="h-3 w-3 mr-1" />Clear
+            </Button>
+          )}
+        </div>
       </CardHeader>
-      <CardContent>
-        {visibleTasks.length === 0 ? (
-          <div className="text-center py-8">
-            <ListChecks className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">No tasks yet. Add your first daily task.</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {visibleTasks
-              .slice()
-              .sort((a, b) => {
-                if (a.status === "completed" && b.status !== "completed") return 1;
-                if (a.status !== "completed" && b.status === "completed") return -1;
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-              })
-              .map(task => {
-                const prio = getPriorityConfig(task.priority);
-                const stat = getTaskStatusConfig(task.status);
-                const overdue = task.due_date && task.status !== "completed" && new Date(task.due_date) < new Date(new Date().toDateString());
+
+      {!collapsed && (
+        <CardContent className="max-h-[400px] overflow-y-auto">
+          {followupLeads.length === 0 ? (
+            <div className="text-center py-6">
+              <PhoneCall className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No follow-ups match this filter.</p>
+              <p className="text-xs text-muted-foreground mt-1">All caught up! 🎉</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {followupLeads.map(lead => {
+                const bucket = getFollowupBucket(lead.next_call_date);
+                const cfg = getFollowupBucketConfig(bucket);
+                const isUrgent = bucket === "today" || bucket === "overdue";
                 return (
-                  <div key={task.id} className={`flex items-start gap-3 p-3 rounded-lg border ${task.status === "completed" ? "bg-muted/30" : "bg-white"}`}>
-                    <Checkbox
-                      checked={task.status === "completed"}
-                      onCheckedChange={(checked) => onUpdateStatus(task.id, checked ? "completed" : "pending")}
-                      className="mt-1"
-                    />
+                  <div
+                    key={lead.id}
+                    onClick={() => onOpenLead(lead)}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/30 transition-colors relative ${isUrgent ? 'bg-orange-50/50 border-orange-200' : ''}`}
+                    style={{ borderLeftWidth: 4, borderLeftColor: cfg?.color || "#e2e8f0" }}
+                  >
+                    {isUrgent && (
+                      <div className="absolute -top-1 -right-1">
+                        <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full">Urgent</span>
+                      </div>
+                    )}
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: avatarColor(lead.name) }}>
+                      {getInitials(lead.name)}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className={`text-sm font-semibold ${task.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
-                          {task.title}
-                        </p>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ color: prio.color, background: prio.bg, borderColor: `${prio.color}30` }}>
-                          {prio.label}
-                        </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ color: stat.color, background: stat.bg, borderColor: `${stat.color}30` }}>
-                          {stat.label}
-                        </span>
-                        {overdue && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-red-600 bg-red-50 border-red-200 flex items-center gap-1">
-                            <Clock className="h-2.5 w-2.5" />Overdue
-                          </span>
+                        <p className="text-sm font-semibold truncate">{lead.name}</p>
+                        <StagePill stage={lead.stage} subStage={null} />
+                        <TemperatureBadge temperature={lead.temperature} />
+                        {isUrgent && (
+                          <Badge variant="destructive" className="text-[10px]">Due {bucket === "overdue" ? 'Overdue' : 'Today'}</Badge>
                         )}
                       </div>
-                      {task.description && (
-                        <p className="text-xs text-muted-foreground mt-1">{task.description}</p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
-                        {isAdmin && <span>👤 {getName(task.employee_id)}</span>}
-                        {task.due_date && (
-                          <span className="flex items-center gap-1"><CalendarClock className="h-3 w-3" />{format(new Date(task.due_date), "dd MMM yyyy")}</span>
-                        )}
-                        <span>Added {format(new Date(task.created_at), "dd MMM")}</span>
-                      </div>
+                      {lead.remark && <p className="text-xs text-muted-foreground mt-0.5 truncate">{lead.remark}</p>}
                     </div>
-                    <div className="flex items-center gap-1">
-                      {task.status !== "in_progress" && task.status !== "completed" && (
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => onUpdateStatus(task.id, "in_progress")}>
-                          Start
-                        </Button>
+                    <div className="text-right flex-shrink-0">
+                      {cfg && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ color: cfg.color, background: cfg.bg, borderColor: `${cfg.color}30` }}>
+                          {cfg.icon} {cfg.label}
+                        </span>
                       )}
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDeleteTask(task.id)} title="Delete">
-                        <Trash2 className="h-3.5 w-3.5" />
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {format(new Date(lead.next_call_date as string), "dd MMM yyyy")}
+                      </p>
+                    </div>
+                    {lead.phone && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" asChild onClick={e => e.stopPropagation()}>
+                        <a href={`tel:${lead.phone}`}><Phone className="h-3.5 w-3.5" /></a>
                       </Button>
-                    </div>
+                    )}
                   </div>
                 );
               })}
-          </div>
-        )}
-      </CardContent>
+            </div>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -636,11 +604,8 @@ export default function Leads() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
+  const [showAllLeads, setShowAllLeads] = useState(false);
 
-  // ── Daily Tasks state ──
-  const [dailyTasks, setDailyTasks] = useState<DbDailyTask[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  
   // ── FIXED: Fetch leads function with role-based filtering ──
   const fetchLeads = useCallback(async () => {
     try {
@@ -691,104 +656,14 @@ export default function Leads() {
     }
   }, [user?.id]);
 
-  // ── Fetch daily tasks (own tasks for employees, all tasks for admins) ──
-  const fetchDailyTasks = useCallback(async () => {
-    if (!user?.id) return;
-    try {
-      setTasksLoading(true);
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
-      const isAdmin = profile?.role === "admin";
-
-      let query = supabase
-        .from("employee_tasks")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!isAdmin) {
-        query = query.eq("employee_id", user.id);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setDailyTasks((data as DbDailyTask[]) || []);
-    } catch (error) {
-      console.error("❌ Error fetching daily tasks:", error);
-    } finally {
-      setTasksLoading(false);
-    }
-  }, [user?.id]);
-  
   // ── Initial fetch ──
   useEffect(() => {
     if (isInitialFetch) {
       fetchLeads();
-      fetchDailyTasks();
       setIsInitialFetch(false);
     }
-  }, [fetchLeads, fetchDailyTasks, isInitialFetch]);
+  }, [fetchLeads, isInitialFetch]);
 
-  // ── Add a daily task (optimistic) ──
-  const handleAddTask = useCallback(async (task: { title: string; description: string; priority: string; due_date: string; employee_id: string }) => {
-    try {
-      const { data, error } = await supabase
-        .from("employee_tasks")
-        .insert({
-          employee_id: task.employee_id,
-          title: task.title,
-          description: task.description || null,
-          priority: task.priority,
-          due_date: task.due_date || null,
-          status: "pending",
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      setDailyTasks(prev => [data as DbDailyTask, ...prev]);
-      toast.success("Task added");
-    } catch (error: any) {
-      console.error("Add task error:", error);
-      toast.error(error.message || "Failed to add task");
-    }
-  }, []);
-
-  // ── Update task status (optimistic) ──
-  const handleUpdateTaskStatus = useCallback(async (id: string, status: string) => {
-    const completed_at = status === "completed" ? new Date().toISOString() : null;
-    setDailyTasks(prev => prev.map(t => (t.id === id ? { ...t, status: status as DbDailyTask["status"], completed_at } : t)));
-
-    try {
-      const { error } = await supabase
-        .from("employee_tasks")
-        .update({ status, completed_at })
-        .eq("id", id);
-      if (error) throw error;
-      if (status === "completed") toast.success("Task marked complete");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update task");
-      await fetchDailyTasks();
-    }
-  }, [fetchDailyTasks]);
-
-  // ── Delete task (optimistic) ──
-  const handleDeleteTask = useCallback(async (id: string) => {
-    if (!confirm("Delete this task?")) return;
-    setDailyTasks(prev => prev.filter(t => t.id !== id));
-    try {
-      const { error } = await supabase.from("employee_tasks").delete().eq("id", id);
-      if (error) throw error;
-      toast.success("Task deleted");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete task");
-      await fetchDailyTasks();
-    }
-  }, [fetchDailyTasks]);
-  
   // ── FIXED: Real-time subscription with role-based filtering ──
   useEffect(() => {
     let isMounted = true;
@@ -894,6 +769,20 @@ export default function Leads() {
   // ── Live total-count ──
   const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
   const [liveCountPulsing, setLiveCountPulsing] = useState(false);
+
+  // ── Clickable stats filter ──
+  type StatsFilter = "all" | "today" | "followup" | "hot" | "warm" | "cold" | "converted";
+  const [statsFilter, setStatsFilter] = useState<StatsFilter>("all");
+
+  const statsFilterLabels: Record<StatsFilter, string> = {
+    all: "All Leads",
+    today: "Today's Leads",
+    followup: "Follow-ups Due",
+    hot: "🔥 Hot Leads",
+    warm: "☀️ Warm Leads",
+    cold: "❄️ Cold Leads",
+    converted: "✅ Converted Leads",
+  };
 
   const fetchLiveTotalCount = useCallback(async () => {
     try {
@@ -1088,7 +977,7 @@ export default function Leads() {
     }
   }, [detailLead?.id, fetchAgreementStatus]);
 
-  // ── Mark Lead as Lost (optimistic — updates instantly, no full refetch) ──
+  // ── Mark Lead as Lost ──
   const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
     const lostDate = new Date().toISOString();
     const patch = {
@@ -1099,7 +988,6 @@ export default function Leads() {
       business_status: "no-go",
     };
 
-    // Update UI immediately — single-shot change, no waiting on a refetch
     setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, ...patch } : l)));
     if (detailLead && detailLead.id === leadId) {
       setDetailLead(null);
@@ -1118,18 +1006,16 @@ export default function Leads() {
       toast.success("Lead marked as lost");
     } catch (error: any) {
       toast.error(error.message || "Failed to mark lead as lost");
-      // Roll back on failure
       await fetchLeads();
     }
   }, [detailLead, logActivity, fetchLeads]);
 
-  // ── Assign Lead (optimistic) ──
+  // ── Assign Lead ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
       const assign_date = finalAssignedTo ? new Date().toISOString() : null;
 
-      // Update UI immediately
       setLeads(prev => prev.map(l => (l.id === id ? { ...l, assigned_to: finalAssignedTo, assign_date } : l)));
       if (detailLead && detailLead.id === id) {
         setDetailLead(prev => (prev ? { ...prev, assigned_to: finalAssignedTo, assign_date } : prev));
@@ -1152,7 +1038,7 @@ export default function Leads() {
     },
     onError: (e: Error) => {
       toast.error(e.message || "Failed to assign lead");
-      fetchLeads(); // roll back on failure
+      fetchLeads();
     },
   });
 
@@ -1162,7 +1048,7 @@ export default function Leads() {
     return p?.display_name || "Unknown";
   }, [profiles]);
 
-  // ── UPDATE STAGE (optimistic — happens in one shot, no full reload) ──
+  // ── UPDATE STAGE ──
   const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
     const updateData: any = { 
       stage, 
@@ -1181,7 +1067,6 @@ export default function Leads() {
       updateData.status = existingLead.status || stage;
     }
 
-    // Update UI immediately — single update, not two separate steps
     setLeads(prev => prev.map(l => (l.id === id ? { ...l, ...updateData } : l)));
     if (detailLead && detailLead.id === id) {
       setDetailLead(prev => (prev ? { ...prev, ...updateData } : prev));
@@ -1200,7 +1085,7 @@ export default function Leads() {
     } catch (error: any) {
       console.error("Stage update error:", error);
       toast.error(error.message || "Failed to update stage");
-      await fetchLeads(); // roll back on failure
+      await fetchLeads();
     }
   }, [leads, detailLead, logActivity, fetchLeads]);
 
@@ -1286,17 +1171,39 @@ export default function Leads() {
       filterLeadType, filterBudget, filterTemperature, dateFrom, dateTo, 
       filterPreset, employeeFilter, user]);
 
+  // ── Dashboard focus ──
+  const dashboardLeads = useMemo(() => {
+    switch (statsFilter) {
+      case "today":
+        return filtered.filter(l => isToday(new Date(l.created_at)));
+      case "followup":
+        return filtered.filter(l => {
+          const b = getFollowupBucket(l.next_call_date);
+          return b === "overdue" || b === "today" || b === "upcoming";
+        });
+      case "hot":
+      case "warm":
+      case "cold":
+        return filtered.filter(l => l.temperature === statsFilter);
+      case "converted":
+        return filtered.filter(l => l.stage === "converted");
+      case "all":
+      default:
+        return filtered;
+    }
+  }, [filtered, statsFilter]);
+
   // ── Pagination ──
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const totalPages = Math.ceil(dashboardLeads.length / itemsPerPage);
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
-    return filtered.slice(start, end);
-  }, [filtered, currentPage, itemsPerPage]);
+    return dashboardLeads.slice(start, end);
+  }, [dashboardLeads, currentPage, itemsPerPage]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filtered.length]);
+  }, [dashboardLeads.length]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -1306,13 +1213,12 @@ export default function Leads() {
     });
   }, []);
 
-  // ── Bulk Assign (optimistic) ──
+  // ── Bulk Assign ──
   const handleBulkAssign = useCallback(async () => {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     const assign_date = new Date().toISOString();
     const ids = Array.from(selectedIds);
 
-    // Update UI immediately
     setLeads(prev => prev.map(l => (ids.includes(l.id) ? { ...l, assigned_to: bulkAssignTo, assign_date } : l)));
 
     try {
@@ -1328,7 +1234,7 @@ export default function Leads() {
       setBulkAssignTo("");
     } catch (e: unknown) { 
       toast.error(e instanceof Error ? e.message : "Assign failed"); 
-      await fetchLeads(); // roll back on failure
+      await fetchLeads();
     }
   }, [selectedIds, bulkAssignTo, fetchLeads]);
 
@@ -1354,8 +1260,6 @@ export default function Leads() {
           address:    row.Address || row.address || "",
           cx_comment: row["CX Comment"] || row.cx_comment || row.Comment || "",
           budget:     row.Budget || row.budget || "",
-          // Imported leads always start life in the "New" stage — the
-          // agent then moves them forward manually (Ringing, Callback, etc).
           stage:      "new",
           sub_stage:  "",
           remark:     row.Remark || row.remark || row.Remarks || "",
@@ -1371,7 +1275,7 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── Bulk Import — every imported lead is inserted with stage = "new" ──
+  // ── Bulk Import ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1394,8 +1298,6 @@ export default function Leads() {
             address: lead.address,
             cx_comment: lead.cx_comment,
             budget: lead.budget,
-            // Always land new imports in the "New" stage, regardless of
-            // what the Excel sheet said.
             stage: "new",
             sub_stage: "",
             remark: lead.remark,
@@ -1454,7 +1356,6 @@ export default function Leads() {
       
       if (error) throw error;
       
-      // Update UI immediately instead of a full refetch
       setLeads(prev => prev.map(l => (l.id === editLead.id ? { ...l, ...editLead } : l)));
       logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
       setEditLead(null);
@@ -1485,7 +1386,7 @@ export default function Leads() {
     }
   }, [fetchLiveTotalCount]);
 
-  // ── Shared row mapper used by every export ──
+  // ── Shared row mapper ──
   const buildExportRows = useCallback((rows: DbLead[]) => rows.map(l => ({
     Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
     "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
@@ -1538,9 +1439,8 @@ export default function Leads() {
     setCurrentPage(1);
   }, []);
 
-  // ── Temperature update (optimistic — single-shot, no full reload) ──
+  // ── Temperature update ──
   const handleTemperatureUpdate = useCallback(async (leadId: string, temperature: string) => {
-    // Update UI immediately
     setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, temperature } : l)));
     if (detailLead && detailLead.id === leadId) {
       setDetailLead(prev => (prev ? { ...prev, temperature } : prev));
@@ -1558,7 +1458,7 @@ export default function Leads() {
       toast.success(`Temperature updated to ${temperature.toUpperCase()}`);
     } catch (error: any) {
       toast.error(error.message || "Failed to update temperature");
-      await fetchLeads(); // roll back on failure
+      await fetchLeads();
     }
   }, [detailLead, logActivity, fetchLeads]);
 
@@ -1571,7 +1471,12 @@ export default function Leads() {
     const hotCount = leads.filter(l => l.temperature === "hot").length;
     const warmCount = leads.filter(l => l.temperature === "warm").length;
     const coldCount = leads.filter(l => l.temperature === "cold").length;
-    return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount };
+    const todayCount = leads.filter(l => isToday(new Date(l.created_at))).length;
+    const followupCount = leads.filter(l => {
+      const b = getFollowupBucket(l.next_call_date);
+      return (b === "overdue" || b === "today") && l.stage !== "converted" && l.stage !== "lost";
+    }).length;
+    return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount, todayCount, followupCount };
   }, [leads]);
 
   // ── Debug ──
@@ -1802,9 +1707,13 @@ export default function Leads() {
       </div>
 
       {/* ── Stats Cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Card className="col-span-2 sm:col-span-1 lg:col-span-1 border-primary/20">
-          <CardContent className="p-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "all" ? "all" : "all")}
+          className={`text-left col-span-2 sm:col-span-1 lg:col-span-1 rounded-xl border-2 transition-all ${statsFilter === "all" ? "border-primary ring-2 ring-primary/20" : "border-primary/20 hover:border-primary/40"}`}
+        >
+          <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
                 <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
@@ -1819,11 +1728,51 @@ export default function Leads() {
                 </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </button>
 
-        <Card>
-          <CardContent className="p-4">
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "today" ? "all" : "today")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "today" ? "border-emerald-500 ring-2 ring-emerald-200 bg-emerald-50/50" : "border-emerald-200 hover:border-emerald-400"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                <Calendar style={{ color: "#10b981", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#10b981" }}>{stats.todayCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Today's Leads</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "followup" ? "all" : "followup")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "followup" ? "border-orange-500 ring-2 ring-orange-200 bg-orange-50/50" : "border-orange-200 hover:border-orange-400"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+                <PhoneCall style={{ color: "#f97316", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#f97316" }}>{stats.followupCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Follow-ups Due</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "hot" ? "all" : "hot")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "hot" ? "border-red-500 ring-2 ring-red-200 bg-red-50/50" : "border-transparent hover:border-red-300"}`}
+        >
+          <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
                 <Flame style={{ color: "#ef4444", width: 24, height: 24 }} />
@@ -1833,11 +1782,15 @@ export default function Leads() {
                 <p className="text-xs text-muted-foreground mt-1">Hot Leads</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </button>
 
-        <Card>
-          <CardContent className="p-4">
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "warm" ? "all" : "warm")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "warm" ? "border-orange-500 ring-2 ring-orange-200 bg-orange-50/50" : "border-transparent hover:border-orange-300"}`}
+        >
+          <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
                 <Sun style={{ color: "#f97316", width: 24, height: 24 }} />
@@ -1847,11 +1800,15 @@ export default function Leads() {
                 <p className="text-xs text-muted-foreground mt-1">Warm Leads</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </button>
 
-        <Card>
-          <CardContent className="p-4">
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "cold" ? "all" : "cold")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "cold" ? "border-blue-500 ring-2 ring-blue-200 bg-blue-50/50" : "border-transparent hover:border-blue-300"}`}
+        >
+          <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
                 <Snowflake style={{ color: "#3b82f6", width: 24, height: 24 }} />
@@ -1861,11 +1818,15 @@ export default function Leads() {
                 <p className="text-xs text-muted-foreground mt-1">Cold Leads</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </button>
 
-        <Card className="col-span-2 sm:col-span-1">
-          <CardContent className="p-4">
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "converted" ? "all" : "converted")}
+          className={`text-left col-span-2 sm:col-span-1 rounded-xl border-2 transition-all ${statsFilter === "converted" ? "border-emerald-500 ring-2 ring-emerald-200 bg-emerald-50/50" : "border-transparent hover:border-emerald-300"}`}
+        >
+          <div className="p-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
                 <TrendingUp style={{ color: "#10b981", width: 24, height: 24 }} />
@@ -1878,20 +1839,20 @@ export default function Leads() {
                 </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </button>
       </div>
 
-      {/* ── Daily Tasks Section ── */}
-      <DailyTasksSection
-        tasks={dailyTasks}
-        currentUserId={user?.id}
-        isAdmin={canAssign}
-        profiles={typedProfiles}
-        onAddTask={handleAddTask}
-        onUpdateStatus={handleUpdateTaskStatus}
-        onDeleteTask={handleDeleteTask}
-      />
+      {statsFilter !== "all" && (
+        <div className="flex items-center gap-2 -mt-2">
+          <Badge className="bg-primary/10 text-primary border border-primary/30">
+            Filtering by: {statsFilterLabels[statsFilter]}
+          </Badge>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setStatsFilter("all")}>
+            <X className="h-3 w-3 mr-1" />Clear
+          </Button>
+        </div>
+      )}
 
       {/* ── Charts Section ── */}
       <LeadCharts leads={leads} />
@@ -2050,8 +2011,11 @@ export default function Leads() {
         </CardContent>
       </Card>
 
+      {/* ── Follow-up Section - AFTER STAGE FILTER ── */}
+      <FollowUpSection leads={leads} onOpenLead={openLeadDetail} />
+
       {/* ── Main Table ── */}
-      <Card className="sticky top-0 z-20 shadow-md">
+      <Card className="shadow-md">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[160px]">
@@ -2135,10 +2099,25 @@ export default function Leads() {
 
         <CardContent>
           <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
-            <p className="text-sm font-semibold text-foreground">
-              Total Leads: <span className="text-primary">{filtered.length}</span>
-              {filtered.length !== leads.length && <span className="text-muted-foreground font-normal"> (filtered from {leads.length})</span>}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-foreground">
+                {showAllLeads ? (
+                  <>Total Leads: <span className="text-primary">{dashboardLeads.length}</span></>
+                ) : (
+                  <>Showing <span style={{ color: "#f97316" }}>Today's + Follow-up</span> leads: <span className="text-primary">{dashboardLeads.length}</span></>
+                )}
+                {dashboardLeads.length !== leads.length && showAllLeads && <span className="text-muted-foreground font-normal"> (filtered from {leads.length})</span>}
+              </p>
+              <Button
+                variant={showAllLeads ? "outline" : "default"}
+                size="sm"
+                onClick={() => setShowAllLeads(s => !s)}
+                className={!showAllLeads ? "bg-orange-500 hover:bg-orange-600" : ""}
+              >
+                <Layers className="mr-2 h-3.5 w-3.5" />
+                {showAllLeads ? "Show Today + Follow-ups Only" : "Show All Leads"}
+              </Button>
+            </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => handleExportByStage(filterStage)}>
                 <Download className="mr-2 h-3 w-3" />
@@ -2147,10 +2126,12 @@ export default function Leads() {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {dashboardLeads.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-sm text-muted-foreground">No leads found.</p>
-              <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters or add a new lead.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {showAllLeads ? "Try adjusting your filters or add a new lead." : "No leads created today or due for follow-up. Click \"Show All Leads\" to see everything."}
+              </p>
             </div>
           ) : (
             <>
@@ -2158,10 +2139,10 @@ export default function Leads() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-10"><Checkbox checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = filtered.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); filtered.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
+                      <TableHead className="w-10"><Checkbox checked={dashboardLeads.length > 0 && dashboardLeads.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = dashboardLeads.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); dashboardLeads.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
                       <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
                       <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
-                      <TableHead>Temperature</TableHead><TableHead>Assigned To</TableHead>
+                      <TableHead>Temperature</TableHead><TableHead>Follow-up</TableHead><TableHead>Assigned To</TableHead>
                       <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
                       <TableHead className="hidden lg:table-cell">Budget</TableHead><TableHead>Lead Score</TableHead>
                       <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead><TableHead>Actions</TableHead>
@@ -2181,6 +2162,7 @@ export default function Leads() {
                           <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} className="text-xs text-muted-foreground hover:underline">{lead.email}</a> : <span className="text-xs text-muted-foreground">-</span>}</TableCell>
                           <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
                           <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
+                          <TableCell><FollowupPill nextCallDate={lead.next_call_date} /></TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2 min-w-[140px]">
                               {lead.assigned_to && (
@@ -2233,7 +2215,7 @@ export default function Leads() {
               {totalPages > 1 && (
                 <div className="flex flex-wrap items-center justify-between mt-4 gap-2">
                   <p className="text-sm text-muted-foreground">
-                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length} leads
+                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, dashboardLeads.length)} of {dashboardLeads.length} leads
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
@@ -2293,6 +2275,7 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Follow-up Date</p><FollowupPill nextCallDate={detailLead.next_call_date} /></div>
                 
                 <div className="grid gap-1">
                   <p className="text-muted-foreground text-xs flex items-center gap-1">
@@ -2360,6 +2343,7 @@ export default function Leads() {
               <div className="grid gap-2"><Label>Lead Type</Label><Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Budget</Label><Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Lead Temperature</Label><Select value={editLead.temperature || "warm"} onValueChange={v => setEditLead({ ...editLead, temperature: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TEMPERATURE.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Follow-up / Next Call Date</Label><Input type="date" value={editLead.next_call_date ? editLead.next_call_date.slice(0, 10) : ""} onChange={e => setEditLead({ ...editLead, next_call_date: e.target.value || null })} /></div>
               <div className="grid gap-2"><Label>Brand Stage</Label><Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Sub Stage</Label><Select value={editLead.sub_stage || "none"} onValueChange={v => setEditLead({ ...editLead, sub_stage: v === "none" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Status</Label><Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
