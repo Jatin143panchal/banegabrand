@@ -591,6 +591,53 @@ function FollowUpSection({
   );
 }
 
+// ── Bulk Delete Confirmation Dialog ──
+function BulkDeleteDialog({ 
+  open, 
+  onClose, 
+  onConfirm, 
+  count 
+}: { 
+  open: boolean; 
+  onClose: () => void; 
+  onConfirm: () => void; 
+  count: number;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <AlertTriangle className="h-5 w-5" />
+            Bulk Delete Leads
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          <p className="text-sm mb-2">
+            Are you sure you want to delete <strong>{count}</strong> selected lead{count > 1 ? 's' : ''}?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            This action cannot be undone. All lead data including comments and history will be permanently removed.
+          </p>
+          <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-xs text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              Warning: This will permanently delete all selected leads
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" onClick={onConfirm}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete {count} Lead{count > 1 ? 's' : ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
@@ -605,6 +652,7 @@ export default function Leads() {
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
   const [showAllLeads, setShowAllLeads] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
 
   // ── FIXED: Fetch leads function with role-based filtering ──
   const fetchLeads = useCallback(async () => {
@@ -1134,6 +1182,44 @@ export default function Leads() {
     }
   }, [form, fetchLeads, emptyForm]);
 
+  // ── Bulk Delete Leads ──
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    
+    // Close the dialog first
+    setBulkDeleteDialogOpen(false);
+    
+    try {
+      // Delete all selected leads
+      const { error } = await supabase
+        .from("leads")
+        .delete()
+        .in("id", ids);
+      
+      if (error) throw error;
+      
+      // Update UI immediately - remove deleted leads from state
+      setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+      setSelectedIds(new Set());
+      
+      // Update live count
+      await fetchLiveTotalCount();
+      
+      toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted successfully`);
+      
+      // Log activity for each deleted lead
+      ids.forEach(id => {
+        logActivity(id, "deleted", `Bulk deleted lead`);
+      });
+    } catch (error: any) {
+      console.error("Bulk delete error:", error);
+      toast.error(error.message || "Failed to delete leads");
+      // Refresh leads to ensure data consistency
+      await fetchLeads();
+    }
+  }, [selectedIds, fetchLiveTotalCount, logActivity, fetchLeads]);
+
   // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
     return leads.filter(l => {
@@ -1507,6 +1593,13 @@ export default function Leads() {
         open={!!leegalitySignDialog}
         onClose={() => setLeegalitySignDialog(null)}
         onSignInitiated={handleLeegalitySign}
+      />
+
+      <BulkDeleteDialog
+        open={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={handleBulkDelete}
+        count={selectedIds.size}
       />
 
       {/* ── Header ── */}
@@ -2091,6 +2184,14 @@ export default function Leads() {
               </Select>
               <Button size="sm" onClick={handleBulkAssign}>
                 <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
+              </Button>
+              <Button 
+                size="sm" 
+                variant="destructive" 
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={selectedIds.size === 0}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />Bulk Delete
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
             </div>
