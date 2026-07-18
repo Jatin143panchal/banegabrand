@@ -638,6 +638,114 @@ function BulkDeleteDialog({
   );
 }
 
+// ── Bulk Stage Change Dialog ──
+function BulkStageChangeDialog({ 
+  open, 
+  onClose, 
+  onConfirm, 
+  count,
+  currentStage
+}: { 
+  open: boolean; 
+  onClose: () => void; 
+  onConfirm: (stage: string, subStage: string) => void; 
+  count: number;
+  currentStage: string | null;
+}) {
+  const [selectedStage, setSelectedStage] = useState("");
+  const [selectedSubStage, setSelectedSubStage] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSelectedStage("");
+      setSelectedSubStage("");
+    }
+  }, [open]);
+
+  const subStages = getSubStagesForStage(selectedStage);
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-blue-600">
+            <Layers className="h-5 w-5" />
+            Bulk Change Stage
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4 space-y-4">
+          <p className="text-sm">
+            Change stage for <strong>{count}</strong> selected lead{count > 1 ? 's' : ''}.
+            {currentStage && (
+              <span className="text-muted-foreground block mt-1">
+                Current stage: <Badge variant="outline">{formatStageLabel(currentStage)}</Badge>
+              </span>
+            )}
+          </p>
+          
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>New Stage</Label>
+              <Select value={selectedStage} onValueChange={(v) => {
+                setSelectedStage(v);
+                setSelectedSubStage("");
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select stage..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEAD_STAGES.map(s => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.icon} {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {subStages.length > 0 && (
+              <div className="space-y-2">
+                <Label>Sub Stage (Optional)</Label>
+                <Select value={selectedSubStage} onValueChange={setSelectedSubStage}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select sub stage..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {subStages.map(s => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-xs text-blue-600 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              This will update the stage for all selected leads
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button 
+            onClick={() => onConfirm(selectedStage, selectedSubStage)}
+            disabled={!selectedStage}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Layers className="mr-2 h-4 w-4" />
+            Update {count} Lead{count > 1 ? 's' : ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
@@ -653,6 +761,7 @@ export default function Leads() {
   const [isInitialFetch, setIsInitialFetch] = useState(true);
   const [showAllLeads, setShowAllLeads] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [bulkStageDialogOpen, setBulkStageDialogOpen] = useState(false);
 
   // ── FIXED: Fetch leads function with role-based filtering ──
   const fetchLeads = useCallback(async () => {
@@ -1187,11 +1296,9 @@ export default function Leads() {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
     
-    // Close the dialog first
     setBulkDeleteDialogOpen(false);
     
     try {
-      // Delete all selected leads
       const { error } = await supabase
         .from("leads")
         .delete()
@@ -1199,26 +1306,81 @@ export default function Leads() {
       
       if (error) throw error;
       
-      // Update UI immediately - remove deleted leads from state
       setLeads(prev => prev.filter(l => !ids.includes(l.id)));
       setSelectedIds(new Set());
-      
-      // Update live count
       await fetchLiveTotalCount();
       
       toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted successfully`);
       
-      // Log activity for each deleted lead
       ids.forEach(id => {
         logActivity(id, "deleted", `Bulk deleted lead`);
       });
     } catch (error: any) {
       console.error("Bulk delete error:", error);
       toast.error(error.message || "Failed to delete leads");
-      // Refresh leads to ensure data consistency
       await fetchLeads();
     }
   }, [selectedIds, fetchLiveTotalCount, logActivity, fetchLeads]);
+
+  // ── Bulk Stage Change ──
+  const handleBulkStageChange = useCallback(async (stage: string, subStage: string) => {
+    if (selectedIds.size === 0 || !stage) return;
+    const ids = Array.from(selectedIds);
+    
+    setBulkStageDialogOpen(false);
+    
+    const updateData: any = { 
+      stage: stage,
+      sub_stage: subStage || null,
+    };
+    
+    // If stage is "converted" or "lost", update status and business_status accordingly
+    if (stage === "converted") {
+      updateData.status = "converted";
+      updateData.business_status = "done";
+    } else if (stage === "lost") {
+      updateData.status = "lost";
+      updateData.business_status = "no-go";
+    }
+    
+    try {
+      // Update UI immediately
+      setLeads(prev => prev.map(l => {
+        if (ids.includes(l.id)) {
+          const updated = { ...l, ...updateData };
+          // If stage is converted or lost, update status
+          if (stage === "converted") {
+            updated.status = "converted";
+            updated.business_status = "done";
+          } else if (stage === "lost") {
+            updated.status = "lost";
+            updated.business_status = "no-go";
+          }
+          return updated;
+        }
+        return l;
+      }));
+      
+      setSelectedIds(new Set());
+      
+      const { error } = await supabase
+        .from("leads")
+        .update(updateData)
+        .in("id", ids);
+      
+      if (error) throw error;
+      
+      toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} stage updated to ${formatStageLabel(stage)}`);
+      
+      ids.forEach(id => {
+        logActivity(id, "updated", `Bulk stage changed to: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
+      });
+    } catch (error: any) {
+      console.error("Bulk stage change error:", error);
+      toast.error(error.message || "Failed to update stages");
+      await fetchLeads();
+    }
+  }, [selectedIds, logActivity, fetchLeads]);
 
   // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
@@ -1600,6 +1762,14 @@ export default function Leads() {
         onClose={() => setBulkDeleteDialogOpen(false)}
         onConfirm={handleBulkDelete}
         count={selectedIds.size}
+      />
+
+      <BulkStageChangeDialog
+        open={bulkStageDialogOpen}
+        onClose={() => setBulkStageDialogOpen(false)}
+        onConfirm={handleBulkStageChange}
+        count={selectedIds.size}
+        currentStage={selectedIds.size === 1 ? leads.find(l => l.id === Array.from(selectedIds)[0])?.stage || null : null}
       />
 
       {/* ── Header ── */}
@@ -2184,6 +2354,15 @@ export default function Leads() {
               </Select>
               <Button size="sm" onClick={handleBulkAssign}>
                 <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
+              </Button>
+              <Button 
+                size="sm" 
+                variant="default"
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => setBulkStageDialogOpen(true)}
+                disabled={selectedIds.size === 0}
+              >
+                <Layers className="mr-1 h-4 w-4" />Bulk Stage
               </Button>
               <Button 
                 size="sm" 
