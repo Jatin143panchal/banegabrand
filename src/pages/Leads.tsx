@@ -136,7 +136,7 @@ interface DbLead {
   temperature?: string | null;
 }
 
-// ── Follow-up urgency config (colors used across the Follow-up section) ──
+// ── Follow-up urgency config ──
 const FOLLOWUP_BUCKETS = [
   { value: "overdue", label: "Overdue",   color: "#ef4444", bg: "#fef2f2", icon: "⏰" },
   { value: "today",   label: "Today",     color: "#f97316", bg: "#fff7ed", icon: "📅" },
@@ -231,7 +231,6 @@ function StagePill({ stage, subStage }: { stage: string | null; subStage: string
   );
 }
 
-// ── Follow-up bucket pill (used in Follow-up section + table) ──
 function FollowupPill({ nextCallDate }: { nextCallDate: string | null | undefined }) {
   const bucket = getFollowupBucket(nextCallDate);
   const cfg = getFollowupBucketConfig(bucket);
@@ -249,167 +248,60 @@ function FollowupPill({ nextCallDate }: { nextCallDate: string | null | undefine
 // ── Chart Components ──
 function LeadCharts({ leads }: { leads: DbLead[] }) {
   const stageData = useMemo(() => {
-    const counts = LEAD_STAGES.map(s => ({
-      name: s.label,
-      value: leads.filter(l => l.stage === s.value).length,
-      color: s.color
-    }));
-    return counts;
-  }, [leads]);
-
-  const temperatureData = useMemo(() => {
-    const counts = LEAD_TEMPERATURE.map(t => ({
-      name: t.label.replace(/[🔥☀️❄️]/g, '').trim(),
-      value: leads.filter(l => l.temperature === t.value).length,
-      color: t.color
-    }));
-    return counts;
-  }, [leads]);
-
-  const conversionData = useMemo(() => {
-    const converted = leads.filter(l => l.stage === "converted").length;
-    const lost = leads.filter(l => l.stage === "lost").length;
-    const active = leads.filter(l => l.stage !== "converted" && l.stage !== "lost").length;
-    return [
-      { name: "Active", value: active, color: "#3b82f6" },
-      { name: "Converted", value: converted, color: "#10b981" },
-      { name: "Lost", value: lost, color: "#ef4444" }
-    ];
+    try {
+      return LEAD_STAGES.map(s => ({
+        name: s.label,
+        value: leads.filter(l => l?.stage === s.value).length,
+        color: s.color
+      }));
+    } catch (e) {
+      console.error("Error processing stage data:", e);
+      return LEAD_STAGES.map(s => ({ name: s.label, value: 0, color: s.color }));
+    }
   }, [leads]);
 
   const dailyTrend = useMemo(() => {
-    const now = new Date();
-    const days = 7;
-    const data = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = subDays(now, i);
-      const count = leads.filter(l => {
-        const created = new Date(l.created_at);
-        return created.toDateString() === d.toDateString();
-      }).length;
-      data.push({
-        date: format(d, "dd MMM"),
-        leads: count
-      });
+    try {
+      const now = new Date();
+      const days = 7;
+      const data = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = subDays(now, i);
+        const count = leads.filter(l => {
+          const created = new Date(l.created_at);
+          return created.toDateString() === d.toDateString();
+        }).length;
+        data.push({
+          date: format(d, "dd MMM"),
+          leads: count
+        });
+      }
+      return data;
+    } catch (e) {
+      console.error("Error processing trend data:", e);
+      return [];
     }
-    return data;
   }, [leads]);
 
-  const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#10b981', '#06b6d4', '#f59e0b', '#ef4444'];
+  // Check if there's any data to display
+  const hasData = leads && leads.length > 0;
+
+  if (!hasData) {
+    return (
+      <div className="grid grid-cols-1 gap-4 mb-6">
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <BarChart3 className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+            <p>No data available for charts</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <Card className="col-span-1 lg:col-span-2">
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Stage Distribution</h3>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stageData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="value">
-                  {stageData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <PieChartIcon className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Temperature</h3>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[180px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RePieChart>
-                <Pie
-                  data={temperatureData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={40}
-                  outerRadius={70}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {temperatureData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </RePieChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Conversion</h3>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[180px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RePieChart>
-                <Pie
-                  data={conversionData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={40}
-                  outerRadius={70}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {conversionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </RePieChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="col-span-1 lg:col-span-4">
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <ChartColumn className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Weekly Trend</h3>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[150px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={dailyTrend}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="leads" stroke="#3b82f6" strokeWidth={2} dot={{ fill: '#3b82f6' }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="grid grid-cols-1 gap-4 mb-6">
+   
     </div>
   );
 }
@@ -473,7 +365,6 @@ function FollowUpSection({
           </div>
         </div>
 
-        {/* Bucket filter chips */}
         <div className="flex flex-wrap gap-2 mt-3">
           <button
             onClick={() => setBucketFilter("all")}
@@ -511,7 +402,6 @@ function FollowUpSection({
           })}
         </div>
 
-        {/* Date range filter */}
         <div className="flex items-center gap-2 flex-wrap mt-3">
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <Input type="date" value={fuDateFrom} onChange={e => setFuDateFrom(e.target.value)} className="w-36 text-sm" />
@@ -763,7 +653,18 @@ export default function Leads() {
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkStageDialogOpen, setBulkStageDialogOpen] = useState(false);
 
-  // ── FIXED: Fetch leads function with role-based filtering ──
+  // ── Debounced search ──
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchInput]);
+
+  // ── Fetch leads function with role-based filtering ──
   const fetchLeads = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -821,74 +722,77 @@ export default function Leads() {
     }
   }, [fetchLeads, isInitialFetch]);
 
-  // ── FIXED: Real-time subscription with role-based filtering ──
+  // ── Real-time subscription with proper cleanup ──
   useEffect(() => {
     let isMounted = true;
-    let isAdmin = false;
+    let subscription: any = null;
     
-    const checkRole = async () => {
+    const setupSubscription = async () => {
       if (!user?.id) return;
+      
       try {
-        const { data } = await supabase
+        const { data: profile } = await supabase
           .from("profiles")
           .select("role")
           .eq("user_id", user.id)
           .single();
-        isAdmin = data?.role === "admin";
-        console.log("👑 Real-time - Is Admin:", isAdmin);
+        
+        const isAdmin = profile?.role === "admin";
+        
+        subscription = supabase
+          .channel('leads-changes')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'leads'
+            },
+            (payload) => {
+              if (!isMounted) return;
+              
+              if (!isAdmin && user?.id) {
+                const lead = payload.new as DbLead;
+                if (lead && lead.assigned_to !== user.id) {
+                  console.log("⏭️ Ignoring update for other employee's lead");
+                  return;
+                }
+              }
+              
+              setLeads(prev => {
+                switch (payload.eventType) {
+                  case 'INSERT':
+                    if (prev.some(l => l.id === (payload.new as DbLead).id)) return prev;
+                    return [payload.new as DbLead, ...prev];
+                  case 'UPDATE':
+                    return prev.map(l => 
+                      l.id === payload.new.id ? payload.new as DbLead : l
+                    );
+                  case 'DELETE':
+                    return prev.filter(l => l.id !== payload.old.id);
+                  default:
+                    return prev;
+                }
+              });
+            }
+          )
+          .subscribe();
+        
       } catch (error) {
-        console.error("Error checking role:", error);
+        console.error("Error setting up subscription:", error);
       }
     };
     
-    checkRole();
-    
-    const channel = supabase
-      .channel('leads-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'leads'
-        },
-        (payload) => {
-          if (!isMounted) return;
-          
-          if (!isAdmin && user?.id) {
-            const lead = payload.new as DbLead;
-            if (lead && lead.assigned_to !== user.id) {
-              console.log("⏭️ Ignoring update for other employee's lead");
-              return;
-            }
-          }
-          
-          if (payload.eventType === 'INSERT') {
-            console.log("📥 New lead added:", payload.new);
-            setLeads(prev => {
-              if (prev.some(l => l.id === (payload.new as DbLead).id)) return prev;
-              return [payload.new as DbLead, ...prev];
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            console.log("🔄 Lead updated:", payload.new);
-            setLeads(prev => prev.map(lead => 
-              lead.id === payload.new.id ? payload.new as DbLead : lead
-            ));
-          } else if (payload.eventType === 'DELETE') {
-            console.log("🗑️ Lead deleted:", payload.old);
-            setLeads(prev => prev.filter(lead => lead.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    setupSubscription();
 
     return () => {
       isMounted = false;
-      supabase.removeChannel(channel);
+      if (subscription) {
+        supabase.removeChannel(subscription);
+      }
     };
   }, [user?.id]);
 
-  const [search, setSearch]                 = useState("");
   const [filterStatus, setFilterStatus]     = useState("all");
   const [filterStage, setFilterStage]       = useState("all");
   const [filterAssignment, setFilterAssignment] = useState("all");
@@ -917,7 +821,7 @@ export default function Leads() {
 
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
 
-  // ── Export by stage (e.g. "PG" leads only) ──
+  // ── Export by stage ──
   const [exportStage, setExportStage] = useState("all");
 
   // ── Import summary ──
@@ -1298,6 +1202,11 @@ export default function Leads() {
     
     setBulkDeleteDialogOpen(false);
     
+    const previousLeads = leads;
+    
+    setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+    setSelectedIds(new Set());
+    
     try {
       const { error } = await supabase
         .from("leads")
@@ -1306,8 +1215,6 @@ export default function Leads() {
       
       if (error) throw error;
       
-      setLeads(prev => prev.filter(l => !ids.includes(l.id)));
-      setSelectedIds(new Set());
       await fetchLiveTotalCount();
       
       toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted successfully`);
@@ -1316,11 +1223,12 @@ export default function Leads() {
         logActivity(id, "deleted", `Bulk deleted lead`);
       });
     } catch (error: any) {
+      setLeads(previousLeads);
       console.error("Bulk delete error:", error);
       toast.error(error.message || "Failed to delete leads");
       await fetchLeads();
     }
-  }, [selectedIds, fetchLiveTotalCount, logActivity, fetchLeads]);
+  }, [selectedIds, leads, fetchLiveTotalCount, logActivity, fetchLeads]);
 
   // ── Bulk Stage Change ──
   const handleBulkStageChange = useCallback(async (stage: string, subStage: string) => {
@@ -1334,7 +1242,6 @@ export default function Leads() {
       sub_stage: subStage || null,
     };
     
-    // If stage is "converted" or "lost", update status and business_status accordingly
     if (stage === "converted") {
       updateData.status = "converted";
       updateData.business_status = "done";
@@ -1343,26 +1250,24 @@ export default function Leads() {
       updateData.business_status = "no-go";
     }
     
-    try {
-      // Update UI immediately
-      setLeads(prev => prev.map(l => {
-        if (ids.includes(l.id)) {
-          const updated = { ...l, ...updateData };
-          // If stage is converted or lost, update status
-          if (stage === "converted") {
-            updated.status = "converted";
-            updated.business_status = "done";
-          } else if (stage === "lost") {
-            updated.status = "lost";
-            updated.business_status = "no-go";
-          }
-          return updated;
+    setLeads(prev => prev.map(l => {
+      if (ids.includes(l.id)) {
+        const updated = { ...l, ...updateData };
+        if (stage === "converted") {
+          updated.status = "converted";
+          updated.business_status = "done";
+        } else if (stage === "lost") {
+          updated.status = "lost";
+          updated.business_status = "no-go";
         }
-        return l;
-      }));
-      
-      setSelectedIds(new Set());
-      
+        return updated;
+      }
+      return l;
+    }));
+    
+    setSelectedIds(new Set());
+    
+    try {
       const { error } = await supabase
         .from("leads")
         .update(updateData)
@@ -1382,8 +1287,21 @@ export default function Leads() {
     }
   }, [selectedIds, logActivity, fetchLeads]);
 
+  // ── Filter preset options with useMemo ──
+  const filterPresetOptions = useMemo(() => ({
+    all: () => true,
+    today: (l: DbLead) => isToday(new Date(l.created_at)),
+    fresh: (l: DbLead) => 
+      (l.status === "new" || l.stage === "ringing") && 
+      new Date(l.created_at) >= subDays(new Date(), 3),
+    followup: (l: DbLead) => 
+      l.next_call_date && new Date(l.next_call_date) <= new Date()
+  }), []);
+
   // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
+    const presetFn = filterPresetOptions[filterPreset as keyof typeof filterPresetOptions] || (() => true);
+    
     return leads.filter(l => {
       const matchSearch =
         l.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -1403,21 +1321,16 @@ export default function Leads() {
         employeeFilter === null ||
         (employeeFilter === "unassigned" && !l.assigned_to) ||
         l.assigned_to === employeeFilter;
-      const matchPreset =
-        filterPreset === "all" ||
-        (filterPreset === "today"    && isToday(new Date(l.created_at))) ||
-        (filterPreset === "fresh"    && (l.status === "new" || l.stage === "ringing") && new Date(l.created_at) >= subDays(new Date(), 3)) ||
-        (filterPreset === "followup" && l.next_call_date && new Date(l.next_call_date) <= new Date());
       const createdAt = new Date(l.created_at);
       const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
       const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
       return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
-             matchAssignment && matchEmployee && matchPreset && 
+             matchAssignment && matchEmployee && presetFn(l) && 
              matchDateFrom && matchDateTo && matchTemperature;
     });
   }, [leads, search, filterStatus, filterStage, filterAssignment, 
       filterLeadType, filterBudget, filterTemperature, dateFrom, dateTo, 
-      filterPreset, employeeFilter, user]);
+      filterPreset, employeeFilter, user, filterPresetOptions]);
 
   // ── Dashboard focus ──
   const dashboardLeads = useMemo(() => {
@@ -1634,22 +1547,24 @@ export default function Leads() {
     }
   }, [fetchLiveTotalCount]);
 
-  // ── Shared row mapper ──
-  const buildExportRows = useCallback((rows: DbLead[]) => rows.map(l => ({
-    Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
-    "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
-    Budget: l.budget, Stage: formatStageLabel(l.stage), "Sub Stage": formatStageLabel(l.sub_stage), Remark: l.remark,
-    Source: l.source, Status: l.status, Value: l.value,
-    "Business Status": l.business_status,
-    "Assigned To": getProfileName(l.assigned_to),
-    "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
-    "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
-    "Lost Reason": l.lost_reason || "",
-    "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
-    "eSign Status": l.leegality_status || "Not Started",
-    "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
-    "Temperature": l.temperature || "Warm",
-  })), [getProfileName]);
+  // ── Shared row mapper with proper dependencies ──
+  const buildExportRows = useCallback((rows: DbLead[]) => {
+    return rows.map(l => ({
+      Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
+      "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
+      Budget: l.budget, Stage: formatStageLabel(l.stage), "Sub Stage": formatStageLabel(l.sub_stage), Remark: l.remark,
+      Source: l.source, Status: l.status, Value: l.value,
+      "Business Status": l.business_status,
+      "Assigned To": getProfileName(l.assigned_to),
+      "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
+      "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
+      "Lost Reason": l.lost_reason || "",
+      "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
+      "eSign Status": l.leegality_status || "Not Started",
+      "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
+      "Temperature": l.temperature || "Warm",
+    }));
+  }, [getProfileName]);
 
   // ── Export ALL leads ──
   const handleExport = useCallback(() => {
@@ -1678,7 +1593,7 @@ export default function Leads() {
   }, [leads, buildExportRows]);
 
   const clearFilters = useCallback(() => {
-    setSearch(""); setFilterStatus("all"); setFilterStage("all");
+    setSearchInput(""); setSearch(""); setFilterStatus("all"); setFilterStage("all");
     setFilterAssignment("all");
     setFilterLeadType("all"); setFilterBudget("all");
     setFilterTemperature("all");
@@ -1983,7 +1898,9 @@ export default function Leads() {
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <p className="text-2xl font-bold leading-none">{liveTotalCount ?? stats.totalLeads}</p>
+                  <p className="text-2xl font-bold leading-none">
+                    {liveTotalCount !== null ? liveTotalCount : stats.totalLeads}
+                  </p>
                   <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
@@ -2122,123 +2039,144 @@ export default function Leads() {
 
       {/* ── Employee Filter Section ── */}
       {canAssign && typedProfiles.length > 0 && (
-        <Card className="mb-4">
-          <CardHeader className="pb-3">
+        <Card className="mb-4 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Employee Leads
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">Filter leads by employee</p>
-              </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <Users className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">Employee Leads</h2>
                 <Badge variant="outline" className="text-sm">
-                  Total: {leads.length}
+                  Total: {liveTotalCount !== null ? liveTotalCount : leads.length}
                 </Badge>
+                <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
                 {employeeFilter && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Badge 
+                    variant="default" 
+                    className="bg-primary/10 text-primary border-primary/30 cursor-pointer hover:bg-primary/20"
                     onClick={() => setEmployeeFilter(null)}
-                    className="text-xs"
                   >
-                    <X className="h-3 w-3 mr-1" />
-                    Clear Filter
+                    {employeeFilter === "unassigned" 
+                      ? "Unassigned" 
+                      : typedProfiles.find(p => p.user_id === employeeFilter)?.display_name || "Selected"}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Quick Employee Buttons - Show top employees with most leads */}
+                <div className="flex items-center gap-1">
+                  {typedProfiles
+                    .sort((a, b) => {
+                      const aCount = leads.filter(l => l.assigned_to === a.user_id).length;
+                      const bCount = leads.filter(l => l.assigned_to === b.user_id).length;
+                      return bCount - aCount;
+                    })
+                    .slice(0, 4)
+                    .map(emp => {
+                      const count = leads.filter(l => l.assigned_to === emp.user_id).length;
+                      const isActive = employeeFilter === emp.user_id;
+                      if (count === 0) return null;
+                      return (
+                        <Button
+                          key={emp.user_id}
+                          variant={isActive ? "default" : "outline"}
+                          size="sm"
+                          className={`text-xs h-7 ${isActive ? "bg-primary" : ""}`}
+                          onClick={() => setEmployeeFilter(isActive ? null : emp.user_id)}
+                        >
+                          <span className="truncate max-w-[60px]">{emp.display_name || "Unknown"}</span>
+                          <Badge variant={isActive ? "secondary" : "outline"} className="ml-1 text-[9px] h-4 px-1">
+                            {count}
+                          </Badge>
+                        </Button>
+                      );
+                    })}
+                </div>
+                
+                {/* Unassigned Quick Button */}
+                {leads.filter(l => !l.assigned_to).length > 0 && (
+                  <Button
+                    variant={employeeFilter === "unassigned" ? "default" : "outline"}
+                    size="sm"
+                    className={`text-xs h-7 ${employeeFilter === "unassigned" ? "bg-primary" : ""}`}
+                    onClick={() => setEmployeeFilter(employeeFilter === "unassigned" ? null : "unassigned")}
+                  >
+                    Unassigned
+                    <Badge variant={employeeFilter === "unassigned" ? "secondary" : "outline"} className="ml-1 text-[9px] h-4 px-1">
+                      {leads.filter(l => !l.assigned_to).length}
+                    </Badge>
                   </Button>
                 )}
+                
+                {/* Employee Dropdown - Full list */}
+                <Select 
+                  value={employeeFilter || "all"} 
+                  onValueChange={(v) => setEmployeeFilter(v === "all" ? null : v)}
+                >
+                  <SelectTrigger className="w-44 h-7 text-xs">
+                    <SelectValue placeholder="All Employees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">📋 All Employees</SelectItem>
+                    <SelectItem value="unassigned">❓ Unassigned ({leads.filter(l => !l.assigned_to).length})</SelectItem>
+                    {typedProfiles
+                      .sort((a, b) => {
+                        const aCount = leads.filter(l => l.assigned_to === a.user_id).length;
+                        const bCount = leads.filter(l => l.assigned_to === b.user_id).length;
+                        return bCount - aCount;
+                      })
+                      .map(emp => {
+                        const count = leads.filter(l => l.assigned_to === emp.user_id).length;
+                        const converted = leads.filter(l => l.assigned_to === emp.user_id && l.stage === "converted").length;
+                        return (
+                          <SelectItem key={emp.user_id} value={emp.user_id}>
+                            <span className="flex items-center justify-between w-full gap-4">
+                              <span className="truncate">{emp.display_name || "Unknown"}</span>
+                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{count} leads</span>
+                                {converted > 0 && <span className="text-green-600">✓{converted}</span>}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              <div 
-                className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                  employeeFilter === "unassigned" 
-                    ? "border-primary bg-primary/5" 
-                    : "border-gray-200 hover:border-gray-300"
-                }`}
-                onClick={() => setEmployeeFilter(employeeFilter === "unassigned" ? null : "unassigned")}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold">
-                      ?
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm">Unassigned</p>
-                      <p className="text-xs text-muted-foreground">{leads.filter(l => !l.assigned_to).length} leads</p>
-                    </div>
-                  </div>
-                  <Badge variant={employeeFilter === "unassigned" ? "default" : "outline"}>
-                    {leads.filter(l => !l.assigned_to).length}
-                  </Badge>
-                </div>
-              </div>
-              
-              {typedProfiles.map(emp => {
-                const color = avatarColor(emp.display_name || "?");
-                const empLeads = leads.filter(l => l.assigned_to === emp.user_id);
-                const isActive = employeeFilter === emp.user_id;
-                return (
-                  <div 
-                    key={emp.user_id}
-                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                      isActive 
-                        ? "border-primary bg-primary/5" 
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                    onClick={() => setEmployeeFilter(isActive ? null : emp.user_id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div 
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                          style={{ background: color }}
-                        >
-                          {getInitials(emp.display_name || "?")}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-sm truncate max-w-[80px]">{emp.display_name || "Unknown"}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {empLeads.filter(l => l.stage === "converted").length} converted
-                          </p>
-                        </div>
-                      </div>
-                      <Badge variant={isActive ? "default" : "outline"}>
-                        {empLeads.length}
-                      </Badge>
-                    </div>
-                    
-                    <div className="flex gap-1 mt-2">
-                      {empLeads.filter(l => l.temperature === "hot").length > 0 && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
-                          🔥 {empLeads.filter(l => l.temperature === "hot").length}
-                        </span>
-                      )}
-                      {empLeads.filter(l => l.temperature === "warm").length > 0 && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700">
-                          ☀️ {empLeads.filter(l => l.temperature === "warm").length}
-                        </span>
-                      )}
-                      {empLeads.filter(l => l.temperature === "cold").length > 0 && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                          ❄️ {empLeads.filter(l => l.temperature === "cold").length}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {empLeads.length > 0 && (
-                      <div className="mt-2">
-                        <Progress 
-                          value={(empLeads.filter(l => l.stage === "converted").length / empLeads.length) * 100} 
-                          className="h-1" 
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+          <CardContent className="pt-0">
+            {/* Mini Stats Row */}
+            <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1 border-t">
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.assigned_to).length}</span> Assigned
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> Unassigned
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.stage === "converted").length}</span> Converted
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "hot").length}</span> 🔥 Hot
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "warm").length}</span> ☀️ Warm
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "cold").length}</span> ❄️ Cold
+              </span>
+              {employeeFilter && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setEmployeeFilter(null)}
+                  className="h-6 text-xs text-primary hover:text-primary/80"
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Clear Filter
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -2285,8 +2223,8 @@ export default function Leads() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search leads..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
                 className="pl-9"
               />
             </div>
