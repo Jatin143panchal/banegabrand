@@ -109,6 +109,60 @@ const DOCUMENT_FOLDERS = [
   "Others"
 ];
 
+const DEPARTMENT_TYPES = [
+  { value: "product_launch", label: "Product Launch", icon: Rocket },
+  { value: "branding", label: "Branding", icon: Award },
+  { value: "packaging", label: "Packaging", icon: Package },
+  { value: "website_development", label: "Website Development", icon: Globe },
+  { value: "social_media", label: "Social Media", icon: Share2 },
+  { value: "marketplace", label: "Marketplace", icon: Building2 },
+  { value: "performance_marketing", label: "Performance Marketing", icon: Zap },
+  { value: "trademark", label: "Trademark", icon: Shield },
+  { value: "production", label: "Production", icon: Settings },
+  { value: "photography", label: "Photography", icon: Image },
+  { value: "video_editing", label: "Video Editing", icon: Video },
+  { value: "seo", label: "SEO", icon: TrendingUp },
+  { value: "legal", label: "Legal", icon: FileSignature },
+  { value: "accounts", label: "Accounts", icon: CreditCard },
+  { value: "custom", label: "Custom Department", icon: Layers },
+];
+
+const DEPARTMENT_STATUSES = [
+  { value: "active", label: "Active", color: "#10b981" },
+  { value: "on_hold", label: "On Hold", color: "#f59e0b" },
+  { value: "completed", label: "Completed", color: "#3b82f6" },
+  { value: "blocked", label: "Blocked", color: "#ef4444" },
+];
+
+// Per-department-type stage pipeline templates. When a department is
+// created, its stage rows are auto-generated from the matching template.
+// "custom" starts empty — the user builds their own pipeline from scratch.
+const DEPARTMENT_STAGE_TEMPLATES: Record<string, string[]> = {
+  product_launch: PROJECT_STAGES.map(s => s.label),
+  branding: ["Research", "Brand Name", "Logo", "Brand Guidelines", "Mockups", "Final Print Files", "Client Approval"],
+  packaging: ["Concept", "Design", "Mockup", "3D Preview", "Approval", "Print Files"],
+  website_development: [
+    "Requirement Collection", "Wireframe", "UI Design", "Client Approval",
+    "Frontend Development", "Backend Development", "CMS Integration",
+    "Testing", "Bug Fixes", "SEO Setup", "Content Upload",
+    "Performance Optimization", "Go Live", "Warranty Support",
+  ],
+  social_media: [
+    "Content Planning", "Content Writing", "Graphic Design", "Client Approval",
+    "Scheduling", "Published", "Boosting", "Monthly Report",
+  ],
+  marketplace: ["Seller Account", "GST", "Brand Registry", "Product Listing", "Images", "SEO", "Launch", "Ads"],
+  performance_marketing: ["Pixel Setup", "Campaign Strategy", "Creative Upload", "Campaign Live", "Optimization", "Weekly Report"],
+  trademark: ["Name Search", "Trademark Class", "Application", "Government Filing", "TM Number", "Objection", "Accepted"],
+  production: [...MANUFACTURING_STAGES],
+  photography: ["Shoot Planning", "Shoot", "Editing", "Client Approval", "Delivery"],
+  video_editing: ["Script", "Shoot", "Rough Cut", "Editing", "Client Approval", "Final Render", "Delivery"],
+  seo: ["Audit", "Keyword Research", "On-Page Optimization", "Content Optimization", "Backlinks", "Monthly Report"],
+  legal: ["Document Collection", "Drafting", "Review", "Client Approval", "Filing", "Completed"],
+  accounts: ["Invoice Setup", "GST Filing", "Reconciliation", "Reporting"],
+  custom: [],
+};
+
 // ============================================================
 // INTERFACES
 // ============================================================
@@ -147,6 +201,7 @@ interface ProjectTask {
   id: string;
   project_id: string;
   stage_id: string | null;
+  department_id: string | null;
   task_name: string;
   description: string | null;
   department: string | null;
@@ -160,6 +215,43 @@ interface ProjectTask {
   due_date: string | null;
   completion_date: string | null;
   employee_remarks: string | null;
+}
+
+interface Department {
+  id: string;
+  project_id: string;
+  name: string;
+  department_type: string | null;
+  manager_name: string | null;
+  manager_email: string | null;
+  status: string;
+  progress: number;
+  start_date: string | null;
+  due_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DepartmentStage {
+  id: string;
+  department_id: string;
+  stage_name: string;
+  stage_order: number;
+  status: string;
+  start_date: string | null;
+  completion_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DepartmentSubtask {
+  id: string;
+  stage_id: string;
+  title: string;
+  is_completed: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Agreement {
@@ -325,6 +417,14 @@ function getProjectPriorityMeta(priority: string) {
   return PROJECT_PRIORITIES.find(p => p.value === priority) || PROJECT_PRIORITIES[1];
 }
 
+function getDepartmentTypeMeta(value: string | null) {
+  return DEPARTMENT_TYPES.find(d => d.value === value) || DEPARTMENT_TYPES[DEPARTMENT_TYPES.length - 1];
+}
+
+function getDepartmentStatusMeta(status: string) {
+  return DEPARTMENT_STATUSES.find(d => d.value === status) || DEPARTMENT_STATUSES[0];
+}
+
 function getDueBucket(dueDate: string | null) {
   if (!dueDate) return "no_date";
   const d = startOfDay(new Date(dueDate));
@@ -485,6 +585,78 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           <ChevronRight className="h-5 w-5 text-muted-foreground" />
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Department Status Badge ────────────────────────────────────
+function DepartmentStatusBadge({ status }: { status: string }) {
+  const meta = getDepartmentStatusMeta(status);
+  return (
+    <span
+      className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{ color: meta.color, background: `${meta.color}20`, border: `1px solid ${meta.color}30` }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+// ── Department Card ────────────────────────────────────────────
+function DepartmentCard({ department, taskCounts, onClick, onEdit, onDelete }: {
+  department: Department;
+  taskCounts: { total: number; completed: number };
+  onClick: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const typeMeta = getDepartmentTypeMeta(department.department_type);
+  const Icon = typeMeta.icon;
+  const progress = department.progress || 0;
+
+  return (
+    <div
+      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50"
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div className="p-2 rounded-md bg-primary/10 text-primary shrink-0">
+            <Icon className="h-4 w-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="font-semibold truncate">{department.name}</h4>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <DepartmentStatusBadge status={department.status} />
+              {department.manager_name && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <UserCheck className="h-3 w-3" /> {department.manager_name}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
+            <Edit className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+      <div className="mt-3 space-y-1">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">{taskCounts.completed}/{taskCounts.total} team tasks completed</span>
+          <span className="font-medium">{progress}%</span>
+        </div>
+        <Progress value={progress} className="h-1.5" />
+      </div>
+      {department.due_date && (
+        <p className="text-xs text-muted-foreground mt-2">
+          📅 Due: {format(new Date(department.due_date), "dd MMM yyyy")}
+        </p>
+      )}
     </div>
   );
 }
@@ -773,6 +945,17 @@ export default function Projects() {
   const [docNoteEditing, setDocNoteEditing] = useState(false);
   
   // Data states
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
+  const [departmentDialogOpen, setDepartmentDialogOpen] = useState(false);
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
+  const [departmentDetailTab, setDepartmentDetailTab] = useState<"pipeline" | "tasks">("pipeline");
+  const [departmentStages, setDepartmentStages] = useState<DepartmentStage[]>([]);
+  const [departmentSubtasks, setDepartmentSubtasks] = useState<DepartmentSubtask[]>([]);
+  const [loadingPipeline, setLoadingPipeline] = useState(false);
+  const [expandedStageId, setExpandedStageId] = useState<string | null>(null);
+  const [newSubtaskDraft, setNewSubtaskDraft] = useState<Record<string, string>>({});
+  const [newStageNameDraft, setNewStageNameDraft] = useState("");
   const [projectStages, setProjectStages] = useState<ProjectStage[]>([]);
   const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
   const [agreements, setAgreements] = useState<Agreement[]>([]);
@@ -1004,10 +1187,21 @@ export default function Projects() {
     status: "pending"
   });
 
+  const [newDepartment, setNewDepartment] = useState({
+    name: "",
+    department_type: "custom",
+    manager_email: "",
+    status: "active",
+    start_date: "",
+    due_date: "",
+    notes: "",
+  });
+
   const [newTask, setNewTask] = useState({
     task_name: "",
     description: "",
     department: "",
+    department_id: "",
     priority: "medium",
     due_date: "",
     stage_id: "",
@@ -1111,6 +1305,18 @@ export default function Projects() {
   const fetchProjectDetails = async (projectId: string) => {
     setLoadingDetail(true);
     try {
+      const { data: departmentsData, error: departmentsError } = await supabase
+        .from("project_departments")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at");
+      if (departmentsError) {
+        console.error("Error fetching departments:", departmentsError);
+        setDepartments([]);
+      } else {
+        setDepartments(departmentsData || []);
+      }
+
       const { data: stagesData } = await supabase
         .from("project_stages")
         .select("*")
@@ -1186,18 +1392,67 @@ export default function Projects() {
     }
   };
 
+  // ── Fetch a Department's Stage Pipeline + Subtasks ──
+  const fetchDepartmentPipeline = async (departmentId: string) => {
+    setLoadingPipeline(true);
+    try {
+      const { data: stagesData, error: stagesError } = await supabase
+        .from("department_stages")
+        .select("*")
+        .eq("department_id", departmentId)
+        .order("stage_order");
+
+      if (stagesError) throw stagesError;
+      setDepartmentStages(stagesData || []);
+
+      const stageIds = (stagesData || []).map((s: DepartmentStage) => s.id);
+      if (stageIds.length > 0) {
+        const { data: subtasksData, error: subtasksError } = await supabase
+          .from("department_subtasks")
+          .select("*")
+          .in("stage_id", stageIds)
+          .order("created_at");
+        if (subtasksError) throw subtasksError;
+        setDepartmentSubtasks(subtasksData || []);
+      } else {
+        setDepartmentSubtasks([]);
+      }
+    } catch (error: any) {
+      console.error("Error fetching department pipeline:", error);
+      setDepartmentStages([]);
+      setDepartmentSubtasks([]);
+    } finally {
+      setLoadingPipeline(false);
+    }
+  };
+
+  // Keep the pipeline in sync whenever the drilled-into department changes
+  useEffect(() => {
+    if (selectedDepartment) {
+      setDepartmentDetailTab("pipeline");
+      setExpandedStageId(null);
+      fetchDepartmentPipeline(selectedDepartment.id);
+    } else {
+      setDepartmentStages([]);
+      setDepartmentSubtasks([]);
+    }
+  }, [selectedDepartment?.id]);
+
   // ── Handle Project Click ──
   const handleProjectClick = (project: Project) => {
     setSelectedProject(project);
     setViewMode("detail");
     setActiveTab("overview");
     setTaskAssigneeFilter("all");
+    setSelectedDepartment(null);
     fetchProjectDetails(project.id);
   };
 
   const handleBack = () => {
     setViewMode("dashboard");
     setSelectedProject(null);
+    setDepartments([]);
+    setSelectedDepartment(null);
     setProjectStages([]);
     setProjectTasks([]);
     setAgreements([]);
@@ -1380,6 +1635,270 @@ export default function Projects() {
     }
   };
 
+  // ── Add Department ──
+  const addDepartment = async () => {
+    if (!newDepartment.name || !selectedProject) {
+      toast.error("Department name is required");
+      return;
+    }
+
+    try {
+      const manager = itTeam.find(m => m.email === newDepartment.manager_email);
+
+      const { data, error } = await supabase
+        .from("project_departments")
+        .insert({
+          project_id: selectedProject.id,
+          name: newDepartment.name,
+          department_type: newDepartment.department_type || null,
+          manager_email: newDepartment.manager_email || null,
+          manager_name: manager?.name || null,
+          status: newDepartment.status || "active",
+          start_date: newDepartment.start_date || null,
+          due_date: newDepartment.due_date || null,
+          notes: newDepartment.notes || null,
+          progress: 0,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Auto-generate this department's stage pipeline from its type template
+      const template = DEPARTMENT_STAGE_TEMPLATES[newDepartment.department_type] || [];
+      if (template.length > 0 && data) {
+        const stageRows = template.map((stageName, index) => ({
+          department_id: data.id,
+          stage_name: stageName,
+          stage_order: index + 1,
+          status: index === 0 ? "in_progress" : "pending",
+        }));
+        const { error: stagesError } = await supabase.from("department_stages").insert(stageRows);
+        if (stagesError) console.error("Error creating department stage pipeline:", stagesError);
+      }
+
+      toast.success("Department added successfully!");
+      setDepartmentDialogOpen(false);
+      setNewDepartment({ name: "", department_type: "custom", manager_email: "", status: "active", start_date: "", due_date: "", notes: "" });
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add department");
+    }
+  };
+
+  // ── Update Department ──
+  const updateDepartment = async () => {
+    if (!editingDepartment) return;
+
+    try {
+      const manager = itTeam.find(m => m.email === editingDepartment.manager_email);
+
+      const { error } = await supabase
+        .from("project_departments")
+        .update({
+          name: editingDepartment.name,
+          department_type: editingDepartment.department_type,
+          manager_email: editingDepartment.manager_email || null,
+          manager_name: editingDepartment.manager_email ? (manager?.name || editingDepartment.manager_name) : null,
+          status: editingDepartment.status,
+          start_date: editingDepartment.start_date || null,
+          due_date: editingDepartment.due_date || null,
+          notes: editingDepartment.notes || null,
+        })
+        .eq("id", editingDepartment.id);
+
+      if (error) throw error;
+
+      toast.success("Department updated successfully!");
+      setDepartmentDialogOpen(false);
+      setEditingDepartment(null);
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update department");
+    }
+  };
+
+  // ── Delete Department ──
+  const deleteDepartment = async (departmentId: string) => {
+    if (!confirm("Delete this department? Its tasks will remain but become unassigned from any department.")) return;
+
+    try {
+      const { error } = await supabase
+        .from("project_departments")
+        .delete()
+        .eq("id", departmentId);
+
+      if (error) throw error;
+
+      toast.success("Department deleted successfully!");
+      if (selectedDepartment?.id === departmentId) {
+        setSelectedDepartment(null);
+      }
+      if (selectedProject) {
+        fetchProjectDetails(selectedProject.id);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete department");
+    }
+  };
+
+  // ── Recompute Department Progress ──
+  // Prefers the stage pipeline (Website Dev / Social Media / etc. workflow)
+  // when the department has one; falls back to its ad-hoc task list otherwise.
+  const recomputeDepartmentProgress = async (departmentId: string) => {
+    try {
+      const { data: stages, error: stagesError } = await supabase
+        .from("department_stages")
+        .select("status")
+        .eq("department_id", departmentId);
+
+      if (!stagesError && stages && stages.length > 0) {
+        const completedStages = stages.filter((s: any) => s.status === "completed").length;
+        const newProgress = Math.round((completedStages / stages.length) * 100);
+        await supabase.from("project_departments").update({ progress: newProgress }).eq("id", departmentId);
+        return;
+      }
+
+      const { data: deptTasks, error: deptTasksError } = await supabase
+        .from("project_tasks")
+        .select("status")
+        .eq("department_id", departmentId);
+
+      if (deptTasksError || !deptTasks || deptTasks.length === 0) return;
+
+      const completedCount = deptTasks.filter((t: any) => t.status === "completed").length;
+      const newProgress = Math.round((completedCount / deptTasks.length) * 100);
+
+      await supabase
+        .from("project_departments")
+        .update({ progress: newProgress })
+        .eq("id", departmentId);
+    } catch (error) {
+      console.error("Error recomputing department progress:", error);
+    }
+  };
+
+  // ── Add Department Stage (manual, on top of the auto-generated template) ──
+  const addDepartmentStage = async (stageName: string) => {
+    if (!stageName.trim() || !selectedDepartment) return;
+    try {
+      const maxOrder = departmentStages.reduce((max, s) => Math.max(max, s.stage_order), 0);
+      const { error } = await supabase
+        .from("department_stages")
+        .insert({
+          department_id: selectedDepartment.id,
+          stage_name: stageName.trim(),
+          stage_order: maxOrder + 1,
+          status: "pending",
+        });
+      if (error) throw error;
+      setNewStageNameDraft("");
+      fetchDepartmentPipeline(selectedDepartment.id);
+      recomputeDepartmentProgress(selectedDepartment.id).then(() => {
+        if (selectedProject) fetchProjectDetails(selectedProject.id);
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add stage");
+    }
+  };
+
+  // ── Update Department Stage Status (manual override) ──
+  const updateDepartmentStageStatus = async (stageId: string, status: string) => {
+    if (!selectedDepartment) return;
+    try {
+      const { error } = await supabase
+        .from("department_stages")
+        .update({ status, completion_date: status === "completed" ? new Date().toISOString() : null })
+        .eq("id", stageId);
+      if (error) throw error;
+      fetchDepartmentPipeline(selectedDepartment.id);
+      recomputeDepartmentProgress(selectedDepartment.id).then(() => {
+        if (selectedProject) fetchProjectDetails(selectedProject.id);
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update stage");
+    }
+  };
+
+  // ── Delete Department Stage ──
+  const deleteDepartmentStage = async (stageId: string) => {
+    if (!selectedDepartment) return;
+    if (!confirm("Delete this stage and its subtasks?")) return;
+    try {
+      const { error } = await supabase.from("department_stages").delete().eq("id", stageId);
+      if (error) throw error;
+      fetchDepartmentPipeline(selectedDepartment.id);
+      recomputeDepartmentProgress(selectedDepartment.id).then(() => {
+        if (selectedProject) fetchProjectDetails(selectedProject.id);
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete stage");
+    }
+  };
+
+  // ── Add Subtask to a Stage ──
+  const addSubtask = async (stageId: string) => {
+    const title = (newSubtaskDraft[stageId] || "").trim();
+    if (!title || !selectedDepartment) return;
+    try {
+      const { error } = await supabase.from("department_subtasks").insert({ stage_id: stageId, title, is_completed: false });
+      if (error) throw error;
+      setNewSubtaskDraft((prev) => ({ ...prev, [stageId]: "" }));
+      fetchDepartmentPipeline(selectedDepartment.id);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add subtask");
+    }
+  };
+
+  // ── Toggle Subtask + auto-roll-up the stage's status ──
+  const toggleSubtask = async (subtask: DepartmentSubtask) => {
+    if (!selectedDepartment) return;
+    try {
+      const { error } = await supabase
+        .from("department_subtasks")
+        .update({ is_completed: !subtask.is_completed })
+        .eq("id", subtask.id);
+      if (error) throw error;
+
+      const { data: siblingSubtasks } = await supabase
+        .from("department_subtasks")
+        .select("is_completed")
+        .eq("stage_id", subtask.stage_id);
+
+      if (siblingSubtasks && siblingSubtasks.length > 0) {
+        const completed = siblingSubtasks.filter((s: any) => s.is_completed).length;
+        const autoStatus = completed === siblingSubtasks.length ? "completed" : completed > 0 ? "in_progress" : "pending";
+        await supabase
+          .from("department_stages")
+          .update({ status: autoStatus, completion_date: autoStatus === "completed" ? new Date().toISOString() : null })
+          .eq("id", subtask.stage_id);
+      }
+
+      fetchDepartmentPipeline(selectedDepartment.id);
+      recomputeDepartmentProgress(selectedDepartment.id).then(() => {
+        if (selectedProject) fetchProjectDetails(selectedProject.id);
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update subtask");
+    }
+  };
+
+  // ── Delete Subtask ──
+  const deleteSubtask = async (subtask: DepartmentSubtask) => {
+    if (!selectedDepartment) return;
+    try {
+      const { error } = await supabase.from("department_subtasks").delete().eq("id", subtask.id);
+      if (error) throw error;
+      fetchDepartmentPipeline(selectedDepartment.id);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete subtask");
+    }
+  };
+
   // ── Update Task Status ──
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
@@ -1391,6 +1910,11 @@ export default function Projects() {
       if (error) throw error;
       
       toast.success("Task updated successfully");
+
+      const changedTask = projectTasks.find(t => t.id === taskId);
+      if (changedTask?.department_id) {
+        recomputeDepartmentProgress(changedTask.department_id);
+      }
 
       if (selectedProject) {
         const { data: tasksData, error: tasksError } = await supabase
@@ -1449,15 +1973,18 @@ export default function Projects() {
     try {
       const assignee = itTeam.find(m => m.email === newTask.assigned_to_email);
       const stageIdToSave = newTask.stage_id && newTask.stage_id !== "none" ? newTask.stage_id : null;
+      const departmentIdToSave = newTask.department_id && newTask.department_id !== "none" ? newTask.department_id : null;
+      const linkedDepartment = departmentIdToSave ? departments.find(d => d.id === departmentIdToSave) : null;
 
       const { error } = await supabase
         .from("project_tasks")
         .insert({
           project_id: selectedProject.id,
           stage_id: stageIdToSave,
+          department_id: departmentIdToSave,
           task_name: newTask.task_name,
           description: newTask.description || null,
-          department: newTask.department || null,
+          department: linkedDepartment?.name || newTask.department || null,
           priority: newTask.priority,
           status: "not_started",
           due_date: newTask.due_date || null,
@@ -1474,11 +2001,15 @@ export default function Projects() {
         task_name: "",
         description: "",
         department: "",
+        department_id: "",
         priority: "medium",
         due_date: "",
         stage_id: "",
         assigned_to_email: "",
       });
+      if (departmentIdToSave) {
+        recomputeDepartmentProgress(departmentIdToSave);
+      }
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
@@ -1492,6 +2023,8 @@ export default function Projects() {
     if (!confirm("Delete this task?")) return;
 
     try {
+      const taskBeingDeleted = projectTasks.find(t => t.id === taskId);
+
       const { error } = await supabase
         .from("project_tasks")
         .delete()
@@ -1500,6 +2033,9 @@ export default function Projects() {
       if (error) throw error;
 
       toast.success("Task deleted successfully!");
+      if (taskBeingDeleted?.department_id) {
+        recomputeDepartmentProgress(taskBeingDeleted.department_id);
+      }
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
@@ -2621,8 +3157,9 @@ export default function Projects() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-9 gap-2">
+          <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="departments">Departments</TabsTrigger>
             <TabsTrigger value="stages">Stages</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
@@ -2701,6 +3238,296 @@ export default function Projects() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="departments" className="mt-4 space-y-4">
+            {selectedDepartment ? (
+              (() => {
+                const deptTasks = projectTasks.filter(t => t.department_id === selectedDepartment.id);
+                const typeMeta = getDepartmentTypeMeta(selectedDepartment.department_type);
+                const DeptIcon = typeMeta.icon;
+                return (
+                  <>
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-3">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedDepartment(null)}>
+                          <ArrowLeft className="h-4 w-4 mr-2" />
+                          All Departments
+                        </Button>
+                        <div className="flex items-center gap-2">
+                          <div className="p-2 rounded-md bg-primary/10 text-primary">
+                            <DeptIcon className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold">{selectedDepartment.name}</h3>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <DepartmentStatusBadge status={selectedDepartment.status} />
+                              {selectedDepartment.manager_name && (
+                                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                                  <UserCheck className="h-3 w-3" /> {selectedDepartment.manager_name}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setEditingDepartment(selectedDepartment);
+                          setNewDepartment({
+                            name: selectedDepartment.name,
+                            department_type: selectedDepartment.department_type || "custom",
+                            manager_email: selectedDepartment.manager_email || "",
+                            status: selectedDepartment.status,
+                            start_date: selectedDepartment.start_date || "",
+                            due_date: selectedDepartment.due_date || "",
+                            notes: selectedDepartment.notes || "",
+                          });
+                          setDepartmentDialogOpen(true);
+                        }}>
+                          <Edit className="h-4 w-4 mr-2" />Edit Department
+                        </Button>
+                        <Button size="sm" onClick={() => {
+                          setNewTask({ ...newTask, department_id: selectedDepartment.id });
+                          setTaskDialogOpen(true);
+                        }}>
+                          <Plus className="h-4 w-4 mr-2" />Add Task
+                        </Button>
+                      </div>
+                    </div>
+
+                    <Card>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span>Department Progress</span>
+                          <span className="font-semibold">{selectedDepartment.progress || 0}%</span>
+                        </div>
+                        <Progress value={selectedDepartment.progress || 0} className="h-2" />
+                        {selectedDepartment.notes && (
+                          <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{selectedDepartment.notes}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <div className="flex items-center gap-2 border-b pb-2">
+                      <Button
+                        variant={departmentDetailTab === "pipeline" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setDepartmentDetailTab("pipeline")}
+                      >
+                        <ListChecks className="h-4 w-4 mr-2" />Pipeline
+                      </Button>
+                      <Button
+                        variant={departmentDetailTab === "tasks" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setDepartmentDetailTab("tasks")}
+                      >
+                        <ClipboardList className="h-4 w-4 mr-2" />Team Tasks
+                        {deptTasks.length > 0 && <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0">{deptTasks.length}</Badge>}
+                      </Button>
+                    </div>
+
+                    {departmentDetailTab === "pipeline" ? (
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <CardTitle className="text-lg">Workflow Pipeline</CardTitle>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={newStageNameDraft}
+                                onChange={(e) => setNewStageNameDraft(e.target.value)}
+                                placeholder="Add custom stage..."
+                                className="h-8 text-sm w-48"
+                                onKeyDown={(e) => { if (e.key === "Enter") addDepartmentStage(newStageNameDraft); }}
+                              />
+                              <Button size="sm" variant="outline" onClick={() => addDepartmentStage(newStageNameDraft)}>
+                                <Plus className="h-4 w-4 mr-1" />Add Stage
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          {loadingPipeline ? (
+                            <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
+                          ) : departmentStages.length === 0 ? (
+                            <p className="text-center text-muted-foreground py-8">
+                              No stages yet — add one above to start building this department's workflow.
+                            </p>
+                          ) : (
+                            <div className="relative">
+                              {departmentStages.map((stage, index) => {
+                                const stageSubtasks = departmentSubtasks.filter(st => st.stage_id === stage.id);
+                                const completedSub = stageSubtasks.filter(st => st.is_completed).length;
+                                const isCompleted = stage.status === "completed";
+                                const isInProgress = stage.status === "in_progress";
+                                const isExpanded = expandedStageId === stage.id;
+                                return (
+                                  <div key={stage.id} className="flex items-start gap-4 mb-1">
+                                    <div className="flex flex-col items-center">
+                                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-medium shrink-0 ${isCompleted ? 'bg-green-500 border-green-500 text-white' : isInProgress ? 'bg-blue-500 border-blue-500 text-white' : stage.status === 'blocked' ? 'bg-red-500 border-red-500 text-white' : 'border-gray-300 text-gray-400'}`}>
+                                        {isCompleted ? '✓' : isInProgress ? '●' : index + 1}
+                                      </div>
+                                      {index < departmentStages.length - 1 && <div className={`w-0.5 flex-1 min-h-[24px] ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`} />}
+                                    </div>
+                                    <div className="flex-1 pb-4">
+                                      <div
+                                        className="flex items-center justify-between cursor-pointer"
+                                        onClick={() => setExpandedStageId(isExpanded ? null : stage.id)}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <p className="font-medium">{stage.stage_name}</p>
+                                          {stageSubtasks.length > 0 && (
+                                            <span className="text-xs text-muted-foreground">{completedSub}/{stageSubtasks.length} subtasks</span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Select value={stage.status} onValueChange={(v) => updateDepartmentStageStatus(stage.id, v)}>
+                                            <SelectTrigger className="h-7 w-32 text-xs" onClick={(e) => e.stopPropagation()}>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="pending">Pending</SelectItem>
+                                              <SelectItem value="in_progress">In Progress</SelectItem>
+                                              <SelectItem value="completed">Completed</SelectItem>
+                                              <SelectItem value="blocked">Blocked</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-destructive"
+                                            onClick={(e) => { e.stopPropagation(); deleteDepartmentStage(stage.id); }}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        </div>
+                                      </div>
+
+                                      {isExpanded && (
+                                        <div className="mt-3 pl-1 space-y-2 border-l-2 ml-1 pl-3">
+                                          {stageSubtasks.map(sub => (
+                                            <div key={sub.id} className="flex items-center gap-2 group">
+                                              <input
+                                                type="checkbox"
+                                                checked={sub.is_completed}
+                                                onChange={() => toggleSubtask(sub)}
+                                                className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                                              />
+                                              <span className={`text-sm flex-1 ${sub.is_completed ? 'line-through text-muted-foreground' : ''}`}>{sub.title}</span>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive"
+                                                onClick={() => deleteSubtask(sub)}
+                                              >
+                                                <X className="h-3 w-3" />
+                                              </Button>
+                                            </div>
+                                          ))}
+                                          <div className="flex items-center gap-2 pt-1">
+                                            <Input
+                                              value={newSubtaskDraft[stage.id] || ""}
+                                              onChange={(e) => setNewSubtaskDraft((prev) => ({ ...prev, [stage.id]: e.target.value }))}
+                                              onKeyDown={(e) => { if (e.key === "Enter") addSubtask(stage.id); }}
+                                              placeholder="Add subtask (e.g. Home Page, Contact...)"
+                                              className="h-7 text-xs"
+                                            />
+                                            <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => addSubtask(stage.id)}>
+                                              <Plus className="h-3 w-3 mr-1" />Add
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">Team Tasks</CardTitle>
+                            <Button size="sm" onClick={() => {
+                              setNewTask({ ...newTask, department_id: selectedDepartment.id });
+                              setTaskDialogOpen(true);
+                            }}>
+                              <Plus className="h-4 w-4 mr-2" />Add Task
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            {deptTasks.map(task => (
+                              <TaskCard key={task.id} task={task} itTeam={itTeam} onStatusChange={updateTaskStatus} onAssign={assignTask} onDelete={deleteTask} />
+                            ))}
+                            {deptTasks.length === 0 && <p className="text-center text-muted-foreground py-8">No tasks in this department yet</p>}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                );
+              })()
+            ) : (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">Departments</CardTitle>
+                    <Button size="sm" onClick={() => {
+                      setEditingDepartment(null);
+                      setNewDepartment({ name: "", department_type: "custom", manager_email: "", status: "active", start_date: "", due_date: "", notes: "" });
+                      setDepartmentDialogOpen(true);
+                    }}>
+                      <Plus className="h-4 w-4 mr-2" />Add Department
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {loadingDetail ? (
+                    <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {departments.map(dept => {
+                        const deptTasks = projectTasks.filter(t => t.department_id === dept.id);
+                        return (
+                          <DepartmentCard
+                            key={dept.id}
+                            department={dept}
+                            taskCounts={{ total: deptTasks.length, completed: deptTasks.filter(t => t.status === 'completed').length }}
+                            onClick={() => setSelectedDepartment(dept)}
+                            onEdit={() => {
+                              setEditingDepartment(dept);
+                              setNewDepartment({
+                                name: dept.name,
+                                department_type: dept.department_type || "custom",
+                                manager_email: dept.manager_email || "",
+                                status: dept.status,
+                                start_date: dept.start_date || "",
+                                due_date: dept.due_date || "",
+                                notes: dept.notes || "",
+                              });
+                              setDepartmentDialogOpen(true);
+                            }}
+                            onDelete={() => deleteDepartment(dept.id)}
+                          />
+                        );
+                      })}
+                      {departments.length === 0 && (
+                        <div className="col-span-full text-center py-8">
+                          <Layers className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                          <p className="text-muted-foreground">No departments yet for this client</p>
+                          <p className="text-xs text-muted-foreground mt-1">e.g. Branding, Website Development, Social Media, Production...</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="stages" className="mt-4">
@@ -3045,6 +3872,112 @@ export default function Projects() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={departmentDialogOpen} onOpenChange={(open) => { setDepartmentDialogOpen(open); if (!open) setEditingDepartment(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Layers className="h-5 w-5 text-primary" />{editingDepartment ? "Edit Department" : "Add Department"}</DialogTitle></DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid gap-2">
+                <Label>Department Name *</Label>
+                <Input
+                  value={editingDepartment ? editingDepartment.name : newDepartment.name}
+                  onChange={(e) => editingDepartment
+                    ? setEditingDepartment({ ...editingDepartment, name: e.target.value })
+                    : setNewDepartment({ ...newDepartment, name: e.target.value })}
+                  placeholder="e.g. Website Development"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Department Type</Label>
+                <Select
+                  value={editingDepartment ? (editingDepartment.department_type || "custom") : newDepartment.department_type}
+                  onValueChange={(v) => editingDepartment
+                    ? setEditingDepartment({ ...editingDepartment, department_type: v })
+                    : setNewDepartment({ ...newDepartment, department_type: v })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DEPARTMENT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {!editingDepartment && (
+                  <p className="text-xs text-muted-foreground">
+                    {(DEPARTMENT_STAGE_TEMPLATES[newDepartment.department_type] || []).length > 0
+                      ? `A ${DEPARTMENT_STAGE_TEMPLATES[newDepartment.department_type].length}-stage workflow will be created automatically for this type.`
+                      : "Custom departments start with an empty pipeline — add your own stages after creating it."}
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-2">
+                <Label>Manager (IT Team)</Label>
+                <Select
+                  value={editingDepartment ? (editingDepartment.manager_email || "") : newDepartment.manager_email}
+                  onValueChange={(v) => editingDepartment
+                    ? setEditingDepartment({ ...editingDepartment, manager_email: v })
+                    : setNewDepartment({ ...newDepartment, manager_email: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                  <SelectContent>
+                    {itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Status</Label>
+                  <Select
+                    value={editingDepartment ? editingDepartment.status : newDepartment.status}
+                    onValueChange={(v) => editingDepartment
+                      ? setEditingDepartment({ ...editingDepartment, status: v })
+                      : setNewDepartment({ ...newDepartment, status: v })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {DEPARTMENT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Due Date</Label>
+                  <Input
+                    type="date"
+                    value={editingDepartment ? (editingDepartment.due_date || "") : newDepartment.due_date}
+                    onChange={(e) => editingDepartment
+                      ? setEditingDepartment({ ...editingDepartment, due_date: e.target.value })
+                      : setNewDepartment({ ...newDepartment, due_date: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Start Date</Label>
+                <Input
+                  type="date"
+                  value={editingDepartment ? (editingDepartment.start_date || "") : newDepartment.start_date}
+                  onChange={(e) => editingDepartment
+                    ? setEditingDepartment({ ...editingDepartment, start_date: e.target.value })
+                    : setNewDepartment({ ...newDepartment, start_date: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Notes</Label>
+                <Textarea
+                  rows={3}
+                  value={editingDepartment ? (editingDepartment.notes || "") : newDepartment.notes}
+                  onChange={(e) => editingDepartment
+                    ? setEditingDepartment({ ...editingDepartment, notes: e.target.value })
+                    : setNewDepartment({ ...newDepartment, notes: e.target.value })}
+                  placeholder="Scope, requirements, links..."
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDepartmentDialogOpen(false)}>Cancel</Button>
+              <Button onClick={editingDepartment ? updateDepartment : addDepartment}>
+                <Save className="h-4 w-4 mr-2" />{editingDepartment ? "Save Changes" : "Add Department"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5 text-blue-500" />Add New Task</DialogTitle></DialogHeader>
@@ -3056,6 +3989,7 @@ export default function Projects() {
                 <div className="grid gap-2"><Label>Priority</Label><Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">🟢 Low</SelectItem><SelectItem value="medium">🟡 Medium</SelectItem><SelectItem value="high">🟠 High</SelectItem><SelectItem value="urgent">🔴 Urgent</SelectItem></SelectContent></Select></div>
               </div>
               <div className="grid gap-2"><Label>Assign To (IT Team)</Label><Select value={newTask.assigned_to_email} onValueChange={(v) => setNewTask({ ...newTask, assigned_to_email: v })}><SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger><SelectContent>{itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Department (Optional)</Label><Select value={newTask.department_id} onValueChange={(v) => setNewTask({ ...newTask, department_id: v })}><SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Stage (Optional)</Label><Select value={newTask.stage_id} onValueChange={(v) => setNewTask({ ...newTask, stage_id: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{projectStages.map(s => <SelectItem key={s.id} value={s.id}>{s.stage_name}</SelectItem>)}</SelectContent></Select></div>
               <div className="grid gap-2"><Label>Due Date</Label><Input type="date" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} /></div>
             </div>
