@@ -29,7 +29,7 @@ import {
   Layers, Link2, ExternalLink, Archive, BookOpen, CheckSquare,
   ListChecks, CalendarDays, Timer, Hourglass, AlarmClock,
   UserPlus, UserMinus, Settings, SlidersHorizontal, FileSpreadsheet,
-  Import, Table as TableIcon, FileDown, FileUp
+  Import, Table as TableIcon, FileDown, FileUp, Sparkles, Palette
 } from "lucide-react";
 import { format, isBefore, isToday, isThisWeek, startOfDay } from "date-fns";
 
@@ -133,6 +133,41 @@ const DEPARTMENT_STATUSES = [
   { value: "completed", label: "Completed", color: "#3b82f6" },
   { value: "blocked", label: "Blocked", color: "#ef4444" },
 ];
+
+// ── Brand Identity Kit field definitions ──
+const BRAND_KIT_FIELDS: { key: string; label: string; type: "input" | "textarea" }[] = [
+  { key: "brand_name", label: "Brand Name", type: "input" },
+  { key: "tagline", label: "Tagline", type: "input" },
+  { key: "brand_introduction", label: "Brand Introduction", type: "textarea" },
+  { key: "brand_story", label: "Brand Story", type: "textarea" },
+  { key: "brand_meaning", label: "Brand Meaning", type: "textarea" },
+  { key: "brand_mission", label: "Brand Mission", type: "textarea" },
+  { key: "brand_vision", label: "Brand Vision", type: "textarea" },
+  { key: "brand_values", label: "Brand Values", type: "textarea" },
+  { key: "target_audience", label: "Target Audience", type: "textarea" },
+  { key: "brand_positioning", label: "Brand Positioning", type: "textarea" },
+  { key: "usp", label: "Unique Selling Proposition (USP)", type: "textarea" },
+  { key: "brand_personality", label: "Brand Personality", type: "input" },
+  { key: "tone_of_voice", label: "Tone of Voice", type: "input" },
+  { key: "brand_keywords", label: "Brand Keywords", type: "input" },
+  { key: "theme", label: "Theme", type: "input" },
+  { key: "mood", label: "Mood", type: "input" },
+  { key: "primary_colors", label: "Primary Colors", type: "input" },
+  { key: "secondary_colors", label: "Secondary Colors", type: "input" },
+  { key: "typography", label: "Typography", type: "input" },
+  { key: "packaging_style", label: "Packaging Style", type: "textarea" },
+  { key: "photography_style", label: "Photography Style", type: "textarea" },
+  { key: "competitor_brands", label: "Competitor Brands", type: "input" },
+  { key: "website", label: "Website", type: "input" },
+  { key: "social_media_links", label: "Social Media Links", type: "input" },
+  { key: "trademark_status", label: "Trademark Status", type: "input" },
+  { key: "brand_notes", label: "Notes", type: "textarea" },
+];
+
+const EMPTY_BRAND_KIT: Record<string, string> = BRAND_KIT_FIELDS.reduce(
+  (acc, f) => ({ ...acc, [f.key]: "" }),
+  {} as Record<string, string>
+);
 
 // ============================================================
 // INTERFACES
@@ -389,6 +424,23 @@ function getDueBucket(dueDate: string | null) {
   if (isToday(d)) return "today";
   if (isThisWeek(d)) return "this_week";
   return "later";
+}
+
+// ── Brand Kit content helpers (serialize/parse into ProjectNote.content) ──
+function serializeBrandKit(fields: Record<string, string>, imageUrl: string | null) {
+  return JSON.stringify({ __type: "brand_kit", image_url: imageUrl || null, fields });
+}
+
+function parseBrandKit(content: string): { fields: Record<string, string>; imageUrl: string | null } | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && parsed.__type === "brand_kit") {
+      return { fields: parsed.fields || {}, imageUrl: parsed.image_url || null };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================
@@ -832,6 +884,57 @@ function NoteCard({ note, onEdit, onDelete }: {
   onEdit: (note: ProjectNote) => void;
   onDelete: (id: string) => void;
 }) {
+  const brandKit = note.note_type === "brand_kit" ? parseBrandKit(note.content) : null;
+
+  if (brandKit) {
+    const filledFields = BRAND_KIT_FIELDS.filter(f => brandKit.fields[f.key]);
+    return (
+      <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            {brandKit.imageUrl && (
+              <img
+                src={brandKit.imageUrl}
+                alt={brandKit.fields.brand_name || "Brand image"}
+                className="h-16 w-16 rounded-md object-cover border shrink-0"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Palette className="h-4 w-4 text-purple-500 shrink-0" />
+                <p className="font-medium">{brandKit.fields.brand_name || note.title || "Brand Identity Kit"}</p>
+                <Badge variant="outline" className="text-xs">Brand Kit</Badge>
+              </div>
+              {brandKit.fields.tagline && (
+                <p className="text-sm text-muted-foreground italic mt-0.5">"{brandKit.fields.tagline}"</p>
+              )}
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                {filledFields.filter(f => !["brand_name", "tagline"].includes(f.key)).slice(0, 6).map(f => (
+                  <p key={f.key} className="text-xs text-muted-foreground truncate">
+                    <span className="font-medium text-foreground">{f.label}: </span>
+                    {brandKit.fields[f.key]}
+                  </p>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+                <span>🕒 {format(new Date(note.created_at), "dd MMM yyyy, hh:mm a")}</span>
+                {note.created_by && <span>👤 {note.created_by}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(note)}>
+              <Edit className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(note.id)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
       <div className="flex items-start justify-between gap-2">
@@ -867,6 +970,7 @@ export default function Projects() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
+  const noteImageInputRef = useRef<HTMLInputElement>(null);
 
   // ── Top-level page switcher ──
   const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat">("projects");
@@ -1201,11 +1305,18 @@ export default function Projects() {
     next_followup: "",
   });
 
+  // ── Notes / Brand Kit note states ──
+  const [noteMode, setNoteMode] = useState<"quick" | "brand_kit">("quick");
   const [newNote, setNewNote] = useState({
     title: "",
     content: "",
   });
   const [editingNote, setEditingNote] = useState<ProjectNote | null>(null);
+  const [brandKitFields, setBrandKitFields] = useState<Record<string, string>>(EMPTY_BRAND_KIT);
+  const [noteImageFile, setNoteImageFile] = useState<File | null>(null);
+  const [noteImagePreview, setNoteImagePreview] = useState<string | null>(null);
+  const [existingNoteImageUrl, setExistingNoteImageUrl] = useState<string | null>(null);
+  const [noteSaving, setNoteSaving] = useState(false);
 
   // ── Fetch Projects ──
   const { data: projects = [], isLoading, refetch } = useQuery({
@@ -1264,7 +1375,7 @@ export default function Projects() {
 
   // ── Documentation note ──
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
-  const generalNotes = notes.filter(n => n.note_type === "general");
+  const generalNotes = notes.filter(n => n.note_type === "general" || n.note_type === "brand_kit");
 
   // ── Fetch Project Details ──
   const fetchProjectDetails = async (projectId: string) => {
@@ -2159,63 +2270,161 @@ export default function Projects() {
     }
   };
 
-  // ── Add Note ──
+  // ── Note dialog helpers ──
+  const resetNoteForm = () => {
+    setNoteMode("quick");
+    setNewNote({ title: "", content: "" });
+    setBrandKitFields(EMPTY_BRAND_KIT);
+    setNoteImageFile(null);
+    setNoteImagePreview(null);
+    setExistingNoteImageUrl(null);
+    setEditingNote(null);
+  };
+
+  const openAddNoteDialog = (mode: "quick" | "brand_kit" = "quick") => {
+    resetNoteForm();
+    setNoteMode(mode);
+    setNoteDialogOpen(true);
+  };
+
+  const openEditNoteDialog = (note: ProjectNote) => {
+    setEditingNote(note);
+    if (note.note_type === "brand_kit") {
+      const parsed = parseBrandKit(note.content);
+      setNoteMode("brand_kit");
+      setBrandKitFields({ ...EMPTY_BRAND_KIT, ...(parsed?.fields || {}) });
+      setExistingNoteImageUrl(parsed?.imageUrl || null);
+      setNoteImageFile(null);
+      setNoteImagePreview(null);
+      setNewNote({ title: note.title || "", content: "" });
+    } else {
+      setNoteMode("quick");
+      setNewNote({ title: note.title || "", content: note.content });
+      setBrandKitFields(EMPTY_BRAND_KIT);
+      setExistingNoteImageUrl(null);
+      setNoteImageFile(null);
+      setNoteImagePreview(null);
+    }
+    setNoteDialogOpen(true);
+  };
+
+  const handleNoteImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    setNoteImageFile(file);
+    setNoteImagePreview(URL.createObjectURL(file));
+  };
+
+  const clearNoteImage = () => {
+    setNoteImageFile(null);
+    setNoteImagePreview(null);
+    setExistingNoteImageUrl(null);
+    if (noteImageInputRef.current) noteImageInputRef.current.value = "";
+  };
+
+  const uploadNoteImageIfNeeded = async (): Promise<string | null> => {
+    if (!noteImageFile || !selectedProject) return existingNoteImageUrl;
+    const fileExt = noteImageFile.name.split('.').pop();
+    const fileName = `${Date.now()}.${fileExt}`;
+    const filePath = `projects/${selectedProject.id}/notes/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('project_files')
+      .upload(filePath, noteImageFile);
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from('project_files')
+      .getPublicUrl(filePath);
+
+    return urlData.publicUrl;
+  };
+
+  // ── Add Note (handles both quick notes and brand identity kit notes, with optional image) ──
   const addNote = async () => {
-    if (!newNote.content || !selectedProject) {
+    if (!selectedProject) return;
+
+    if (noteMode === "quick" && !newNote.content) {
       toast.error("Note content is required");
       return;
     }
+    if (noteMode === "brand_kit" && !brandKitFields.brand_name && !Object.values(brandKitFields).some(Boolean)) {
+      toast.error("Please fill at least the brand name or another field");
+      return;
+    }
 
+    setNoteSaving(true);
     try {
-      const { error } = await supabase
-        .from("project_notes")
-        .insert({
-          project_id: selectedProject.id,
-          note_type: "general",
-          title: newNote.title || null,
-          content: newNote.content,
-          created_by: user?.email || user?.id || null,
-          created_by_email: user?.email || null,
-        });
+      const imageUrl = await uploadNoteImageIfNeeded();
 
+      let insertPayload: any = {
+        project_id: selectedProject.id,
+        created_by: user?.email || user?.id || null,
+        created_by_email: user?.email || null,
+      };
+
+      if (noteMode === "brand_kit") {
+        insertPayload.note_type = "brand_kit";
+        insertPayload.title = brandKitFields.brand_name || "Brand Identity Kit";
+        insertPayload.content = serializeBrandKit(brandKitFields, imageUrl);
+      } else {
+        insertPayload.note_type = "general";
+        insertPayload.title = newNote.title || null;
+        insertPayload.content = imageUrl ? `${newNote.content}\n\n[image] ${imageUrl}` : newNote.content;
+      }
+
+      const { error } = await supabase.from("project_notes").insert(insertPayload);
       if (error) throw error;
 
-      toast.success("Note saved successfully!");
+      toast.success(noteMode === "brand_kit" ? "Brand identity kit saved!" : "Note saved successfully!");
       setNoteDialogOpen(false);
-      setNewNote({ title: "", content: "" });
-      setEditingNote(null);
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
+      resetNoteForm();
+      fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
       toast.error(error.message || "Failed to save note");
+    } finally {
+      setNoteSaving(false);
     }
   };
 
   // ── Update Note ──
   const updateNote = async () => {
-    if (!editingNote) return;
+    if (!editingNote || !selectedProject) return;
 
+    setNoteSaving(true);
     try {
+      const imageUrl = await uploadNoteImageIfNeeded();
+
+      let updatePayload: any = {};
+
+      if (noteMode === "brand_kit") {
+        updatePayload.title = brandKitFields.brand_name || "Brand Identity Kit";
+        updatePayload.content = serializeBrandKit(brandKitFields, imageUrl);
+      } else {
+        updatePayload.title = newNote.title || null;
+        updatePayload.content = imageUrl ? `${newNote.content}\n\n[image] ${imageUrl}` : newNote.content;
+      }
+
       const { error } = await supabase
         .from("project_notes")
-        .update({
-          title: newNote.title || null,
-          content: newNote.content,
-        })
+        .update(updatePayload)
         .eq("id", editingNote.id);
 
       if (error) throw error;
 
       toast.success("Note updated successfully!");
       setNoteDialogOpen(false);
-      setNewNote({ title: "", content: "" });
-      setEditingNote(null);
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
+      resetNoteForm();
+      fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
       toast.error(error.message || "Failed to update note");
+    } finally {
+      setNoteSaving(false);
     }
   };
 
@@ -2892,11 +3101,7 @@ export default function Projects() {
               <MessageSquare className="h-4 w-4 mr-2" />
               Communicate
             </Button>
-            <Button size="sm" variant="outline" onClick={() => {
-              setEditingNote(null);
-              setNewNote({ title: "", content: "" });
-              setNoteDialogOpen(true);
-            }}>
+            <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("quick")}>
               <StickyNote className="h-4 w-4 mr-2" />
               Add Note
             </Button>
@@ -3478,14 +3683,21 @@ export default function Projects() {
 
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-lg">Notes</CardTitle>
-                  <Button size="sm" onClick={() => { setEditingNote(null); setNewNote({ title: "", content: "" }); setNoteDialogOpen(true); }}><Plus className="h-4 w-4 mr-2" />Add Note</Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("brand_kit")}>
+                      <Palette className="h-4 w-4 mr-2" />Add Brand Identity Kit
+                    </Button>
+                    <Button size="sm" onClick={() => openAddNoteDialog("quick")}>
+                      <Plus className="h-4 w-4 mr-2" />Add Note
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {generalNotes.map(note => <NoteCard key={note.id} note={note} onEdit={(n) => { setEditingNote(n); setNewNote({ title: n.title || "", content: n.content }); setNoteDialogOpen(true); }} onDelete={deleteNote} />)}
+                  {generalNotes.map(note => <NoteCard key={note.id} note={note} onEdit={openEditNoteDialog} onDelete={deleteNote} />)}
                   {generalNotes.length === 0 && <p className="text-center text-muted-foreground py-8">No notes yet</p>}
                 </div>
               </CardContent>
@@ -3702,14 +3914,111 @@ export default function Projects() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={noteDialogOpen} onOpenChange={(open) => { setNoteDialogOpen(open); if (!open) { setEditingNote(null); setNewNote({ title: "", content: "" }); } }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><StickyNote className="h-5 w-5 text-yellow-500" />{editingNote ? "Edit Note" : "Add Note"}</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Title (Optional)</Label><Input value={newNote.title} onChange={(e) => setNewNote({ ...newNote, title: e.target.value })} placeholder="Enter title" /></div>
-              <div className="grid gap-2"><Label>Note *</Label><Textarea value={newNote.content} onChange={(e) => setNewNote({ ...newNote, content: e.target.value })} placeholder="Enter note" rows={5} /></div>
+        <Dialog open={noteDialogOpen} onOpenChange={(open) => { setNoteDialogOpen(open); if (!open) resetNoteForm(); }}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {noteMode === "brand_kit" ? <Palette className="h-5 w-5 text-purple-500" /> : <StickyNote className="h-5 w-5 text-yellow-500" />}
+                {editingNote ? (noteMode === "brand_kit" ? "Edit Brand Identity Kit" : "Edit Note") : (noteMode === "brand_kit" ? "Add Brand Identity Kit" : "Add Note")}
+              </DialogTitle>
+            </DialogHeader>
+
+            {!editingNote && (
+              <div className="flex gap-2 border-b pb-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={noteMode === "quick" ? "default" : "outline"}
+                  onClick={() => setNoteMode("quick")}
+                >
+                  <StickyNote className="h-4 w-4 mr-2" />Quick Note
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={noteMode === "brand_kit" ? "default" : "outline"}
+                  onClick={() => setNoteMode("brand_kit")}
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />Brand Identity Kit
+                </Button>
+              </div>
+            )}
+
+            <div className="space-y-4 py-2">
+              {/* ── Image upload (shared by both modes) ── */}
+              <div className="grid gap-2">
+                <Label>Image (optional)</Label>
+                <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
+                  <input
+                    ref={noteImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleNoteImageSelect}
+                    className="hidden"
+                    id="note-image-upload"
+                  />
+                  {(noteImagePreview || existingNoteImageUrl) ? (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={noteImagePreview || existingNoteImageUrl || ""}
+                        alt="Preview"
+                        className="h-16 w-16 rounded-md object-cover border"
+                      />
+                      <div className="flex-1 text-sm text-muted-foreground">
+                        {noteImageFile ? noteImageFile.name : "Existing image"}
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={clearNoteImage}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <label htmlFor="note-image-upload" className="cursor-pointer flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
+                      <Upload className="h-4 w-4" />
+                      Click to upload an image (logo, moodboard, reference...)
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {noteMode === "quick" ? (
+                <>
+                  <div className="grid gap-2"><Label>Title (Optional)</Label><Input value={newNote.title} onChange={(e) => setNewNote({ ...newNote, title: e.target.value })} placeholder="Enter title" /></div>
+                  <div className="grid gap-2"><Label>Note *</Label><Textarea value={newNote.content} onChange={(e) => setNewNote({ ...newNote, content: e.target.value })} placeholder="Enter note" rows={5} /></div>
+                </>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {BRAND_KIT_FIELDS.map((f) => (
+                    <div key={f.key} className={`grid gap-2 ${f.type === "textarea" ? "sm:col-span-2" : ""}`}>
+                      <Label>{f.label}</Label>
+                      {f.type === "textarea" ? (
+                        <Textarea
+                          rows={2}
+                          value={brandKitFields[f.key] || ""}
+                          onChange={(e) => setBrandKitFields({ ...brandKitFields, [f.key]: e.target.value })}
+                          placeholder={f.label}
+                        />
+                      ) : (
+                        <Input
+                          value={brandKitFields[f.key] || ""}
+                          onChange={(e) => setBrandKitFields({ ...brandKitFields, [f.key]: e.target.value })}
+                          placeholder={f.label}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <DialogFooter><Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button><Button onClick={editingNote ? updateNote : addNote} disabled={!newNote.content}><Save className="h-4 w-4 mr-2" />{editingNote ? "Update Note" : "Save Note"}</Button></DialogFooter>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={editingNote ? updateNote : addNote}
+                disabled={noteSaving || (noteMode === "quick" && !newNote.content)}
+              >
+                {noteSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                {editingNote ? "Update" : "Save"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
