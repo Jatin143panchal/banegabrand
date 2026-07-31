@@ -169,6 +169,164 @@ const EMPTY_BRAND_KIT: Record<string, string> = BRAND_KIT_FIELDS.reduce(
   {} as Record<string, string>
 );
 
+// ── Client Progress Tracker field definitions (matches the master Excel tracker format) ──
+const CLIENT_TRACKER_SECTIONS: {
+  key: string;
+  title: string;
+  emoji: string;
+  fields: { key: string; label: string; type: "input" | "textarea" }[];
+}[] = [
+  {
+    key: "client_details",
+    title: "CLIENT DETAILS",
+    emoji: "🟣",
+    fields: [
+      { key: "client_full_name", label: "Client Full Name", type: "input" },
+      { key: "client_mobile_number", label: "Client Mobile Number", type: "input" },
+      { key: "client_email_address", label: "Client Email Address", type: "input" },
+      { key: "alternative_number", label: "Alternative Number", type: "input" },
+      { key: "client_home_address", label: "Client Home Address", type: "textarea" },
+      { key: "company_name", label: "Company Name if any", type: "input" },
+      { key: "gst_number", label: "GST Number", type: "input" },
+      { key: "pan_number", label: "PAN Number", type: "input" },
+      { key: "aadhaar_number", label: "Aadhaar Number", type: "input" },
+      { key: "city", label: "City", type: "input" },
+      { key: "state", label: "State", type: "input" },
+      { key: "pincode", label: "Pincode", type: "input" },
+      { key: "relationship_manager", label: "Relationship Manager", type: "input" },
+      { key: "sales_person", label: "Sales Person", type: "input" },
+    ],
+  },
+  {
+    key: "project_details",
+    title: "PROJECT DETAILS",
+    emoji: "🟠",
+    fields: [
+      { key: "category", label: "Category", type: "input" },
+      { key: "package_details", label: "Package Details", type: "input" },
+      { key: "project_value", label: "Project Value", type: "input" },
+      { key: "advance_paid", label: "Advance Paid", type: "input" },
+      { key: "pending_amount", label: "Pending Amount", type: "input" },
+      { key: "payment_status", label: "Payment Status", type: "input" },
+      { key: "expected_launch_date", label: "Expected Launch Date", type: "input" },
+      { key: "current_stage", label: "Current Stage", type: "input" },
+      { key: "priority", label: "Priority (High/Medium/Low)", type: "input" },
+    ],
+  },
+  {
+    key: "brand_development",
+    title: "BRAND DEVELOPMENT",
+    emoji: "🔵",
+    fields: [
+      { key: "brand_name_final", label: "Brand Name Final", type: "input" },
+      { key: "domain_available", label: "Domain Available", type: "input" },
+      { key: "domain_purchased", label: "Domain Purchased", type: "input" },
+      { key: "instagram_username", label: "Instagram Username", type: "input" },
+      { key: "facebook_page", label: "Facebook Page", type: "input" },
+      { key: "logo_final", label: "Logo Final", type: "input" },
+      { key: "tagline", label: "Tagline", type: "input" },
+      { key: "brand_story", label: "Brand Story", type: "textarea" },
+      { key: "target_audience", label: "Target Audience", type: "textarea" },
+    ],
+  },
+  {
+    key: "legal",
+    title: "LEGAL",
+    emoji: "🟢",
+    fields: [
+      { key: "agreement_done", label: "Agreement Done", type: "input" },
+      { key: "nda_signed", label: "NDA Signed", type: "input" },
+      { key: "trademark_done", label: "Trademark Done", type: "input" },
+      { key: "gst_done", label: "GST Done", type: "input" },
+      { key: "msme_done", label: "MSME Done", type: "input" },
+      { key: "barcode_done", label: "Barcode Done", type: "input" },
+      { key: "label_compliance", label: "Label Compliance", type: "input" },
+      { key: "ifra_certificate", label: "IFRA Certificate", type: "input" },
+      { key: "msds_available", label: "MSDS Available", type: "input" },
+    ],
+  },
+  {
+    key: "product_development",
+    title: "PRODUCT DEVELOPMENT",
+    emoji: "🟡",
+    fields: [
+      { key: "bottle_selected", label: "Bottle Selected", type: "input" },
+      { key: "bottle_size", label: "Bottle Size", type: "input" },
+      { key: "bottle_color", label: "Bottle Color", type: "input" },
+      { key: "cap_selected", label: "Cap Selected", type: "input" },
+      { key: "pump_selected", label: "Pump Selected", type: "input" },
+      { key: "moq", label: "MOQ", type: "input" },
+      { key: "number_of_total_units", label: "Number of Total Units", type: "input" },
+      { key: "rate_per_unit", label: "Rate per Unit", type: "input" },
+      { key: "fragrance_name", label: "Fragrance Name", type: "input" },
+      { key: "variant_name", label: "Variant Name", type: "input" },
+      { key: "packaging_final", label: "Packaging Final", type: "input" },
+      { key: "label_final", label: "Label Final", type: "input" },
+      { key: "box_final", label: "Box Final", type: "input" },
+    ],
+  },
+  {
+    key: "manufacturing",
+    title: "MANUFACTURING",
+    emoji: "🔴",
+    fields: [
+      { key: "manufacturer_name", label: "Manufacturer Name", type: "input" },
+      { key: "sample_sent", label: "Sample Sent", type: "input" },
+      { key: "sample_approved", label: "Sample Approved", type: "input" },
+      { key: "production_started", label: "Production Started", type: "input" },
+      { key: "qc_completed", label: "QC Completed", type: "input" },
+      { key: "dispatch_date", label: "Dispatch Date", type: "input" },
+      { key: "tracking_number", label: "Tracking Number", type: "input" },
+      { key: "delivery_status", label: "Delivery Status", type: "input" },
+    ],
+  },
+  {
+    key: "marketing",
+    title: "MARKETING",
+    emoji: "🟢",
+    fields: [
+      { key: "product_shoot", label: "Product Shoot", type: "input" },
+      { key: "lifestyle_shoot", label: "Lifestyle Shoot", type: "input" },
+      { key: "website_ready", label: "Website Ready", type: "input" },
+      { key: "landing_page", label: "Landing Page", type: "input" },
+      { key: "social_media_kit", label: "Social Media Kit", type: "input" },
+      { key: "amazon_listing", label: "Amazon Listing", type: "input" },
+      { key: "flipkart_listing", label: "Flipkart Listing", type: "input" },
+      { key: "meta_ads_ready", label: "Meta Ads Ready", type: "input" },
+      { key: "launch_reel_ready", label: "Launch Reel Ready", type: "input" },
+    ],
+  },
+  {
+    key: "file_links",
+    title: "FILE LINKS",
+    emoji: "📂",
+    fields: [
+      { key: "client_folder", label: "Client Folder", type: "input" },
+      { key: "agreement_file", label: "Agreement", type: "input" },
+      { key: "trademark_certificate", label: "Trademark Certificate", type: "input" },
+      { key: "logo_files", label: "Logo Files", type: "input" },
+      { key: "packaging_files", label: "Packaging Files", type: "input" },
+      { key: "product_images", label: "Product Images", type: "input" },
+      { key: "final_deliverables", label: "Final Deliverables", type: "input" },
+    ],
+  },
+  {
+    key: "blocker",
+    title: "BLOCKER",
+    emoji: "🚧",
+    fields: [
+      { key: "blocker", label: "Blocker (What's stopping the project?)", type: "textarea" },
+    ],
+  },
+];
+
+const CLIENT_TRACKER_FIELDS = CLIENT_TRACKER_SECTIONS.flatMap((s) => s.fields);
+
+const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduce(
+  (acc, f) => ({ ...acc, [f.key]: "" }),
+  {} as Record<string, string>
+);
+
 // ============================================================
 // INTERFACES
 // ============================================================
@@ -435,6 +593,23 @@ function parseBrandKit(content: string): { fields: Record<string, string>; image
   try {
     const parsed = JSON.parse(content);
     if (parsed && parsed.__type === "brand_kit") {
+      return { fields: parsed.fields || {}, imageUrl: parsed.image_url || null };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Client Tracker content helpers (serialize/parse into ProjectNote.content) ──
+function serializeClientTracker(fields: Record<string, string>, imageUrl: string | null) {
+  return JSON.stringify({ __type: "client_tracker", image_url: imageUrl || null, fields });
+}
+
+function parseClientTracker(content: string): { fields: Record<string, string>; imageUrl: string | null } | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && parsed.__type === "client_tracker") {
       return { fields: parsed.fields || {}, imageUrl: parsed.image_url || null };
     }
     return null;
@@ -885,6 +1060,66 @@ function NoteCard({ note, onEdit, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   const brandKit = note.note_type === "brand_kit" ? parseBrandKit(note.content) : null;
+  const clientTracker = note.note_type === "client_tracker" ? parseClientTracker(note.content) : null;
+
+  if (clientTracker) {
+    const clientName = clientTracker.fields.client_full_name || note.title || "Client Progress Tracker";
+    return (
+      <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            {clientTracker.imageUrl && (
+              <img
+                src={clientTracker.imageUrl}
+                alt={clientName}
+                className="h-16 w-16 rounded-md object-cover border shrink-0"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <ClipboardList className="h-4 w-4 text-fuchsia-500 shrink-0" />
+                <p className="font-medium">{clientName}</p>
+                <Badge variant="outline" className="text-xs">Client Tracker</Badge>
+              </div>
+              <div className="mt-2 space-y-2">
+                {CLIENT_TRACKER_SECTIONS.map((section) => {
+                  const filled = section.fields.filter((f) => clientTracker.fields[f.key]);
+                  if (filled.length === 0) return null;
+                  return (
+                    <div key={section.key}>
+                      <p className="text-xs font-semibold text-foreground">
+                        {section.emoji} {section.title}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-0.5">
+                        {filled.map((f) => (
+                          <p key={f.key} className="text-xs text-muted-foreground truncate">
+                            <span className="font-medium text-foreground">{f.label}: </span>
+                            {clientTracker.fields[f.key]}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+                <span>🕒 {format(new Date(note.created_at), "dd MMM yyyy, hh:mm a")}</span>
+                {note.created_by && <span>👤 {note.created_by}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(note)}>
+              <Edit className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(note.id)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (brandKit) {
     const filledFields = BRAND_KIT_FIELDS.filter(f => brandKit.fields[f.key]);
@@ -1305,14 +1540,15 @@ export default function Projects() {
     next_followup: "",
   });
 
-  // ── Notes / Brand Kit note states ──
-  const [noteMode, setNoteMode] = useState<"quick" | "brand_kit">("quick");
+  // ── Notes / Brand Kit / Client Tracker note states ──
+  const [noteMode, setNoteMode] = useState<"quick" | "brand_kit" | "client_tracker">("quick");
   const [newNote, setNewNote] = useState({
     title: "",
     content: "",
   });
   const [editingNote, setEditingNote] = useState<ProjectNote | null>(null);
   const [brandKitFields, setBrandKitFields] = useState<Record<string, string>>(EMPTY_BRAND_KIT);
+  const [clientTrackerFields, setClientTrackerFields] = useState<Record<string, string>>(EMPTY_CLIENT_TRACKER);
   const [noteImageFile, setNoteImageFile] = useState<File | null>(null);
   const [noteImagePreview, setNoteImagePreview] = useState<string | null>(null);
   const [existingNoteImageUrl, setExistingNoteImageUrl] = useState<string | null>(null);
@@ -1375,7 +1611,7 @@ export default function Projects() {
 
   // ── Documentation note ──
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
-  const generalNotes = notes.filter(n => n.note_type === "general" || n.note_type === "brand_kit");
+  const generalNotes = notes.filter(n => n.note_type === "general" || n.note_type === "brand_kit" || n.note_type === "client_tracker");
 
   // ── Fetch Project Details ──
   const fetchProjectDetails = async (projectId: string) => {
@@ -2275,13 +2511,14 @@ export default function Projects() {
     setNoteMode("quick");
     setNewNote({ title: "", content: "" });
     setBrandKitFields(EMPTY_BRAND_KIT);
+    setClientTrackerFields(EMPTY_CLIENT_TRACKER);
     setNoteImageFile(null);
     setNoteImagePreview(null);
     setExistingNoteImageUrl(null);
     setEditingNote(null);
   };
 
-  const openAddNoteDialog = (mode: "quick" | "brand_kit" = "quick") => {
+  const openAddNoteDialog = (mode: "quick" | "brand_kit" | "client_tracker" = "quick") => {
     resetNoteForm();
     setNoteMode(mode);
     setNoteDialogOpen(true);
@@ -2289,10 +2526,20 @@ export default function Projects() {
 
   const openEditNoteDialog = (note: ProjectNote) => {
     setEditingNote(note);
-    if (note.note_type === "brand_kit") {
+    if (note.note_type === "client_tracker") {
+      const parsed = parseClientTracker(note.content);
+      setNoteMode("client_tracker");
+      setClientTrackerFields({ ...EMPTY_CLIENT_TRACKER, ...(parsed?.fields || {}) });
+      setBrandKitFields(EMPTY_BRAND_KIT);
+      setExistingNoteImageUrl(parsed?.imageUrl || null);
+      setNoteImageFile(null);
+      setNoteImagePreview(null);
+      setNewNote({ title: note.title || "", content: "" });
+    } else if (note.note_type === "brand_kit") {
       const parsed = parseBrandKit(note.content);
       setNoteMode("brand_kit");
       setBrandKitFields({ ...EMPTY_BRAND_KIT, ...(parsed?.fields || {}) });
+      setClientTrackerFields(EMPTY_CLIENT_TRACKER);
       setExistingNoteImageUrl(parsed?.imageUrl || null);
       setNoteImageFile(null);
       setNoteImagePreview(null);
@@ -2301,6 +2548,7 @@ export default function Projects() {
       setNoteMode("quick");
       setNewNote({ title: note.title || "", content: note.content });
       setBrandKitFields(EMPTY_BRAND_KIT);
+      setClientTrackerFields(EMPTY_CLIENT_TRACKER);
       setExistingNoteImageUrl(null);
       setNoteImageFile(null);
       setNoteImagePreview(null);
@@ -2345,7 +2593,7 @@ export default function Projects() {
     return urlData.publicUrl;
   };
 
-  // ── Add Note (handles both quick notes and brand identity kit notes, with optional image) ──
+  // ── Add Note (handles quick notes, brand identity kit notes, and client tracker notes, with optional image) ──
   const addNote = async () => {
     if (!selectedProject) return;
 
@@ -2355,6 +2603,10 @@ export default function Projects() {
     }
     if (noteMode === "brand_kit" && !brandKitFields.brand_name && !Object.values(brandKitFields).some(Boolean)) {
       toast.error("Please fill at least the brand name or another field");
+      return;
+    }
+    if (noteMode === "client_tracker" && !Object.values(clientTrackerFields).some(Boolean)) {
+      toast.error("Please fill at least one field");
       return;
     }
 
@@ -2368,7 +2620,11 @@ export default function Projects() {
         created_by_email: user?.email || null,
       };
 
-      if (noteMode === "brand_kit") {
+      if (noteMode === "client_tracker") {
+        insertPayload.note_type = "client_tracker";
+        insertPayload.title = clientTrackerFields.client_full_name || "Client Progress Tracker";
+        insertPayload.content = serializeClientTracker(clientTrackerFields, imageUrl);
+      } else if (noteMode === "brand_kit") {
         insertPayload.note_type = "brand_kit";
         insertPayload.title = brandKitFields.brand_name || "Brand Identity Kit";
         insertPayload.content = serializeBrandKit(brandKitFields, imageUrl);
@@ -2381,7 +2637,13 @@ export default function Projects() {
       const { error } = await supabase.from("project_notes").insert(insertPayload);
       if (error) throw error;
 
-      toast.success(noteMode === "brand_kit" ? "Brand identity kit saved!" : "Note saved successfully!");
+      toast.success(
+        noteMode === "client_tracker"
+          ? "Client progress tracker saved!"
+          : noteMode === "brand_kit"
+          ? "Brand identity kit saved!"
+          : "Note saved successfully!"
+      );
       setNoteDialogOpen(false);
       resetNoteForm();
       fetchProjectDetails(selectedProject.id);
@@ -2402,7 +2664,10 @@ export default function Projects() {
 
       let updatePayload: any = {};
 
-      if (noteMode === "brand_kit") {
+      if (noteMode === "client_tracker") {
+        updatePayload.title = clientTrackerFields.client_full_name || "Client Progress Tracker";
+        updatePayload.content = serializeClientTracker(clientTrackerFields, imageUrl);
+      } else if (noteMode === "brand_kit") {
         updatePayload.title = brandKitFields.brand_name || "Brand Identity Kit";
         updatePayload.content = serializeBrandKit(brandKitFields, imageUrl);
       } else {
@@ -3685,7 +3950,10 @@ export default function Projects() {
               <CardHeader>
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-lg">Notes</CardTitle>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("client_tracker")}>
+                      <ClipboardList className="h-4 w-4 mr-2" />Add Client Tracker
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("brand_kit")}>
                       <Palette className="h-4 w-4 mr-2" />Add Brand Identity Kit
                     </Button>
@@ -3918,13 +4186,15 @@ export default function Projects() {
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                {noteMode === "brand_kit" ? <Palette className="h-5 w-5 text-purple-500" /> : <StickyNote className="h-5 w-5 text-yellow-500" />}
-                {editingNote ? (noteMode === "brand_kit" ? "Edit Brand Identity Kit" : "Edit Note") : (noteMode === "brand_kit" ? "Add Brand Identity Kit" : "Add Note")}
+                {noteMode === "client_tracker" ? <ClipboardList className="h-5 w-5 text-fuchsia-500" /> : noteMode === "brand_kit" ? <Palette className="h-5 w-5 text-purple-500" /> : <StickyNote className="h-5 w-5 text-yellow-500" />}
+                {editingNote
+                  ? (noteMode === "client_tracker" ? "Edit Client Progress Tracker" : noteMode === "brand_kit" ? "Edit Brand Identity Kit" : "Edit Note")
+                  : (noteMode === "client_tracker" ? "Add Client Progress Tracker" : noteMode === "brand_kit" ? "Add Brand Identity Kit" : "Add Note")}
               </DialogTitle>
             </DialogHeader>
 
             {!editingNote && (
-              <div className="flex gap-2 border-b pb-3">
+              <div className="flex gap-2 border-b pb-3 flex-wrap">
                 <Button
                   type="button"
                   size="sm"
@@ -3941,11 +4211,19 @@ export default function Projects() {
                 >
                   <Sparkles className="h-4 w-4 mr-2" />Brand Identity Kit
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={noteMode === "client_tracker" ? "default" : "outline"}
+                  onClick={() => setNoteMode("client_tracker")}
+                >
+                  <ClipboardList className="h-4 w-4 mr-2" />Client Progress Tracker
+                </Button>
               </div>
             )}
 
             <div className="space-y-4 py-2">
-              {/* ── Image upload (shared by both modes) ── */}
+              {/* ── Image upload (shared by all modes) ── */}
               <div className="grid gap-2">
                 <Label>Image (optional)</Label>
                 <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
@@ -3980,12 +4258,14 @@ export default function Projects() {
                 </div>
               </div>
 
-              {noteMode === "quick" ? (
+              {noteMode === "quick" && (
                 <>
                   <div className="grid gap-2"><Label>Title (Optional)</Label><Input value={newNote.title} onChange={(e) => setNewNote({ ...newNote, title: e.target.value })} placeholder="Enter title" /></div>
                   <div className="grid gap-2"><Label>Note *</Label><Textarea value={newNote.content} onChange={(e) => setNewNote({ ...newNote, content: e.target.value })} placeholder="Enter note" rows={5} /></div>
                 </>
-              ) : (
+              )}
+
+              {noteMode === "brand_kit" && (
                 <div className="grid gap-4 sm:grid-cols-2">
                   {BRAND_KIT_FIELDS.map((f) => (
                     <div key={f.key} className={`grid gap-2 ${f.type === "textarea" ? "sm:col-span-2" : ""}`}>
@@ -4004,6 +4284,40 @@ export default function Projects() {
                           placeholder={f.label}
                         />
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {noteMode === "client_tracker" && (
+                <div className="space-y-5">
+                  {CLIENT_TRACKER_SECTIONS.map((section) => (
+                    <div key={section.key} className="space-y-2">
+                      <p className="text-sm font-semibold flex items-center gap-1.5">
+                        <span>{section.emoji}</span>
+                        <span>{section.title}</span>
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2 border-l-2 pl-3" style={{ borderColor: "var(--border)" }}>
+                        {section.fields.map((f) => (
+                          <div key={f.key} className={`grid gap-1.5 ${f.type === "textarea" ? "sm:col-span-2" : ""}`}>
+                            <Label className="text-xs text-muted-foreground">{f.label}</Label>
+                            {f.type === "textarea" ? (
+                              <Textarea
+                                rows={2}
+                                value={clientTrackerFields[f.key] || ""}
+                                onChange={(e) => setClientTrackerFields({ ...clientTrackerFields, [f.key]: e.target.value })}
+                                placeholder={f.label}
+                              />
+                            ) : (
+                              <Input
+                                value={clientTrackerFields[f.key] || ""}
+                                onChange={(e) => setClientTrackerFields({ ...clientTrackerFields, [f.key]: e.target.value })}
+                                placeholder={f.label}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
