@@ -3612,7 +3612,7 @@ export default function Projects() {
                       )}
                       {!chatMessagesLoading && chatMessages.length === 0 && (
                         <p className="text-center text-xs text-muted-foreground py-8">
-                          Abhi tak koi message nahi. Baat shuru karein!
+                          write here
                         </p>
                       )}
                     </div>
