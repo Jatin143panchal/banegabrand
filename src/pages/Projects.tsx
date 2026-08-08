@@ -29,7 +29,8 @@ import {
   Layers, Link2, ExternalLink, Archive, BookOpen, CheckSquare,
   ListChecks, CalendarDays, Timer, Hourglass, AlarmClock,
   UserPlus, UserMinus, Settings, SlidersHorizontal, FileSpreadsheet,
-  Import, Table as TableIcon, FileDown, FileUp, Sparkles, Palette
+  Import, Table as TableIcon, FileDown, FileUp, Sparkles, Palette,
+  LayoutGrid, List, ImagePlus
 } from "lucide-react";
 import { format, isBefore, isToday, isThisWeek, startOfDay } from "date-fns";
 
@@ -347,6 +348,7 @@ interface Project {
   priority: string;
   client_address: string | null;
   client_phone: string | null;
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -721,36 +723,108 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────
-function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
+function ProjectCard({ project, onClick, onImageUpload, uploading }: { 
+  project: Project; 
+  onClick: () => void;
+  onImageUpload?: (projectId: string, file: File) => Promise<void>;
+  uploading?: boolean;
+}) {
   const progress = project.completion_percentage || 0;
   const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "📋";
-  
+  const [isHovering, setIsHovering] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size should be less than 5MB");
+      return;
+    }
+    if (onImageUpload) {
+      await onImageUpload(project.id, file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   return (
     <div 
-      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50"
+      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50 relative group"
       onClick={onClick}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
     >
       <div className="flex items-start justify-between flex-wrap gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-semibold text-lg">{project.name}</h4>
-            <Badge variant="outline" className="text-xs font-mono">
-              {project.project_id}
-            </Badge>
-            <span className="text-sm">{typeIcon}</span>
-          </div>
-          {project.brand_name && (
-            <p className="text-sm text-muted-foreground">{project.brand_name}</p>
-          )}
-          <div className="flex items-center gap-3 mt-2 flex-wrap">
-            <StageBadge stage={project.current_stage} />
-            <StatusBadge status={project.status} />
-            <ProjectPriorityBadge priority={project.priority || "medium"} />
-            {project.project_value && project.project_value > 0 && (
-              <span className="text-sm font-medium text-green-600">
-                {formatCurrency(project.project_value)}
-              </span>
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          {/* Image Container with Upload Overlay */}
+          <div 
+            className="relative h-14 w-14 rounded-md border shrink-0 overflow-hidden bg-muted flex items-center justify-center"
+            onClick={handleImageClick}
+          >
+            {project.image_url ? (
+              <img
+                src={project.image_url}
+                alt={project.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-2xl">{typeIcon}</span>
             )}
+            
+            {/* Hover Overlay - Upload Button */}
+            {(isHovering || !project.image_url) && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                {uploading ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-white" />
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <ImagePlus className="h-5 w-5 text-white" />
+                    <span className="text-[8px] text-white mt-0.5">Upload</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+          
+          {/* Rest of the project card content */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-semibold text-lg">{project.name}</h4>
+              <Badge variant="outline" className="text-xs font-mono">
+                {project.project_id}
+              </Badge>
+            </div>
+            {project.brand_name && (
+              <p className="text-sm text-muted-foreground">{project.brand_name}</p>
+            )}
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <StageBadge stage={project.current_stage} />
+              <StatusBadge status={project.status} />
+              <ProjectPriorityBadge priority={project.priority || "medium"} />
+              {project.project_value && project.project_value > 0 && (
+                <span className="text-sm font-medium text-green-600">
+                  {formatCurrency(project.project_value)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -952,6 +1026,88 @@ function TaskCard({ task, itTeam, onStatusChange, onAssign, onDelete }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Task Kanban Card (compact, for dashboard view) ──────────────
+function TaskKanbanCard({ task, onStatusChange, onDelete }: {
+  task: ProjectTask;
+  onStatusChange: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const bucket = getDueBucket(task.due_date);
+  return (
+    <div className="border rounded-lg p-3 bg-background hover:shadow-sm transition-shadow">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium leading-snug">{task.task_name}</p>
+        <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0 text-destructive" onClick={() => onDelete(task.id)}>
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </div>
+      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+        <PriorityBadge priority={task.priority} />
+        {task.due_date && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${bucket === "overdue" && task.status !== "completed" ? "bg-red-50 text-red-600 border-red-200" : "bg-muted text-muted-foreground"}`}>
+            📅 {format(new Date(task.due_date), "dd MMM")}
+          </span>
+        )}
+      </div>
+      {(task.assigned_to_name || task.assigned_to_email) && (
+        <p className="text-[11px] text-indigo-600 mt-1.5">👤 {task.assigned_to_name || task.assigned_to_email}</p>
+      )}
+      <Select value={task.status} onValueChange={(v) => onStatusChange(task.id, v)}>
+        <SelectTrigger className="h-6 text-[11px] mt-2 w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="not_started">Not Started</SelectItem>
+          <SelectItem value="in_progress">Processing</SelectItem>
+          <SelectItem value="review">Review</SelectItem>
+          <SelectItem value="completed">Done</SelectItem>
+          <SelectItem value="blocked">Blocked</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+// ── Task Dashboard (Kanban board grouped by status) ──────────────
+function TaskDashboard({ tasks, onStatusChange, onDelete }: {
+  tasks: ProjectTask[];
+  onStatusChange: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const columns: { key: string; label: string; color: string }[] = [
+    { key: "not_started", label: "Not Started", color: "#94a3b8" },
+    { key: "in_progress", label: "Processing", color: "#3b82f6" },
+    { key: "review", label: "Review", color: "#f59e0b" },
+    { key: "completed", label: "Done", color: "#10b981" },
+    { key: "blocked", label: "Blocked", color: "#ef4444" },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      {columns.map(col => {
+        const colTasks = tasks.filter(t => t.status === col.key);
+        return (
+          <div key={col.key} className="bg-muted/30 rounded-lg p-3 min-h-[200px]">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: col.color }} />
+                {col.label}
+              </span>
+              <Badge variant="outline" className="text-[10px] px-1.5">{colTasks.length}</Badge>
+            </div>
+            <div className="space-y-2">
+              {colTasks.map(task => (
+                <TaskKanbanCard key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
+              ))}
+              {colTasks.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-6">No tasks</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1206,6 +1362,8 @@ export default function Projects() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const noteImageInputRef = useRef<HTMLInputElement>(null);
+  const projectImageInputRef = useRef<HTMLInputElement>(null);
+  const editProjectImageInputRef = useRef<HTMLInputElement>(null);
 
   // ── Top-level page switcher ──
   const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat">("projects");
@@ -1220,6 +1378,7 @@ export default function Projects() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState("all");
+  const [taskViewMode, setTaskViewMode] = useState<"list" | "dashboard">("list");
   
   // Import/Export states
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -1240,6 +1399,8 @@ export default function Projects() {
   const [communicationDialogOpen, setCommunicationDialogOpen] = useState(false);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [docNoteEditing, setDocNoteEditing] = useState(false);
+  const [folderViewOpen, setFolderViewOpen] = useState(false);
+  const [activeFolderView, setActiveFolderView] = useState<string | null>(null);
   
   // Data states
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -1257,6 +1418,9 @@ export default function Projects() {
   const [notes, setNotes] = useState<ProjectNote[]>([]);
   const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // ── Image upload state ──
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null);
 
   // ── IT Team ──
   const { data: itTeam = [], error, isLoading: itLoading } = useQuery({
@@ -1276,6 +1440,17 @@ export default function Projects() {
     refetchOnWindowFocus: true,
     retry: 2,
   });
+
+  // ── Current user's role (drives admin vs employee project visibility) ──
+  const currentTeamMember = itTeam.find(m => m.email === user?.email);
+  const isAdmin =
+    (user as any)?.role === "admin" ||
+    (user as any)?.is_admin === true ||
+    currentTeamMember?.role === "Admin" ||
+    currentTeamMember?.role === "Super Admin" ||
+    currentTeamMember?.role?.toLowerCase() === "admin" ||
+    currentTeamMember?.role?.toLowerCase() === "owner" ||
+    currentTeamMember?.role?.toLowerCase() === "super admin";
 
   // ── Departments Lookup (real departments table — source of truth for department_id) ──
   const { data: departmentOptions = [] } = useQuery({
@@ -1297,9 +1472,12 @@ export default function Projects() {
   const [myTaskClientFilter, setMyTaskClientFilter] = useState("all");
   const [myTaskRemarksDraft, setMyTaskRemarksDraft] = useState<Record<string, string>>({});
 
+  // NOTE: `enabled` no longer requires mainView === "my_tasks" — hume yeh data
+  // Projects dashboard ko role-based filter karne ke liye bhi chahiye (kis-kis
+  // project mein current user ko task assign hua hai).
   const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
     queryKey: ["my_tasks", user?.email],
-    enabled: !!user?.email && mainView === "my_tasks",
+    enabled: !!user?.email,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_tasks")
@@ -1316,6 +1494,9 @@ export default function Projects() {
       return data as unknown as MyTaskRow[];
     },
   });
+
+  // Project ids (uuid) jinme current user ko koi task assign hua hai
+  const assignedProjectIds = new Set(myTasks.map(t => t.project_id));
 
   const MY_TASK_PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
@@ -1554,8 +1735,68 @@ export default function Projects() {
   const [existingNoteImageUrl, setExistingNoteImageUrl] = useState<string | null>(null);
   const [noteSaving, setNoteSaving] = useState(false);
 
+  // ── New/Edit Project image states ──
+  const [newProjectImageFile, setNewProjectImageFile] = useState<File | null>(null);
+  const [newProjectImagePreview, setNewProjectImagePreview] = useState<string | null>(null);
+  const [editProjectImageFile, setEditProjectImageFile] = useState<File | null>(null);
+  const [editProjectImagePreview, setEditProjectImagePreview] = useState<string | null>(null);
+  const [projectSaving, setProjectSaving] = useState(false);
+
+  // ── Dashboard Image Upload Handler ──
+  const handleDashboardImageUpload = async (projectId: string, file: File) => {
+    setUploadingImage(projectId);
+    try {
+      // Check session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Please login first');
+        return;
+      }
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `cover_${Date.now()}.${fileExt}`;
+      const filePath = `projects/${projectId}/cover/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('project_files')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Upload Error:', uploadError);
+        toast.error('Upload failed: ' + uploadError.message);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('project_files')
+        .getPublicUrl(filePath);
+
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({ image_url: urlData.publicUrl })
+        .eq('id', projectId);
+
+      if (updateError) {
+        console.error('Update Error:', updateError);
+        toast.error('Update failed: ' + updateError.message);
+        return;
+      }
+
+      toast.success('Image updated successfully!');
+      refetch();
+    } catch (error: any) {
+      console.error('Error:', error);
+      toast.error(error.message || 'Failed to upload image');
+    } finally {
+      setUploadingImage(null);
+    }
+  };
+
   // ── Fetch Projects ──
-  const { data: projects = [], isLoading, refetch } = useQuery({
+  const { data: allProjects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -1567,6 +1808,12 @@ export default function Projects() {
       return data as Project[];
     },
   });
+
+  // ── Role-based project visibility ──
+  // Admin => sab projects. Employee => sirf wahi projects jinme unhe koi task assign hua ho.
+  const projects = isAdmin
+    ? allProjects
+    : allProjects.filter((p: Project) => assignedProjectIds.has(p.id));
 
   // ── Stats ──
   const stats = {
@@ -1744,12 +1991,53 @@ export default function Projects() {
     client_phone: "",
   });
 
+  const handleNewProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    setNewProjectImageFile(file);
+    setNewProjectImagePreview(URL.createObjectURL(file));
+  };
+
+  const clearNewProjectImage = () => {
+    setNewProjectImageFile(null);
+    setNewProjectImagePreview(null);
+    if (projectImageInputRef.current) projectImageInputRef.current.value = "";
+  };
+
+  const uploadProjectImage = async (projectId: string, file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `cover_${Date.now()}.${fileExt}`;
+      const filePath = `projects/${projectId}/cover/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('project_files')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('project_files')
+        .getPublicUrl(filePath);
+
+      return urlData.publicUrl;
+    } catch (error: any) {
+      toast.error(error.message || "Failed to upload image");
+      return null;
+    }
+  };
+
   const createProject = async () => {
     if (!newProject.name) {
       toast.error("Client name is required");
       return;
     }
 
+    setProjectSaving(true);
     try {
       const projectId = `PRJ-${Date.now().toString().slice(-6)}`;
       
@@ -1774,6 +2062,14 @@ export default function Projects() {
         .single();
 
       if (error) throw error;
+
+      // ── Upload cover image (if selected) and attach to the new project ──
+      if (newProjectImageFile) {
+        const imageUrl = await uploadProjectImage(data.id, newProjectImageFile);
+        if (imageUrl) {
+          await supabase.from("projects").update({ image_url: imageUrl }).eq("id", data.id);
+        }
+      }
 
       const stages = PROJECT_STAGES.map((stage, index) => ({
         project_id: data.id,
@@ -1806,19 +2102,47 @@ export default function Projects() {
         client_address: "",
         client_phone: "",
       });
+      clearNewProjectImage();
       refetch();
     } catch (error: any) {
       toast.error(error.message);
+    } finally {
+      setProjectSaving(false);
     }
   };
 
   // ── Update Project ──
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
+  const handleEditProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    setEditProjectImageFile(file);
+    setEditProjectImagePreview(URL.createObjectURL(file));
+  };
+
+  const clearEditProjectImage = () => {
+    setEditProjectImageFile(null);
+    setEditProjectImagePreview(null);
+    if (editingProject) setEditingProject({ ...editingProject, image_url: null });
+    if (editProjectImageInputRef.current) editProjectImageInputRef.current.value = "";
+  };
+
   const updateProject = async () => {
     if (!editingProject) return;
 
+    setProjectSaving(true);
     try {
+      let imageUrl = editingProject.image_url || null;
+      if (editProjectImageFile) {
+        const uploadedUrl = await uploadProjectImage(editingProject.id, editProjectImageFile);
+        if (uploadedUrl) imageUrl = uploadedUrl;
+      }
+
       const { error } = await supabase
         .from("projects")
         .update({
@@ -1833,6 +2157,7 @@ export default function Projects() {
           current_stage: editingProject.current_stage,
           client_address: editingProject.client_address,
           client_phone: editingProject.client_phone,
+          image_url: imageUrl,
         })
         .eq("id", editingProject.id);
 
@@ -1841,12 +2166,16 @@ export default function Projects() {
       toast.success("Project updated successfully!");
       setEditDialogOpen(false);
       setEditingProject(null);
+      setEditProjectImageFile(null);
+      setEditProjectImagePreview(null);
       refetch();
       if (selectedProject) {
-        setSelectedProject({ ...selectedProject, ...editingProject });
+        setSelectedProject({ ...selectedProject, ...editingProject, image_url: imageUrl });
       }
     } catch (error: any) {
       toast.error(error.message);
+    } finally {
+      setProjectSaving(false);
     }
   };
 
@@ -2139,6 +2468,7 @@ export default function Projects() {
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
+      queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -3031,6 +3361,9 @@ export default function Projects() {
           <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">{chatUnread.length}</Badge>
         )}
       </Button>
+      {isAdmin && (
+        <Badge variant="outline" className="ml-auto text-[10px]">👑 Admin View — all projects</Badge>
+      )}
     </div>
   );
 
@@ -3324,6 +3657,17 @@ export default function Projects() {
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
+            {selectedProject.image_url ? (
+              <img
+                src={selectedProject.image_url}
+                alt={selectedProject.name}
+                className="h-14 w-14 rounded-md object-cover border shrink-0"
+              />
+            ) : (
+              <div className="h-14 w-14 rounded-md border bg-muted flex items-center justify-center text-2xl shrink-0">
+                {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"}
+              </div>
+            )}
             <div>
               <h1 className="text-2xl font-bold">{selectedProject.name}</h1>
               <p className="text-sm text-muted-foreground">
@@ -3346,18 +3690,22 @@ export default function Projects() {
             </Badge>
             <ProjectPriorityBadge priority={selectedProject.priority || "medium"} />
             
-            <Button size="sm" variant="outline" onClick={() => setTaskDialogOpen(true)}>
-              <ClipboardList className="h-4 w-4 mr-2" />
-              Add Task
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setManufacturingDialogOpen(true)}>
-              <Package className="h-4 w-4 mr-2" />
-              Manufacturing
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setBrandingDialogOpen(true)}>
-              <Award className="h-4 w-4 mr-2" />
-              Branding
-            </Button>
+            {isAdmin && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setTaskDialogOpen(true)}>
+                  <ClipboardList className="h-4 w-4 mr-2" />
+                  Add Task
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setManufacturingDialogOpen(true)}>
+                  <Package className="h-4 w-4 mr-2" />
+                  Manufacturing
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setBrandingDialogOpen(true)}>
+                  <Award className="h-4 w-4 mr-2" />
+                  Branding
+                </Button>
+              </>
+            )}
             <Button size="sm" variant="outline" onClick={() => setDocumentDialogOpen(true)}>
               <FileText className="h-4 w-4 mr-2" />
               Upload
@@ -3371,25 +3719,31 @@ export default function Projects() {
               Add Note
             </Button>
             
-            <Button 
-              size="sm" 
-              variant="outline"
-              onClick={() => {
-                setEditingProject(selectedProject);
-                setEditDialogOpen(true);
-              }}
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </Button>
-            <Button 
-              size="sm" 
-              variant="destructive"
-              onClick={() => deleteProject(selectedProject.id)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete
-            </Button>
+            {isAdmin && (
+              <>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => {
+                    setEditingProject(selectedProject);
+                    setEditProjectImageFile(null);
+                    setEditProjectImagePreview(null);
+                    setEditDialogOpen(true);
+                  }}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="destructive"
+                  onClick={() => deleteProject(selectedProject.id)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -3687,6 +4041,24 @@ export default function Projects() {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-lg">Project Tasks</CardTitle>
                   <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center border rounded-md overflow-hidden">
+                      <Button
+                        variant={taskViewMode === "list" ? "default" : "ghost"}
+                        size="sm"
+                        className="h-8 rounded-none"
+                        onClick={() => setTaskViewMode("list")}
+                      >
+                        <List className="h-3.5 w-3.5 mr-1.5" />List
+                      </Button>
+                      <Button
+                        variant={taskViewMode === "dashboard" ? "default" : "ghost"}
+                        size="sm"
+                        className="h-8 rounded-none"
+                        onClick={() => setTaskViewMode("dashboard")}
+                      >
+                        <LayoutGrid className="h-3.5 w-3.5 mr-1.5" />Dashboard
+                      </Button>
+                    </div>
                     <Select value={taskAssigneeFilter} onValueChange={setTaskAssigneeFilter}>
                       <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Filter by assignee" /></SelectTrigger>
                       <SelectContent>
@@ -3702,6 +4074,8 @@ export default function Projects() {
               <CardContent>
                 {loadingDetail ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
+                ) : taskViewMode === "dashboard" ? (
+                  <TaskDashboard tasks={filteredTasks} onStatusChange={updateTaskStatus} onDelete={deleteTask} />
                 ) : (
                   <div className="space-y-3">
                     {filteredTasks.map(task => (
@@ -3867,12 +4241,45 @@ export default function Projects() {
                         {files.length > 0 && (
                           <div className="mt-2 space-y-1">
                             {files.slice(0, 3).map(file => (
-                              <div key={file.id} className="flex items-center gap-2 text-xs">
-                                <File className="h-3 w-3 text-muted-foreground" />
-                                <span className="truncate">{file.file_name}</span>
+                              <div key={file.id} className="flex items-center gap-2 text-xs group">
+                                <File className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <span className="truncate flex-1">{file.file_name}</span>
+                                <button
+                                  type="button"
+                                  title="View"
+                                  onClick={() => window.open(file.file_url, "_blank", "noopener,noreferrer")}
+                                  className="opacity-70 hover:opacity-100 shrink-0"
+                                >
+                                  <Eye className="h-3 w-3 text-blue-500" />
+                                </button>
+                                <a
+                                  href={file.file_url}
+                                  download={file.file_name}
+                                  title="Download"
+                                  className="opacity-70 hover:opacity-100 shrink-0"
+                                >
+                                  <Download className="h-3 w-3 text-muted-foreground" />
+                                </a>
                               </div>
                             ))}
-                            {files.length > 3 && <p className="text-xs text-muted-foreground">+{files.length - 3} more</p>}
+                            {files.length > 3 && (
+                              <button
+                                type="button"
+                                className="text-xs text-primary hover:underline"
+                                onClick={() => { setActiveFolderView(folder); setFolderViewOpen(true); }}
+                              >
+                                +{files.length - 3} more — View all
+                              </button>
+                            )}
+                            {files.length <= 3 && files.length > 0 && (
+                              <button
+                                type="button"
+                                className="text-xs text-primary hover:underline"
+                                onClick={() => { setActiveFolderView(folder); setFolderViewOpen(true); }}
+                              >
+                                View all
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -3972,6 +4379,49 @@ export default function Projects() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* ── Folder "View All" documents dialog ── */}
+        <Dialog open={folderViewOpen} onOpenChange={setFolderViewOpen}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FolderKanban className="h-5 w-5 text-primary" />
+                {activeFolderView}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              {documents.filter(d => d.folder === activeFolderView).map(file => (
+                <div key={file.id} className="flex items-center gap-3 border rounded-lg p-2">
+                  <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">{file.file_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {file.created_at ? format(new Date(file.created_at), "dd MMM yyyy") : ""}
+                      {file.file_size ? ` • ${(file.file_size / 1024).toFixed(1)} KB` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="View"
+                    onClick={() => window.open(file.file_url, "_blank", "noopener,noreferrer")}
+                  >
+                    <Eye className="h-4 w-4 text-blue-500" />
+                  </Button>
+                  <a href={file.file_url} download={file.file_name}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </a>
+                </div>
+              ))}
+              {documents.filter(d => d.folder === activeFolderView).length === 0 && (
+                <p className="text-center text-muted-foreground text-sm py-6">No files in this folder</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* ── All Dialogs ── */}
         <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
@@ -4337,10 +4787,43 @@ export default function Projects() {
         </Dialog>
 
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Edit Project</DialogTitle></DialogHeader>
             {editingProject && (
               <div className="grid gap-4 py-4 sm:grid-cols-2">
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>Project Image</Label>
+                  <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
+                    <input
+                      ref={editProjectImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditProjectImageSelect}
+                      className="hidden"
+                      id="edit-project-image-upload"
+                    />
+                    {(editProjectImagePreview || editingProject.image_url) ? (
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={editProjectImagePreview || editingProject.image_url || ""}
+                          alt="Preview"
+                          className="h-16 w-16 rounded-md object-cover border"
+                        />
+                        <div className="flex-1 text-sm text-muted-foreground">
+                          {editProjectImageFile ? editProjectImageFile.name : "Current image"}
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={clearEditProjectImage}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <label htmlFor="edit-project-image-upload" className="cursor-pointer flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
+                        <ImagePlus className="h-4 w-4" />
+                        Click to upload a cover image
+                      </label>
+                    )}
+                  </div>
+                </div>
                 <div className="grid gap-2"><Label>Client Name *</Label><Input value={editingProject.name} onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })} /></div>
                 <div className="grid gap-2"><Label>Brand Name</Label><Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} /></div>
                 <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
@@ -4354,7 +4837,13 @@ export default function Projects() {
                 <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={editingProject.expected_launch_date || ""} onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })} /></div>
               </div>
             )}
-            <DialogFooter><Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button><Button onClick={updateProject}>Save Changes</Button></DialogFooter>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+              <Button onClick={updateProject} disabled={projectSaving}>
+                {projectSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                Save Changes
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -4370,7 +4859,9 @@ export default function Projects() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground text-sm">Manage all client projects from one dashboard</p>
+          <p className="text-muted-foreground text-sm">
+            {isAdmin ? "Manage all client projects from one dashboard" : "Aapko jin projects mein task assign hue hain, wahi yahan dikhte hain"}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {/* ── Export Button ── */}
@@ -4379,36 +4870,71 @@ export default function Projects() {
             Export Excel
           </Button>
           
-          {/* ── Import Button ── */}
-          <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
-            <FileUp className="mr-2 h-4 w-4" />
-            Import Excel
-          </Button>
-          
-          {/* ── New Project Button ── */}
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <Plus className="mr-2 h-4 w-4" />
-                New Project
+          {isAdmin && (
+            <>
+              {/* ── Import Button ── */}
+              <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
+                <FileUp className="mr-2 h-4 w-4" />
+                Import Excel
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader><DialogTitle>Create New Project</DialogTitle></DialogHeader>
-              <div className="grid gap-4 py-4 sm:grid-cols-2">
-                <div className="grid gap-2"><Label>Client Name *</Label><Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" /></div>
-                <div className="grid gap-2"><Label>Brand Name</Label><Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" /></div>
-                <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
-                <div className="grid gap-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                <div className="grid gap-2"><Label>Project Type</Label><Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Priority</Label><Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" /></div>
-                <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} /></div>
-                <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={newProject.expected_launch_date} onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })} /></div>
-              </div>
-              <DialogFooter><Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button onClick={createProject}>Create Project</Button></DialogFooter>
-            </DialogContent>
-          </Dialog>
+              
+              {/* ── New Project Button ── */}
+              <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) clearNewProjectImage(); }}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Project
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader><DialogTitle>Create New Project</DialogTitle></DialogHeader>
+                  <div className="grid gap-4 py-4 sm:grid-cols-2">
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label>Project Image (optional)</Label>
+                      <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
+                        <input
+                          ref={projectImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleNewProjectImageSelect}
+                          className="hidden"
+                          id="new-project-image-upload"
+                        />
+                        {newProjectImagePreview ? (
+                          <div className="flex items-center gap-3">
+                            <img src={newProjectImagePreview} alt="Preview" className="h-16 w-16 rounded-md object-cover border" />
+                            <div className="flex-1 text-sm text-muted-foreground">{newProjectImageFile?.name}</div>
+                            <Button variant="ghost" size="sm" onClick={clearNewProjectImage}><X className="h-4 w-4" /></Button>
+                          </div>
+                        ) : (
+                          <label htmlFor="new-project-image-upload" className="cursor-pointer flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
+                            <ImagePlus className="h-4 w-4" />
+                            Click to upload a cover image
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid gap-2"><Label>Client Name *</Label><Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" /></div>
+                    <div className="grid gap-2"><Label>Brand Name</Label><Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" /></div>
+                    <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
+                    <div className="grid gap-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
+                    <div className="grid gap-2"><Label>Project Type</Label><Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2"><Label>Priority</Label><Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" /></div>
+                    <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} /></div>
+                    <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={newProject.expected_launch_date} onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })} /></div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={createProject} disabled={projectSaving}>
+                      {projectSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                      Create Project
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
         </div>
       </div>
 
@@ -4458,13 +4984,25 @@ export default function Projects() {
             {filteredProjects.length === 0 ? (
               <div className="text-center py-12">
                 <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No projects found</p>
-                <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />Create Your First Project
-                </Button>
+                <p className="text-muted-foreground">
+                  {isAdmin ? "No projects found" : "Aapko abhi tak kisi project mein task assign nahi hua hai"}
+                </p>
+                {isAdmin && (
+                  <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />Create Your First Project
+                  </Button>
+                )}
               </div>
             ) : (
-              filteredProjects.map((project: Project) => <ProjectCard key={project.id} project={project} onClick={() => handleProjectClick(project)} />)
+              filteredProjects.map((project: Project) => (
+                <ProjectCard 
+                  key={project.id} 
+                  project={project} 
+                  onClick={() => handleProjectClick(project)}
+                  onImageUpload={handleDashboardImageUpload}
+                  uploading={uploadingImage === project.id}
+                />
+              ))
             )}
           </div>
         </CardContent>
