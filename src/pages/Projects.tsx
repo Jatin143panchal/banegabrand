@@ -3513,13 +3513,13 @@ export default function Projects() {
                       </div>
 
                       <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs text-muted-foreground mb-1">Apna update / progress note likhein:</p>
+                        <p className="text-xs text-muted-foreground mb-1">update / progress note:</p>
                         <div className="flex gap-2">
                           <Textarea
                             rows={2}
                             defaultValue={task.employee_remarks || ""}
                             onChange={(e) => setMyTaskRemarksDraft((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                            placeholder="e.g. Sample bhej diya hai, client ka reply pending hai..."
+                            placeholder="e.g. Sample send client reply..."
                             className="text-sm"
                           />
                           <Button size="sm" onClick={() => saveMyTaskRemarks(task.id)}>Save</Button>
