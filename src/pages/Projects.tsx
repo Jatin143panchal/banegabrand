@@ -10,11 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
+import { format, isBefore, isToday, isThisWeek, startOfDay, differenceInDays, eachDayOfInterval, subDays, addDays, subMonths, addMonths, isSameDay, isSameMonth, startOfMonth, endOfMonth, getDay } from "date-fns";
 import {
   Plus, Search, Loader2, Trash2, Edit, Eye, Download, X,
   Users, Phone, Mail, Calendar, TrendingUp, Flag, XCircle,
@@ -30,12 +34,18 @@ import {
   ListChecks, CalendarDays, Timer, Hourglass, AlarmClock,
   UserPlus, UserMinus, Settings, SlidersHorizontal, FileSpreadsheet,
   Import, Table as TableIcon, FileDown, FileUp, Sparkles, Palette,
-  LayoutGrid, List, ImagePlus, FolderPlus, Images, FilePlus
+  LayoutGrid, List, ImagePlus, FolderPlus, Images, FilePlus,
+  ChevronDown, Tag, History, UserCog, Clock as ClockIcon,
+  Calendar as CalendarIcon, Check, AlertCircle, Info,
+  Star, StarOff, ThumbsUp, ThumbsDown, MessageCircle,
+  BriefcaseBusiness, Grid, ListTodo, CalendarRange, Users as UsersIcon,
+  UserCog2, Target as TargetIcon, Timer as TimerIcon,
+  // ⬇️ YE ADD KARO
+  ShoppingCart, Scale, Factory
 } from "lucide-react";
-import { format, isBefore, isToday, isThisWeek, startOfDay } from "date-fns";
 
 // ============================================================
-// CONSTANTS
+// CONSTANTS (Same as before)
 // ============================================================
 const PROJECT_STAGES = [
   { value: "discovery", label: "Product Discovery & Validation", icon: "🔍", color: "#3b82f6" },
@@ -82,20 +92,6 @@ const MANUFACTURING_STAGES = [
   "Delivered"
 ];
 
-// Branding Categories - Commented out as per request
-// const BRANDING_CATEGORIES = [
-//   "Brand Name",
-//   "Logo",
-//   "Trademark",
-//   "Packaging",
-//   "Mockups",
-//   "Website",
-//   "Social Media",
-//   "Marketplace",
-//   "Photography",
-//   "Video"
-// ];
-
 const DOCUMENT_FOLDERS = [
   "Company Registration",
   "GST",
@@ -112,21 +108,16 @@ const DOCUMENT_FOLDERS = [
 ];
 
 const DEPARTMENT_TYPES = [
-  { value: "product_launch", label: "Product Launch", icon: Rocket },
-  { value: "branding", label: "Branding", icon: Award },
-  { value: "packaging", label: "Packaging", icon: Package },
-  { value: "website_development", label: "Website Development", icon: Globe },
-  { value: "social_media", label: "Social Media", icon: Share2 },
-  { value: "marketplace", label: "Marketplace", icon: Building2 },
-  { value: "performance_marketing", label: "Performance Marketing", icon: Zap },
-  { value: "trademark", label: "Trademark", icon: Shield },
-  { value: "production", label: "Production", icon: Settings },
-  { value: "photography", label: "Photography", icon: Image },
-  { value: "video_editing", label: "Video Editing", icon: Video },
-  { value: "seo", label: "SEO", icon: TrendingUp },
-  { value: "legal", label: "Legal", icon: FileSignature },
-  { value: "accounts", label: "Accounts", icon: CreditCard },
-  { value: "custom", label: "Custom Department", icon: Layers },
+  { value: "discovery",    label: "Product Discovery",       icon: Rocket,         color: "indigo" },
+  { value: "branding",     label: "Branding",                icon: Sparkles,       color: "pink" },
+  { value: "packaging",    label: "Packaging",               icon: Package,        color: "amber" },
+  { value: "website",      label: "Website Development",     icon: Globe,          color: "blue" },
+  { value: "social",       label: "Social Media",            icon: MessageSquare,  color: "fuchsia" },
+  { value: "marketplace",  label: "Marketplace Listing",     icon: ShoppingCart,   color: "orange" },
+  { value: "marketing",    label: "Performance Marketing",   icon: Zap,            color: "red" },
+  { value: "trademark",    label: "Trademark",               icon: Scale,          color: "emerald" },
+  { value: "production",   label: "Production",              icon: Factory,        color: "slate" },
+  { value: "others",       label: "Others",                  icon: Layers,         color: "gray" },
 ];
 
 const DEPARTMENT_STATUSES = [
@@ -136,197 +127,16 @@ const DEPARTMENT_STATUSES = [
   { value: "blocked", label: "Blocked", color: "#ef4444" },
 ];
 
-// ── Brand Identity Kit field definitions ──
-const BRAND_KIT_FIELDS: { key: string; label: string; type: "input" | "textarea" }[] = [
-  { key: "brand_name", label: "Brand Name", type: "input" },
-  { key: "tagline", label: "Tagline", type: "input" },
-  { key: "brand_introduction", label: "Brand Introduction", type: "textarea" },
-  { key: "brand_story", label: "Brand Story", type: "textarea" },
-  { key: "brand_meaning", label: "Brand Meaning", type: "textarea" },
-  { key: "brand_mission", label: "Brand Mission", type: "textarea" },
-  { key: "brand_vision", label: "Brand Vision", type: "textarea" },
-  { key: "brand_values", label: "Brand Values", type: "textarea" },
-  { key: "target_audience", label: "Target Audience", type: "textarea" },
-  { key: "brand_positioning", label: "Brand Positioning", type: "textarea" },
-  { key: "usp", label: "Unique Selling Proposition (USP)", type: "textarea" },
-  { key: "brand_personality", label: "Brand Personality", type: "input" },
-  { key: "tone_of_voice", label: "Tone of Voice", type: "input" },
-  { key: "brand_keywords", label: "Brand Keywords", type: "input" },
-  { key: "theme", label: "Theme", type: "input" },
-  { key: "mood", label: "Mood", type: "input" },
-  { key: "primary_colors", label: "Primary Colors", type: "input" },
-  { key: "secondary_colors", label: "Secondary Colors", type: "input" },
-  { key: "typography", label: "Typography", type: "input" },
-  { key: "packaging_style", label: "Packaging Style", type: "textarea" },
-  { key: "photography_style", label: "Photography Style", type: "textarea" },
-  { key: "competitor_brands", label: "Competitor Brands", type: "input" },
-  { key: "website", label: "Website", type: "input" },
-  { key: "social_media_links", label: "Social Media Links", type: "input" },
-  { key: "trademark_status", label: "Trademark Status", type: "input" },
-  { key: "brand_notes", label: "Notes", type: "textarea" },
+const SUBTASK_TAGS = [
+  "Design", "Content", "Approval", "Follow-up", "Review",
+  "Blocked", "Urgent", "Research", "Client Input", "Other"
 ];
 
-const EMPTY_BRAND_KIT: Record<string, string> = BRAND_KIT_FIELDS.reduce(
-  (acc, f) => ({ ...acc, [f.key]: "" }),
-  {} as Record<string, string>
-);
-
-// ── Client Progress Tracker field definitions ──
-const CLIENT_TRACKER_SECTIONS: {
-  key: string;
-  title: string;
-  emoji: string;
-  fields: { key: string; label: string; type: "input" | "textarea" }[];
-}[] = [
-  {
-    key: "client_details",
-    title: "CLIENT DETAILS",
-    emoji: "🟣",
-    fields: [
-      { key: "client_full_name", label: "Client Full Name", type: "input" },
-      { key: "client_mobile_number", label: "Client Mobile Number", type: "input" },
-      { key: "client_email_address", label: "Client Email Address", type: "input" },
-      { key: "alternative_number", label: "Alternative Number", type: "input" },
-      { key: "client_home_address", label: "Client Home Address", type: "textarea" },
-      { key: "company_name", label: "Company Name if any", type: "input" },
-      { key: "gst_number", label: "GST Number", type: "input" },
-      { key: "pan_number", label: "PAN Number", type: "input" },
-      { key: "aadhaar_number", label: "Aadhaar Number", type: "input" },
-      { key: "city", label: "City", type: "input" },
-      { key: "state", label: "State", type: "input" },
-      { key: "pincode", label: "Pincode", type: "input" },
-      { key: "relationship_manager", label: "Relationship Manager", type: "input" },
-      { key: "sales_person", label: "Sales Person", type: "input" },
-    ],
-  },
-  {
-    key: "project_details",
-    title: "PROJECT DETAILS",
-    emoji: "🟠",
-    fields: [
-      { key: "category", label: "Category", type: "input" },
-      { key: "package_details", label: "Package Details", type: "input" },
-      { key: "project_value", label: "Project Value", type: "input" },
-      { key: "advance_paid", label: "Advance Paid", type: "input" },
-      { key: "pending_amount", label: "Pending Amount", type: "input" },
-      { key: "payment_status", label: "Payment Status", type: "input" },
-      { key: "expected_launch_date", label: "Expected Launch Date", type: "input" },
-      { key: "current_stage", label: "Current Stage", type: "input" },
-      { key: "priority", label: "Priority (High/Medium/Low)", type: "input" },
-    ],
-  },
-  {
-    key: "brand_development",
-    title: "BRAND DEVELOPMENT",
-    emoji: "🔵",
-    fields: [
-      { key: "brand_name_final", label: "Brand Name Final", type: "input" },
-      { key: "domain_available", label: "Domain Available", type: "input" },
-      { key: "domain_purchased", label: "Domain Purchased", type: "input" },
-      { key: "instagram_username", label: "Instagram Username", type: "input" },
-      { key: "facebook_page", label: "Facebook Page", type: "input" },
-      { key: "logo_final", label: "Logo Final", type: "input" },
-      { key: "tagline", label: "Tagline", type: "input" },
-      { key: "brand_story", label: "Brand Story", type: "textarea" },
-      { key: "target_audience", label: "Target Audience", type: "textarea" },
-    ],
-  },
-  {
-    key: "legal",
-    title: "LEGAL",
-    emoji: "🟢",
-    fields: [
-      { key: "agreement_done", label: "Agreement Done", type: "input" },
-      { key: "nda_signed", label: "NDA Signed", type: "input" },
-      { key: "trademark_done", label: "Trademark Done", type: "input" },
-      { key: "gst_done", label: "GST Done", type: "input" },
-      { key: "msme_done", label: "MSME Done", type: "input" },
-      { key: "barcode_done", label: "Barcode Done", type: "input" },
-      { key: "label_compliance", label: "Label Compliance", type: "input" },
-      { key: "ifra_certificate", label: "IFRA Certificate", type: "input" },
-      { key: "msds_available", label: "MSDS Available", type: "input" },
-    ],
-  },
-  {
-    key: "product_development",
-    title: "PRODUCT DEVELOPMENT",
-    emoji: "🟡",
-    fields: [
-      { key: "bottle_selected", label: "Bottle Selected", type: "input" },
-      { key: "bottle_size", label: "Bottle Size", type: "input" },
-      { key: "bottle_color", label: "Bottle Color", type: "input" },
-      { key: "cap_selected", label: "Cap Selected", type: "input" },
-      { key: "pump_selected", label: "Pump Selected", type: "input" },
-      { key: "moq", label: "MOQ", type: "input" },
-      { key: "number_of_total_units", label: "Number of Total Units", type: "input" },
-      { key: "rate_per_unit", label: "Rate per Unit", type: "input" },
-      { key: "fragrance_name", label: "Fragrance Name", type: "input" },
-      { key: "variant_name", label: "Variant Name", type: "input" },
-      { key: "packaging_final", label: "Packaging Final", type: "input" },
-      { key: "label_final", label: "Label Final", type: "input" },
-      { key: "box_final", label: "Box Final", type: "input" },
-    ],
-  },
-  {
-    key: "manufacturing",
-    title: "MANUFACTURING",
-    emoji: "🔴",
-    fields: [
-      { key: "manufacturer_name", label: "Manufacturer Name", type: "input" },
-      { key: "sample_sent", label: "Sample Sent", type: "input" },
-      { key: "sample_approved", label: "Sample Approved", type: "input" },
-      { key: "production_started", label: "Production Started", type: "input" },
-      { key: "qc_completed", label: "QC Completed", type: "input" },
-      { key: "dispatch_date", label: "Dispatch Date", type: "input" },
-      { key: "tracking_number", label: "Tracking Number", type: "input" },
-      { key: "delivery_status", label: "Delivery Status", type: "input" },
-    ],
-  },
-  {
-    key: "marketing",
-    title: "MARKETING",
-    emoji: "🟢",
-    fields: [
-      { key: "product_shoot", label: "Product Shoot", type: "input" },
-      { key: "lifestyle_shoot", label: "Lifestyle Shoot", type: "input" },
-      { key: "website_ready", label: "Website Ready", type: "input" },
-      { key: "landing_page", label: "Landing Page", type: "input" },
-      { key: "social_media_kit", label: "Social Media Kit", type: "input" },
-      { key: "amazon_listing", label: "Amazon Listing", type: "input" },
-      { key: "flipkart_listing", label: "Flipkart Listing", type: "input" },
-      { key: "meta_ads_ready", label: "Meta Ads Ready", type: "input" },
-      { key: "launch_reel_ready", label: "Launch Reel Ready", type: "input" },
-    ],
-  },
-  {
-    key: "file_links",
-    title: "FILE LINKS",
-    emoji: "📂",
-    fields: [
-      { key: "client_folder", label: "Client Folder", type: "input" },
-      { key: "agreement_file", label: "Agreement", type: "input" },
-      { key: "trademark_certificate", label: "Trademark Certificate", type: "input" },
-      { key: "logo_files", label: "Logo Files", type: "input" },
-      { key: "packaging_files", label: "Packaging Files", type: "input" },
-      { key: "product_images", label: "Product Images", type: "input" },
-      { key: "final_deliverables", label: "Final Deliverables", type: "input" },
-    ],
-  },
-  {
-    key: "blocker",
-    title: "BLOCKER",
-    emoji: "🚧",
-    fields: [
-      { key: "blocker", label: "Blocker (What's stopping the project?)", type: "textarea" },
-    ],
-  },
+const SUBTASK_STATUSES = [
+  { value: "not_started", label: "Not Started" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "completed", label: "Completed" },
 ];
-
-const CLIENT_TRACKER_FIELDS = CLIENT_TRACKER_SECTIONS.flatMap((s) => s.fields);
-const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduce(
-  (acc, f) => ({ ...acc, [f.key]: "" }),
-  {} as Record<string, string>
-);
 
 // ============================================================
 // INTERFACES
@@ -382,6 +192,9 @@ interface ProjectTask {
   due_date: string | null;
   completion_date: string | null;
   employee_remarks: string | null;
+  created_at?: string | null;
+  assigned_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface Department {
@@ -443,17 +256,6 @@ interface Manufacturing {
   file_url: string | null;
 }
 
-// Branding interface - commented out
-// interface BrandingItem {
-//   id: string;
-//   project_id: string;
-//   category: string;
-//   item_name: string;
-//   status: string;
-//   file_url: string | null;
-//   notes: string | null;
-// }
-
 interface Document {
   id: string;
   project_id: string;
@@ -499,11 +301,38 @@ interface ITTeamMember {
   active: boolean;
 }
 
+interface TaskSubtask {
+  id: string;
+  task_id: string;
+  title: string;
+  tag: string | null;
+  status: string;
+  assigned_to_email: string | null;
+  assigned_to_name: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+interface TaskRemark {
+  id: string;
+  task_id: string;
+  remark: string;
+  created_by_email: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
 interface MyTaskRow extends ProjectTask {
   projects: {
     name: string;
     project_id: string;
     brand_name: string | null;
+    client_phone: string | null;
+    client_email: string | null;
+    client_address: string | null;
+    current_stage: string | null;
+    status: string | null;
   } | null;
 }
 
@@ -517,7 +346,7 @@ interface InternalMessage {
 }
 
 // ============================================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS (Same as before)
 // ============================================================
 function getStageLabel(value: string) {
   const stage = PROJECT_STAGES.find(s => s.value === value);
@@ -722,6 +551,16 @@ function PriorityBadge({ priority }: { priority: string }) {
   );
 }
 
+// ── Subtask Tag Badge ─────────────────────────────────────────
+function SubtaskTagBadge({ tag }: { tag: string | null }) {
+  if (!tag) return null;
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 border border-violet-200">
+      <Tag className="h-2.5 w-2.5" /> {tag}
+    </span>
+  );
+}
+
 // ── Project Card ──────────────────────────────────────────────
 function ProjectCard({ project, onClick, onImageUpload, uploading }: { 
   project: Project; 
@@ -917,198 +756,6 @@ function DepartmentCard({ department, taskCounts, onClick, onEdit, onDelete }: {
   );
 }
 
-// ── Task Card ──────────────────────────────────────────────────
-function TaskCard({ task, itTeam, onStatusChange, onAssign, onDelete }: { 
-  task: ProjectTask; 
-  itTeam: ITTeamMember[];
-  onStatusChange: (id: string, status: string) => void;
-  onAssign: (id: string, email: string, name: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  
-  return (
-    <div className={`border rounded-lg p-3 hover:bg-muted/30 transition-colors ${task.status === 'completed' ? 'bg-muted/20' : ''}`}>
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <input 
-              type="checkbox" 
-              checked={task.status === 'completed'}
-              onChange={() => onStatusChange(task.id, task.status === 'completed' ? 'not_started' : 'completed')}
-              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-            />
-            <span className={`font-medium ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
-              {task.task_name}
-            </span>
-            <PriorityBadge priority={task.priority} />
-            <StatusBadge status={task.status} />
-          </div>
-          {task.description && (
-            <p className="text-sm text-muted-foreground mt-1 ml-9">{task.description}</p>
-          )}
-          <div className="flex items-center gap-4 mt-1 ml-9 text-xs text-muted-foreground flex-wrap">
-            {task.department && <span>📁 {task.department}</span>}
-            {task.due_date && (
-              <span>📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
-            )}
-            {task.assigned_to_name || task.assigned_to_email ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
-                👤 {task.assigned_to_name || task.assigned_to_email}
-              </span>
-            ) : (
-              <span className="text-amber-600">👤 Unassigned</span>
-            )}
-          </div>
-
-          {task.employee_remarks && (
-            <div className="mt-2 ml-9 bg-blue-50 border border-blue-100 rounded-md p-2 max-w-md">
-              <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
-                💬 {task.assigned_to_name || "Employee"}'s update:
-              </p>
-              <p className="text-xs text-blue-900 mt-0.5 whitespace-pre-wrap">{task.employee_remarks}</p>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpanded(!expanded)}>
-            <MoreVertical className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(task.id)}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-      
-      {expanded && (
-        <div className="mt-3 pt-3 border-t">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-muted-foreground">Status: </span>
-              <Select 
-                value={task.status} 
-                onValueChange={(v) => onStatusChange(task.id, v)}
-              >
-                <SelectTrigger className="h-7 text-xs w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="not_started">Not Started</SelectItem>
-                  <SelectItem value="in_progress">Processing</SelectItem>
-                  <SelectItem value="review">Review</SelectItem>
-                  <SelectItem value="completed">Done</SelectItem>
-                  <SelectItem value="blocked">Blocked</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Assign To: </span>
-              <Select 
-                value={task.assigned_to_email || ""} 
-                onValueChange={(v) => {
-                  const member = itTeam.find(m => m.email === v);
-                  onAssign(task.id, v, member?.name || v);
-                }}
-              >
-                <SelectTrigger className="h-7 text-xs w-44">
-                  <SelectValue placeholder="Unassigned" />
-                </SelectTrigger>
-                <SelectContent>
-                  {itTeam.map(m => (
-                    <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Task Kanban Card ──────────────────────────────────────────
-function TaskKanbanCard({ task, onStatusChange, onDelete }: {
-  task: ProjectTask;
-  onStatusChange: (id: string, status: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const bucket = getDueBucket(task.due_date);
-  return (
-    <div className="border rounded-lg p-3 bg-background hover:shadow-sm transition-shadow">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium leading-snug">{task.task_name}</p>
-        <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0 text-destructive" onClick={() => onDelete(task.id)}>
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      </div>
-      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        <PriorityBadge priority={task.priority} />
-        {task.due_date && (
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${bucket === "overdue" && task.status !== "completed" ? "bg-red-50 text-red-600 border-red-200" : "bg-muted text-muted-foreground"}`}>
-            📅 {format(new Date(task.due_date), "dd MMM")}
-          </span>
-        )}
-      </div>
-      {(task.assigned_to_name || task.assigned_to_email) && (
-        <p className="text-[11px] text-indigo-600 mt-1.5">👤 {task.assigned_to_name || task.assigned_to_email}</p>
-      )}
-      <Select value={task.status} onValueChange={(v) => onStatusChange(task.id, v)}>
-        <SelectTrigger className="h-6 text-[11px] mt-2 w-full"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="not_started">Not Started</SelectItem>
-          <SelectItem value="in_progress">Processing</SelectItem>
-          <SelectItem value="review">Review</SelectItem>
-          <SelectItem value="completed">Done</SelectItem>
-          <SelectItem value="blocked">Blocked</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-// ── Task Dashboard ────────────────────────────────────────────
-function TaskDashboard({ tasks, onStatusChange, onDelete }: {
-  tasks: ProjectTask[];
-  onStatusChange: (id: string, status: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const columns: { key: string; label: string; color: string }[] = [
-    { key: "not_started", label: "Not Started", color: "#94a3b8" },
-    { key: "in_progress", label: "Processing", color: "#3b82f6" },
-    { key: "review", label: "Review", color: "#f59e0b" },
-    { key: "completed", label: "Done", color: "#10b981" },
-    { key: "blocked", label: "Blocked", color: "#ef4444" },
-  ];
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-      {columns.map(col => {
-        const colTasks = tasks.filter(t => t.status === col.key);
-        return (
-          <div key={col.key} className="bg-muted/30 rounded-lg p-3 min-h-[200px]">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ background: col.color }} />
-                {col.label}
-              </span>
-              <Badge variant="outline" className="text-[10px] px-1.5">{colTasks.length}</Badge>
-            </div>
-            <div className="space-y-2">
-              {colTasks.map(task => (
-                <TaskKanbanCard key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
-              ))}
-              {colTasks.length === 0 && (
-                <p className="text-[11px] text-muted-foreground text-center py-6">No tasks</p>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Payment Card ──────────────────────────────────────────────
 function PaymentCard({ payment, onStatusChange, onDelete }: {
   payment: Payment;
@@ -1205,7 +852,509 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
     </div>
   );
 }
+// ============================================================
+// CONSTANTS - Add these before the BRAND_KIT_FIELDS section
+// ============================================================
 
+// ── Brand Identity Kit field definitions ──
+const BRAND_KIT_FIELDS: { key: string; label: string; type: "input" | "textarea" }[] = [
+  { key: "brand_name", label: "Brand Name", type: "input" },
+  { key: "tagline", label: "Tagline", type: "input" },
+  { key: "brand_introduction", label: "Brand Introduction", type: "textarea" },
+  { key: "brand_story", label: "Brand Story", type: "textarea" },
+  { key: "brand_meaning", label: "Brand Meaning", type: "textarea" },
+  { key: "brand_mission", label: "Brand Mission", type: "textarea" },
+  { key: "brand_vision", label: "Brand Vision", type: "textarea" },
+  { key: "brand_values", label: "Brand Values", type: "textarea" },
+  { key: "target_audience", label: "Target Audience", type: "textarea" },
+  { key: "brand_positioning", label: "Brand Positioning", type: "textarea" },
+  { key: "usp", label: "Unique Selling Proposition (USP)", type: "textarea" },
+  { key: "brand_personality", label: "Brand Personality", type: "input" },
+  { key: "tone_of_voice", label: "Tone of Voice", type: "input" },
+  { key: "brand_keywords", label: "Brand Keywords", type: "input" },
+  { key: "theme", label: "Theme", type: "input" },
+  { key: "mood", label: "Mood", type: "input" },
+  { key: "primary_colors", label: "Primary Colors", type: "input" },
+  { key: "secondary_colors", label: "Secondary Colors", type: "input" },
+  { key: "typography", label: "Typography", type: "input" },
+  { key: "packaging_style", label: "Packaging Style", type: "textarea" },
+  { key: "photography_style", label: "Photography Style", type: "textarea" },
+  { key: "competitor_brands", label: "Competitor Brands", type: "input" },
+  { key: "website", label: "Website", type: "input" },
+  { key: "social_media_links", label: "Social Media Links", type: "input" },
+  { key: "trademark_status", label: "Trademark Status", type: "input" },
+  { key: "brand_notes", label: "Notes", type: "textarea" },
+];
+
+const EMPTY_BRAND_KIT: Record<string, string> = BRAND_KIT_FIELDS.reduce(
+  (acc, f) => ({ ...acc, [f.key]: "" }),
+  {} as Record<string, string>
+);
+
+// ── Client Progress Tracker field definitions ──
+const CLIENT_TRACKER_SECTIONS: {
+  key: string;
+  title: string;
+  emoji: string;
+  fields: { key: string; label: string; type: "input" | "textarea" }[];
+}[] = [
+  {
+    key: "client_details",
+    title: "CLIENT DETAILS",
+    emoji: "🟣",
+    fields: [
+      { key: "client_full_name", label: "Client Full Name", type: "input" },
+      { key: "client_mobile_number", label: "Client Mobile Number", type: "input" },
+      { key: "client_email_address", label: "Client Email Address", type: "input" },
+      { key: "alternative_number", label: "Alternative Number", type: "input" },
+      { key: "client_home_address", label: "Client Home Address", type: "textarea" },
+      { key: "company_name", label: "Company Name if any", type: "input" },
+      { key: "gst_number", label: "GST Number", type: "input" },
+      { key: "pan_number", label: "PAN Number", type: "input" },
+      { key: "aadhaar_number", label: "Aadhaar Number", type: "input" },
+      { key: "city", label: "City", type: "input" },
+      { key: "state", label: "State", type: "input" },
+      { key: "pincode", label: "Pincode", type: "input" },
+      { key: "relationship_manager", label: "Relationship Manager", type: "input" },
+      { key: "sales_person", label: "Sales Person", type: "input" },
+    ],
+  },
+  {
+    key: "project_details",
+    title: "PROJECT DETAILS",
+    emoji: "🟠",
+    fields: [
+      { key: "category", label: "Category", type: "input" },
+      { key: "package_details", label: "Package Details", type: "input" },
+      { key: "project_value", label: "Project Value", type: "input" },
+      { key: "advance_paid", label: "Advance Paid", type: "input" },
+      { key: "pending_amount", label: "Pending Amount", type: "input" },
+      { key: "payment_status", label: "Payment Status", type: "input" },
+      { key: "expected_launch_date", label: "Expected Launch Date", type: "input" },
+      { key: "current_stage", label: "Current Stage", type: "input" },
+      { key: "priority", label: "Priority (High/Medium/Low)", type: "input" },
+    ],
+  },
+  {
+    key: "brand_development",
+    title: "BRAND DEVELOPMENT",
+    emoji: "🔵",
+    fields: [
+      { key: "brand_name_final", label: "Brand Name Final", type: "input" },
+      { key: "domain_available", label: "Domain Available", type: "input" },
+      { key: "domain_purchased", label: "Domain Purchased", type: "input" },
+      { key: "instagram_username", label: "Instagram Username", type: "input" },
+      { key: "facebook_page", label: "Facebook Page", type: "input" },
+      { key: "logo_final", label: "Logo Final", type: "input" },
+      { key: "tagline", label: "Tagline", type: "input" },
+      { key: "brand_story", label: "Brand Story", type: "textarea" },
+      { key: "target_audience", label: "Target Audience", type: "textarea" },
+    ],
+  },
+  {
+    key: "legal",
+    title: "LEGAL",
+    emoji: "🟢",
+    fields: [
+      { key: "agreement_done", label: "Agreement Done", type: "input" },
+      { key: "nda_signed", label: "NDA Signed", type: "input" },
+      { key: "trademark_done", label: "Trademark Done", type: "input" },
+      { key: "gst_done", label: "GST Done", type: "input" },
+      { key: "msme_done", label: "MSME Done", type: "input" },
+      { key: "barcode_done", label: "Barcode Done", type: "input" },
+      { key: "label_compliance", label: "Label Compliance", type: "input" },
+      { key: "ifra_certificate", label: "IFRA Certificate", type: "input" },
+      { key: "msds_available", label: "MSDS Available", type: "input" },
+    ],
+  },
+  {
+    key: "product_development",
+    title: "PRODUCT DEVELOPMENT",
+    emoji: "🟡",
+    fields: [
+      { key: "bottle_selected", label: "Bottle Selected", type: "input" },
+      { key: "bottle_size", label: "Bottle Size", type: "input" },
+      { key: "bottle_color", label: "Bottle Color", type: "input" },
+      { key: "cap_selected", label: "Cap Selected", type: "input" },
+      { key: "pump_selected", label: "Pump Selected", type: "input" },
+      { key: "moq", label: "MOQ", type: "input" },
+      { key: "number_of_total_units", label: "Number of Total Units", type: "input" },
+      { key: "rate_per_unit", label: "Rate per Unit", type: "input" },
+      { key: "fragrance_name", label: "Fragrance Name", type: "input" },
+      { key: "variant_name", label: "Variant Name", type: "input" },
+      { key: "packaging_final", label: "Packaging Final", type: "input" },
+      { key: "label_final", label: "Label Final", type: "input" },
+      { key: "box_final", label: "Box Final", type: "input" },
+    ],
+  },
+  {
+    key: "manufacturing",
+    title: "MANUFACTURING",
+    emoji: "🔴",
+    fields: [
+      { key: "manufacturer_name", label: "Manufacturer Name", type: "input" },
+      { key: "sample_sent", label: "Sample Sent", type: "input" },
+      { key: "sample_approved", label: "Sample Approved", type: "input" },
+      { key: "production_started", label: "Production Started", type: "input" },
+      { key: "qc_completed", label: "QC Completed", type: "input" },
+      { key: "dispatch_date", label: "Dispatch Date", type: "input" },
+      { key: "tracking_number", label: "Tracking Number", type: "input" },
+      { key: "delivery_status", label: "Delivery Status", type: "input" },
+    ],
+  },
+  {
+    key: "marketing",
+    title: "MARKETING",
+    emoji: "🟢",
+    fields: [
+      { key: "product_shoot", label: "Product Shoot", type: "input" },
+      { key: "lifestyle_shoot", label: "Lifestyle Shoot", type: "input" },
+      { key: "website_ready", label: "Website Ready", type: "input" },
+      { key: "landing_page", label: "Landing Page", type: "input" },
+      { key: "social_media_kit", label: "Social Media Kit", type: "input" },
+      { key: "amazon_listing", label: "Amazon Listing", type: "input" },
+      { key: "flipkart_listing", label: "Flipkart Listing", type: "input" },
+      { key: "meta_ads_ready", label: "Meta Ads Ready", type: "input" },
+      { key: "launch_reel_ready", label: "Launch Reel Ready", type: "input" },
+    ],
+  },
+  {
+    key: "file_links",
+    title: "FILE LINKS",
+    emoji: "📂",
+    fields: [
+      { key: "client_folder", label: "Client Folder", type: "input" },
+      { key: "agreement_file", label: "Agreement", type: "input" },
+      { key: "trademark_certificate", label: "Trademark Certificate", type: "input" },
+      { key: "logo_files", label: "Logo Files", type: "input" },
+      { key: "packaging_files", label: "Packaging Files", type: "input" },
+      { key: "product_images", label: "Product Images", type: "input" },
+      { key: "final_deliverables", label: "Final Deliverables", type: "input" },
+    ],
+  },
+  {
+    key: "blocker",
+    title: "BLOCKER",
+    emoji: "🚧",
+    fields: [
+      { key: "blocker", label: "Blocker (What's stopping the project?)", type: "textarea" },
+    ],
+  },
+];
+
+const CLIENT_TRACKER_FIELDS = CLIENT_TRACKER_SECTIONS.flatMap((s) => s.fields);
+const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduce(
+  (acc, f) => ({ ...acc, [f.key]: "" }),
+  {} as Record<string, string>
+);
+
+// Also need to add TaskCard component that's used in the detail view
+// ── Task Card ──────────────────────────────────────────────────
+function TaskCard({
+  task,
+  itTeam,
+  subtasks,
+  subtasksLoading,
+  onStatusChange,
+  onAssign,
+  onDelete,
+  onToggleExpand,
+  onAddSubtask,
+  onToggleSubtask,
+  onDeleteSubtask,
+}: {
+  task: ProjectTask;
+  itTeam: ITTeamMember[];
+  subtasks: TaskSubtask[];
+  subtasksLoading: boolean;
+  onStatusChange: (id: string, status: string) => void;
+  onAssign: (id: string, email: string, name: string) => void;
+  onDelete: (id: string) => void;
+  onToggleExpand: (taskId: string) => void;
+  onAddSubtask: (taskId: string, title: string, tag: string) => void;
+  onToggleSubtask: (subtaskId: string, taskId: string, currentStatus: string) => void;
+  onDeleteSubtask: (subtaskId: string, taskId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [subtaskTitle, setSubtaskTitle] = useState("");
+  const [subtaskTag, setSubtaskTag] = useState("");
+  const subtasksCompleted = subtasks.filter((s) => s.status === "completed").length;
+
+  const handleToggleExpand = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) onToggleExpand(task.id);
+  };
+
+  const handleAddSubtask = () => {
+    if (!subtaskTitle.trim()) return;
+    onAddSubtask(task.id, subtaskTitle.trim(), subtaskTag);
+    setSubtaskTitle("");
+    setSubtaskTag("");
+  };
+
+  return (
+    <div className={`border rounded-lg p-3 hover:bg-muted/30 transition-colors ${task.status === 'completed' ? 'bg-muted/20' : ''}`}>
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <input
+              type="checkbox"
+              checked={task.status === 'completed'}
+              onChange={() => onStatusChange(task.id, task.status === 'completed' ? 'not_started' : 'completed')}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+            />
+            <button
+              type="button"
+              onClick={handleToggleExpand}
+              className="flex items-center gap-2 text-left"
+              title={expanded ? "Collapse" : "Expand task"}
+            >
+              <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+              <span className={`font-medium ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
+                {task.task_name}
+              </span>
+            </button>
+            <PriorityBadge priority={task.priority} />
+            <StatusBadge status={task.status} />
+            {subtasks.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                ✅ {subtasksCompleted}/{subtasks.length} subtasks
+              </span>
+            )}
+          </div>
+          {task.description && (
+            <p className="text-sm text-muted-foreground mt-1 ml-9">{task.description}</p>
+          )}
+          <div className="flex items-center gap-4 mt-1 ml-9 text-xs text-muted-foreground flex-wrap">
+            {task.department && <span>📁 {task.department}</span>}
+            {task.due_date && (
+              <span>📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
+            )}
+            {task.assigned_to_name || task.assigned_to_email ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                👤 {task.assigned_to_name || task.assigned_to_email}
+              </span>
+            ) : (
+              <span className="text-amber-600">👤 Unassigned</span>
+            )}
+            {(task.assigned_at || task.created_at) && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                🕒 {format(new Date(task.assigned_at || task.created_at!), "dd MMM yyyy, hh:mm a")}
+              </span>
+            )}
+          </div>
+
+          {task.employee_remarks && (
+            <div className="mt-2 ml-9 bg-blue-50 border border-blue-100 rounded-md p-2 max-w-md">
+              <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
+                💬 {task.assigned_to_name || "Employee"}'s update:
+              </p>
+              <p className="text-xs text-blue-900 mt-0.5 whitespace-pre-wrap">{task.employee_remarks}</p>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggleExpand}>
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(task.id)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t space-y-4">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <span className="text-muted-foreground">Status: </span>
+              <Select value={task.status} onValueChange={(v) => onStatusChange(task.id, v)}>
+                <SelectTrigger className="h-7 text-xs w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="not_started">Not Started</SelectItem>
+                  <SelectItem value="in_progress">Processing</SelectItem>
+                  <SelectItem value="review">Review</SelectItem>
+                  <SelectItem value="completed">Done</SelectItem>
+                  <SelectItem value="blocked">Blocked</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Assign To: </span>
+              <Select
+                value={task.assigned_to_email || "unassigned"}
+                onValueChange={(v) => {
+                  const member = itTeam.find((m) => m.email === v);
+                  onAssign(task.id, v, member?.name || v);
+                }}
+              >
+                <SelectTrigger className="h-7 text-xs w-44">
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  {itTeam.map((m) => (
+                    <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* ── Subtasks ── */}
+          <div>
+            <p className="text-xs font-semibold flex items-center gap-1.5 mb-2">
+              <ListChecks className="h-3.5 w-3.5 text-violet-600" /> Subtasks
+            </p>
+            {subtasksLoading ? (
+              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
+            ) : (
+              <div className="space-y-1.5">
+                {subtasks.map((st) => (
+                  <div key={st.id} className="border rounded-md px-2 py-1.5 bg-background space-y-1">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={st.status === "completed"}
+                        onChange={() => onToggleSubtask(st.id, task.id, st.status)}
+                        className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                      />
+                      <span className={`text-sm flex-1 ${st.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
+                        {st.title}
+                      </span>
+                      <SubtaskTagBadge tag={st.tag} />
+                      {(st.assigned_to_name || st.assigned_to_email) && (
+                        <span className="text-[10px] text-indigo-600">👤 {st.assigned_to_name || st.assigned_to_email}</span>
+                      )}
+                      {st.created_at && (
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {format(new Date(st.created_at), "dd MMM, hh:mm a")}
+                        </span>
+                      )}
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => onDeleteSubtask(st.id, task.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    {st.note && (
+                      <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1 ml-6 whitespace-pre-wrap">
+                        📝 {st.note}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {subtasks.length === 0 && (
+                  <p className="text-xs text-muted-foreground py-1">No subtasks yet — break this task down below.</p>
+                )}
+              </div>
+            )}
+            <div className="flex gap-2 mt-2">
+              <Input
+                value={subtaskTitle}
+                onChange={(e) => setSubtaskTitle(e.target.value)}
+                placeholder="Add a subtask..."
+                className="h-8 text-sm flex-1"
+                onKeyDown={(e) => { if (e.key === "Enter") handleAddSubtask(); }}
+              />
+              <Select value={subtaskTag} onValueChange={setSubtaskTag}>
+                <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Tag" /></SelectTrigger>
+                <SelectContent>
+                  {SUBTASK_TAGS.map((tag) => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" className="h-8" onClick={handleAddSubtask}>
+                <Plus className="h-3.5 w-3.5 mr-1" />Add
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Task Dashboard ────────────────────────────────────────────
+function TaskDashboard({ tasks, onStatusChange, onDelete }: {
+  tasks: ProjectTask[];
+  onStatusChange: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const columns: { key: string; label: string; color: string }[] = [
+    { key: "not_started", label: "Not Started", color: "#94a3b8" },
+    { key: "in_progress", label: "Processing", color: "#3b82f6" },
+    { key: "review", label: "Review", color: "#f59e0b" },
+    { key: "completed", label: "Done", color: "#10b981" },
+    { key: "blocked", label: "Blocked", color: "#ef4444" },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      {columns.map(col => {
+        const colTasks = tasks.filter(t => t.status === col.key);
+        return (
+          <div key={col.key} className="bg-muted/30 rounded-lg p-3 min-h-[200px]">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: col.color }} />
+                {col.label}
+              </span>
+              <Badge variant="outline" className="text-[10px] px-1.5">{colTasks.length}</Badge>
+            </div>
+            <div className="space-y-2">
+              {colTasks.map(task => (
+                <TaskKanbanCard key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
+              ))}
+              {colTasks.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-6">No tasks</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Task Kanban Card ──────────────────────────────────────────
+function TaskKanbanCard({ task, onStatusChange, onDelete }: {
+  task: ProjectTask;
+  onStatusChange: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const bucket = getDueBucket(task.due_date);
+  return (
+    <div className="border rounded-lg p-3 bg-background hover:shadow-sm transition-shadow">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium leading-snug">{task.task_name}</p>
+        <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0 text-destructive" onClick={() => onDelete(task.id)}>
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </div>
+      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+        <PriorityBadge priority={task.priority} />
+        {task.due_date && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${bucket === "overdue" && task.status !== "completed" ? "bg-red-50 text-red-600 border-red-200" : "bg-muted text-muted-foreground"}`}>
+            📅 {format(new Date(task.due_date), "dd MMM")}
+          </span>
+        )}
+      </div>
+      {(task.assigned_to_name || task.assigned_to_email) && (
+        <p className="text-[11px] text-indigo-600 mt-1.5">👤 {task.assigned_to_name || task.assigned_to_email}</p>
+      )}
+      <Select value={task.status} onValueChange={(v) => onStatusChange(task.id, v)}>
+        <SelectTrigger className="h-6 text-[11px] mt-2 w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="not_started">Not Started</SelectItem>
+          <SelectItem value="in_progress">Processing</SelectItem>
+          <SelectItem value="review">Review</SelectItem>
+          <SelectItem value="completed">Done</SelectItem>
+          <SelectItem value="blocked">Blocked</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 // ── Note Card ──────────────────────────────────────────────────
 function NoteCard({ note, onEdit, onDelete }: {
   note: ProjectNote;
@@ -1351,7 +1500,1511 @@ function NoteCard({ note, onEdit, onDelete }: {
 }
 
 // ============================================================
-// MAIN COMPONENT
+// TASK DETAIL DIALOG COMPONENT
+// ============================================================
+interface TaskDetailDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  task: MyTaskRow | null;
+  itTeam: ITTeamMember[];
+  subtasks: TaskSubtask[];
+  remarks: TaskRemark[];
+  projectNote: ProjectNote | null;
+  currentUserEmail: string;
+  onStatusChange: (taskId: string, status: string) => void;
+  onAssign: (taskId: string, email: string, name: string) => void;
+  onAddSubtask: (taskId: string, title: string, tag: string, assigneeEmail: string | null) => void;
+  onToggleSubtask: (subtaskId: string, taskId: string, currentStatus: string) => void;
+  onDeleteSubtask: (subtaskId: string, taskId: string) => void;
+  onUpdateSubtaskNote?: (subtaskId: string, taskId: string, note: string) => void;
+  onAddRemark: (taskId: string, remark: string) => void;
+  onDeleteTask: (taskId: string) => void;
+  onSaveProjectNote: (projectId: string, content: string) => void;
+  onFetchSubtasks: (taskId: string) => void;
+  onFetchRemarks: (taskId: string) => void;
+  subtasksLoading: boolean;
+  remarksLoading: boolean;
+  savingRemark: boolean;
+  projectNoteLoading: boolean;
+}
+
+function TaskDetailDialog({
+  open,
+  onOpenChange,
+  task,
+  itTeam,
+  subtasks,
+  remarks,
+  projectNote,
+  currentUserEmail,
+  onStatusChange,
+  onAssign,
+  onAddSubtask,
+  onToggleSubtask,
+  onDeleteSubtask,
+  onUpdateSubtaskNote,
+  onAddRemark,
+  onDeleteTask,
+  onSaveProjectNote,
+  onFetchSubtasks,
+  onFetchRemarks,
+  subtasksLoading,
+  remarksLoading,
+  savingRemark,
+  projectNoteLoading,
+}: TaskDetailDialogProps) {
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const [newSubtaskTag, setNewSubtaskTag] = useState("");
+  const [newSubtaskAssignee, setNewSubtaskAssignee] = useState("");
+  const [newRemark, setNewRemark] = useState("");
+  const [editingProjectNote, setEditingProjectNote] = useState(false);
+  const [projectNoteContent, setProjectNoteContent] = useState(projectNote?.content || "");
+  const [showRemarksHistory, setShowRemarksHistory] = useState(true);
+  const [showSubtasks, setShowSubtasks] = useState(true);
+  const [editingSubtaskNoteId, setEditingSubtaskNoteId] = useState<string | null>(null);
+  const [subtaskNoteDraft, setSubtaskNoteDraft] = useState("");
+
+  useEffect(() => {
+    if (task) {
+      setProjectNoteContent(projectNote?.content || "");
+      setEditingProjectNote(false);
+      setNewRemark("");
+      setNewSubtaskTitle("");
+      setNewSubtaskTag("");
+      setNewSubtaskAssignee("");
+    }
+  }, [task, projectNote]);
+
+  if (!task) return null;
+
+  const isOverdue = task.due_date && 
+    isBefore(new Date(task.due_date), startOfDay(new Date())) && 
+    task.status !== "completed";
+
+  const priorityColors: Record<string, string> = {
+    urgent: "bg-red-100 text-red-700 border-red-200",
+    high: "bg-orange-100 text-orange-700 border-orange-200",
+    medium: "bg-blue-100 text-blue-700 border-blue-200",
+    low: "bg-gray-100 text-gray-700 border-gray-200"
+  };
+
+  const statusColors: Record<string, string> = {
+    not_started: "bg-gray-100 text-gray-700 border-gray-200",
+    in_progress: "bg-blue-100 text-blue-700 border-blue-200",
+    review: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    completed: "bg-green-100 text-green-700 border-green-200",
+    blocked: "bg-red-100 text-red-700 border-red-200"
+  };
+
+  const statusOptions = [
+    { value: "not_started", label: "Not Started" },
+    { value: "in_progress", label: "In Progress" },
+    { value: "review", label: "Review" },
+    { value: "completed", label: "Completed" },
+    { value: "blocked", label: "Blocked" }
+  ];
+
+  const subtaskTags = [
+    "Design", "Content", "Approval", "Follow-up", "Review",
+    "Blocked", "Urgent", "Research", "Client Input", "Other"
+  ];
+
+  const completedSubtasks = subtasks.filter(s => s.status === "completed").length;
+
+  const handleAddSubtask = () => {
+    if (!newSubtaskTitle.trim()) {
+      toast.error("Please enter subtask title");
+      return;
+    }
+    onAddSubtask(
+      task.id,
+      newSubtaskTitle.trim(),
+      newSubtaskTag,
+      (newSubtaskAssignee && newSubtaskAssignee !== "unassigned") ? newSubtaskAssignee : null
+    );
+    setNewSubtaskTitle("");
+    setNewSubtaskTag("");
+    setNewSubtaskAssignee("");
+  };
+
+  const handleAddRemark = () => {
+    if (!newRemark.trim()) {
+      toast.error("Please enter your update");
+      return;
+    }
+    onAddRemark(task.id, newRemark.trim());
+    setNewRemark("");
+  };
+
+  const handleSaveProjectNote = () => {
+    if (!projectNoteContent.trim()) {
+      toast.error("Please enter project update");
+      return;
+    }
+    onSaveProjectNote(task.project_id, projectNoteContent.trim());
+    setEditingProjectNote(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-6 py-4 border-b shrink-0">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-xl font-bold flex items-center gap-3 flex-wrap">
+                {task.task_name}
+                <Badge 
+                  variant="outline" 
+                  className={`${priorityColors[task.priority] || priorityColors.medium} text-xs`}
+                >
+                  {task.priority?.toUpperCase() || "MEDIUM"}
+                </Badge>
+                {isOverdue && (
+                  <Badge variant="destructive" className="text-xs animate-pulse">
+                    ⚠️ OVERDUE
+                  </Badge>
+                )}
+              </DialogTitle>
+              <div className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                <span>{task.projects?.name}</span>
+                {task.projects?.brand_name && <span>• {task.projects.brand_name}</span>}
+                {(task.assigned_at || task.created_at) && (
+                  <span className="inline-flex items-center gap-1">
+                    • <ClockIcon className="h-3 w-3" />
+                    Assigned: {format(new Date(task.assigned_at || task.created_at!), "dd MMM yyyy, hh:mm a")}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="shrink-0 text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                if (confirm("Are you sure you want to delete this task?")) {
+                  onDeleteTask(task.id);
+                  onOpenChange(false);
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+          <div className="space-y-6">
+            {/* Task Details Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Status</Label>
+                <Select 
+                  value={task.status} 
+                  onValueChange={(v) => onStatusChange(task.id, v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[opt.value]}`}>
+                          {opt.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                  <UserCog className="h-3 w-3" /> Assign To
+                </Label>
+                <Select 
+                  value={task.assigned_to_email || "unassigned"} 
+                  onValueChange={(v) => {
+                    const member = itTeam.find(m => m.email === v);
+                    if (member) {
+                      onAssign(task.id, member.email, member.name);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {itTeam.map(member => (
+                      <SelectItem key={member.id} value={member.email}>
+                        {member.name} ({member.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                  <CalendarIcon className="h-3 w-3" /> Due Date
+                </Label>
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm font-medium ${isOverdue ? "text-red-600" : ""}`}>
+                    {task.due_date ? format(new Date(task.due_date), "dd MMM yyyy") : "No due date"}
+                  </span>
+                  {task.due_date && task.status !== "completed" && (
+                    <Badge variant="outline" className="text-xs">
+                      {differenceInDays(new Date(task.due_date), new Date())} days left
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Description */}
+            {task.description && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Description</Label>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-sm whitespace-pre-wrap">{task.description}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Client Details */}
+            {task.projects && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Client Details
+                </Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-blue-500" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Client</p>
+                      <p className="text-sm font-medium">{task.projects.name}</p>
+                    </div>
+                  </div>
+                  {task.projects.client_phone && (
+                    <div className="flex items-center gap-2">
+                      <PhoneCall className="h-4 w-4 text-blue-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Phone</p>
+                        <p className="text-sm font-medium">{task.projects.client_phone}</p>
+                      </div>
+                    </div>
+                  )}
+                  {task.projects.client_email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-blue-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Email</p>
+                        <p className="text-sm font-medium">{task.projects.client_email}</p>
+                      </div>
+                    </div>
+                  )}
+                  {task.projects.client_address && (
+                    <div className="flex items-center gap-2 col-span-full">
+                      <MapPin className="h-4 w-4 text-blue-500" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Address</p>
+                        <p className="text-sm font-medium">{task.projects.client_address}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* Project Note / Update Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                  <StickyNote className="h-4 w-4" />
+                  Project Update (visible to whole team)
+                </Label>
+                {!editingProjectNote && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-7 text-xs"
+                    onClick={() => setEditingProjectNote(true)}
+                  >
+                    <Edit className="h-3 w-3 mr-1" />
+                    Edit
+                  </Button>
+                )}
+              </div>
+              
+              {projectNoteLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : editingProjectNote ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={projectNoteContent}
+                    onChange={(e) => setProjectNoteContent(e.target.value)}
+                    rows={3}
+                    placeholder="What's happening in this project? Share updates with the team..."
+                    className="text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleSaveProjectNote}>
+                      <Save className="h-3 w-3 mr-1" />
+                      Save
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => {
+                        setEditingProjectNote(false);
+                        setProjectNoteContent(projectNote?.content || "");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                  <p className="text-sm whitespace-pre-wrap">
+                    {projectNote?.content || "No project update yet. Click Edit to add one."}
+                  </p>
+                  {projectNote?.updated_at && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Last updated: {format(new Date(projectNote.updated_at), "dd MMM yyyy, hh:mm a")}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Subtasks Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setShowSubtasks(!showSubtasks)}
+                    className="flex items-center gap-2 hover:opacity-70"
+                  >
+                    <Label className="text-xs text-muted-foreground flex items-center gap-2 cursor-pointer">
+                      <ListChecks className="h-4 w-4" />
+                      Subtasks
+                    </Label>
+                    <Badge variant="outline" className="text-xs">
+                      {completedSubtasks}/{subtasks.length}
+                    </Badge>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${showSubtasks ? "rotate-180" : ""}`} />
+                  </button>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 text-xs"
+                  onClick={() => onFetchSubtasks(task.id)}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Refresh
+                </Button>
+              </div>
+
+              {showSubtasks && (
+                <>
+                  {subtasksLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {subtasks.map((subtask) => (
+                        <div 
+                          key={subtask.id} 
+                          className="border rounded-lg p-2 hover:bg-muted/30 transition-colors space-y-2"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={subtask.status === "completed"}
+                              onChange={() => onToggleSubtask(subtask.id, task.id, subtask.status)}
+                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer shrink-0"
+                            />
+                            <span className={`text-sm flex-1 ${subtask.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
+                              {subtask.title}
+                            </span>
+                            {subtask.tag && (
+                              <Badge variant="outline" className="text-xs bg-violet-50 border-violet-200 text-violet-700">
+                                {subtask.tag}
+                              </Badge>
+                            )}
+                            {subtask.assigned_to_name && (
+                              <span className="text-xs text-indigo-600 flex items-center gap-1">
+                                <UserCheck className="h-3 w-3" />
+                                {subtask.assigned_to_name}
+                              </span>
+                            )}
+                            {subtask.created_at && (
+                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                {format(new Date(subtask.created_at), "dd MMM, hh:mm a")}
+                              </span>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="Add / edit note"
+                              onClick={() => {
+                                setEditingSubtaskNoteId(editingSubtaskNoteId === subtask.id ? null : subtask.id);
+                                setSubtaskNoteDraft(subtask.note || "");
+                              }}
+                            >
+                              <StickyNote className="h-3 w-3 text-amber-600" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                              onClick={() => onDeleteSubtask(subtask.id, task.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {subtask.note && editingSubtaskNoteId !== subtask.id && (
+                            <div className="ml-7 text-xs bg-amber-50 border border-amber-100 rounded-md p-2 text-amber-900 whitespace-pre-wrap">
+                              <span className="font-medium">📝 Note: </span>{subtask.note}
+                            </div>
+                          )}
+                          {editingSubtaskNoteId === subtask.id && (
+                            <div className="ml-7 space-y-2">
+                              <Textarea
+                                value={subtaskNoteDraft}
+                                onChange={(e) => setSubtaskNoteDraft(e.target.value)}
+                                rows={3}
+                                placeholder="Jo jo hua uski history / note yahan likhein..."
+                                className="text-sm"
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    onUpdateSubtaskNote?.(subtask.id, task.id, subtaskNoteDraft.trim());
+                                    setEditingSubtaskNoteId(null);
+                                    setSubtaskNoteDraft("");
+                                  }}
+                                >
+                                  <Save className="h-3 w-3 mr-1" /> Save Note
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setEditingSubtaskNoteId(null);
+                                    setSubtaskNoteDraft("");
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {subtasks.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No subtasks yet. Break down this task below.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Add Subtask Form */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+                    <Input
+                      value={newSubtaskTitle}
+                      onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                      placeholder="Subtask title..."
+                      className="text-sm"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAddSubtask();
+                      }}
+                    />
+                    <Select value={newSubtaskTag} onValueChange={setNewSubtaskTag}>
+                      <SelectTrigger className="text-sm">
+                        <SelectValue placeholder="Tag" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subtaskTags.map(tag => (
+                          <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Select value={newSubtaskAssignee || "unassigned"} onValueChange={setNewSubtaskAssignee}>
+                        <SelectTrigger className="text-sm flex-1">
+                          <SelectValue placeholder="Assign" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {itTeam.map(member => (
+                            <SelectItem key={member.id} value={member.email}>
+                              {member.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" onClick={handleAddSubtask} className="shrink-0">
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Remarks / History Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <button 
+                  onClick={() => setShowRemarksHistory(!showRemarksHistory)}
+                  className="flex items-center gap-2 hover:opacity-70"
+                >
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2 cursor-pointer">
+                    <History className="h-4 w-4" />
+                    Update History
+                  </Label>
+                  <Badge variant="outline" className="text-xs">
+                    {remarks.length}
+                  </Badge>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showRemarksHistory ? "rotate-180" : ""}`} />
+                </button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 text-xs"
+                  onClick={() => onFetchRemarks(task.id)}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Refresh
+                </Button>
+              </div>
+
+              {showRemarksHistory && (
+                <>
+                  {remarksLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-64 overflow-y-auto">
+                      {remarks.map((remark) => (
+                        <div 
+                          key={remark.id} 
+                          className="p-3 bg-muted/30 rounded-lg border border-muted"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm whitespace-pre-wrap flex-1">{remark.remark}</p>
+                            {remark.created_by_email === currentUserEmail && (
+                              <Badge variant="outline" className="text-xs shrink-0">You</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <UserCheck className="h-3 w-3" />
+                              {remark.created_by_name || remark.created_by_email || "Unknown"}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <ClockIcon className="h-3 w-3" />
+                              {format(new Date(remark.created_at), "dd MMM yyyy, hh:mm a")}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {remarks.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          No updates yet. Add your first update below.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Add Remark Form */}
+                  <div className="space-y-2 mt-3">
+                    <Textarea
+                      value={newRemark}
+                      onChange={(e) => setNewRemark(e.target.value)}
+                      rows={2}
+                      placeholder="Add your update/remark... (e.g., Sample sent, waiting for approval)"
+                      className="text-sm"
+                    />
+                    <Button 
+                      onClick={handleAddRemark} 
+                      disabled={savingRemark || !newRemark.trim()}
+                      className="w-full sm:w-auto"
+                    >
+                      {savingRemark ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4 mr-2" />
+                      )}
+                      Add Update
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// TASK ASSIGNMENT PAGE COMPONENT
+// ============================================================
+function TaskAssignmentPage({ 
+  itTeam, 
+  user,
+  onTaskClick 
+}: { 
+  itTeam: ITTeamMember[]; 
+  user: any;
+  onTaskClick?: (task: MyTaskRow) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedMember, setSelectedMember] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+
+  // Fetch all tasks
+  const { data: allTasks = [], isLoading } = useQuery({
+    queryKey: ["all_tasks"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_tasks")
+        .select(`
+          *,
+          projects (
+            name,
+            project_id,
+            brand_name,
+            client_phone,
+            client_email,
+            client_address,
+            current_stage,
+            status,
+            image_url
+          )
+        `)
+        .order("due_date", { ascending: true, nullsLast: true });
+
+      if (error) throw error;
+      return data as unknown as MyTaskRow[];
+    },
+  });
+
+  // Get unique projects for filter
+  const projects = Array.from(
+    new Set(allTasks.map(t => t.projects?.name).filter(Boolean))
+  ) as string[];
+
+  // Filter tasks
+  const filteredTasks = allTasks
+    .filter(task => {
+      if (selectedMember && task.assigned_to_email !== selectedMember) return false;
+      if (statusFilter !== "all" && task.status !== statusFilter) return false;
+      if (priorityFilter !== "all" && task.priority !== priorityFilter) return false;
+      if (projectFilter !== "all" && task.projects?.name !== projectFilter) return false;
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        const matchTask = task.task_name.toLowerCase().includes(q);
+        const matchProject = task.projects?.name.toLowerCase().includes(q);
+        const matchBrand = task.projects?.brand_name?.toLowerCase().includes(q);
+        return matchTask || matchProject || matchBrand;
+      }
+      return true;
+    });
+
+  // Get task counts per team member
+  const memberTaskCounts = itTeam.map(member => ({
+    ...member,
+    total: allTasks.filter(t => t.assigned_to_email === member.email).length,
+    completed: allTasks.filter(t => t.assigned_to_email === member.email && t.status === "completed").length,
+    overdue: allTasks.filter(t => 
+      t.assigned_to_email === member.email && 
+      t.due_date && 
+      isBefore(new Date(t.due_date), startOfDay(new Date())) && 
+      t.status !== "completed"
+    ).length,
+  }));
+
+  const selectedMemberData = itTeam.find(m => m.email === selectedMember);
+
+  // Update assignment
+  const assignTask = async (taskId: string, email: string, name: string) => {
+    try {
+      const payload: Record<string, any> = {
+        assigned_to_email: email || null,
+        assigned_to_name: name || null,
+        assigned_at: email ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      };
+      let { data, error } = await supabase
+        .from("project_tasks")
+        .update(payload)
+        .eq("id", taskId)
+        .select();
+      if (error && String(error.message || "").toLowerCase().includes("assigned_at")) {
+        const retry = await supabase
+          .from("project_tasks")
+          .update({ assigned_to_email: email || null, assigned_to_name: name || null, updated_at: new Date().toISOString() })
+          .eq("id", taskId)
+          .select();
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        toast.error("Update blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
+        return;
+      }
+
+      toast.success(email ? `Task assigned to ${name}` : "Task unassigned");
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to assign task");
+    }
+  };
+
+  // Bulk assign tasks
+  const [bulkAssignDialogOpen, setBulkAssignDialogOpen] = useState(false);
+  const [bulkAssignMember, setBulkAssignMember] = useState("");
+  const [bulkAssignTasks, setBulkAssignTasks] = useState<string[]>([]);
+
+  const handleBulkAssign = async () => {
+    if (!bulkAssignMember || bulkAssignTasks.length === 0) {
+      toast.error("Select a team member and at least one task");
+      return;
+    }
+
+    const member = itTeam.find(m => m.email === bulkAssignMember);
+    if (!member) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("project_tasks")
+        .update({ assigned_to_email: member.email, assigned_to_name: member.name })
+        .in("id", bulkAssignTasks)
+        .select();
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        toast.error("Bulk assign blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
+        return;
+      }
+
+      toast.success(`${data.length} tasks assigned to ${member.name}`);
+      setBulkAssignDialogOpen(false);
+      setBulkAssignTasks([]);
+      setBulkAssignMember("");
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to assign tasks");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard 
+          icon={ClipboardList} 
+          label="Total Tasks" 
+          value={allTasks.length} 
+          color="blue" 
+        />
+        <StatCard 
+          icon={UsersIcon} 
+          label="Team Members" 
+          value={itTeam.length} 
+          color="purple" 
+        />
+        <StatCard 
+          icon={CheckCircle} 
+          label="Completed" 
+          value={allTasks.filter(t => t.status === "completed").length} 
+          color="green" 
+        />
+        <StatCard 
+          icon={AlertTriangle} 
+          label="Overdue" 
+          value={allTasks.filter(t => 
+            t.due_date && 
+            isBefore(new Date(t.due_date), startOfDay(new Date())) && 
+            t.status !== "completed"
+          ).length} 
+          color="red" 
+        />
+      </div>
+
+      {/* Team Member Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {memberTaskCounts.map(member => (
+          <Card 
+            key={member.id}
+            className={`cursor-pointer hover:shadow-md transition-all ${selectedMember === member.email ? "border-primary shadow-md" : ""}`}
+            onClick={() => setSelectedMember(selectedMember === member.email ? null : member.email)}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-10 w-10">
+                  <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{member.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                <div className="text-center">
+                  <p className="text-lg font-bold">{member.total}</p>
+                  <p className="text-[10px] text-muted-foreground">Total</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-bold text-green-600">{member.completed}</p>
+                  <p className="text-[10px] text-muted-foreground">Done</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-bold text-red-600">{member.overdue}</p>
+                  <p className="text-[10px] text-muted-foreground">Overdue</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search tasks..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="not_started">Not Started</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="review">Review</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="blocked">Blocked</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Priority</SelectItem>
+                  <SelectItem value="urgent">🔴 Urgent</SelectItem>
+                  <SelectItem value="high">🟠 High</SelectItem>
+                  <SelectItem value="medium">🟡 Medium</SelectItem>
+                  <SelectItem value="low">🟢 Low</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={projectFilter} onValueChange={setProjectFilter}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="Project" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Projects</SelectItem>
+                  {projects.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setSelectedMember(null);
+                  setSearchTerm("");
+                  setStatusFilter("all");
+                  setPriorityFilter("all");
+                  setProjectFilter("all");
+                }}
+              >
+                <X className="h-4 w-4 mr-1" /> Clear
+              </Button>
+              <Button 
+                size="sm"
+                onClick={() => setBulkAssignDialogOpen(true)}
+                disabled={filteredTasks.length === 0}
+              >
+                <UsersIcon className="h-4 w-4 mr-2" />
+                Bulk Assign
+              </Button>
+            </div>
+          </div>
+          {selectedMemberData && (
+            <div className="mt-2 text-sm text-muted-foreground">
+              Showing tasks for <strong>{selectedMemberData.name}</strong>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-6 px-2 text-xs ml-2"
+                onClick={() => setSelectedMember(null)}
+              >
+                <X className="h-3 w-3 mr-1" /> Clear
+              </Button>
+            </div>
+          )}
+        </CardHeader>
+      </Card>
+
+      {/* Task Table */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8">
+                    <input
+                      type="checkbox"
+                      checked={bulkAssignTasks.length === filteredTasks.length && filteredTasks.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setBulkAssignTasks(filteredTasks.map(t => t.id));
+                        } else {
+                          setBulkAssignTasks([]);
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                  </TableHead>
+                  <TableHead>Task Name</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Assigned To</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Due Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ) : filteredTasks.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      No tasks found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredTasks.map(task => {
+                    const isOverdue = task.due_date && 
+                      isBefore(new Date(task.due_date), startOfDay(new Date())) && 
+                      task.status !== "completed";
+                    return (
+                      <TableRow key={task.id} className="hover:bg-muted/30">
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={bulkAssignTasks.includes(task.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setBulkAssignTasks([...bulkAssignTasks, task.id]);
+                              } else {
+                                setBulkAssignTasks(bulkAssignTasks.filter(id => id !== task.id));
+                              }
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          />
+                        </TableCell>
+                        <TableCell 
+                          className="font-medium cursor-pointer hover:text-primary"
+                          onClick={() => onTaskClick?.(task)}
+                        >
+                          {task.task_name}
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">{task.projects?.name || "—"}</span>
+                          {task.projects?.brand_name && (
+                            <span className="text-xs text-muted-foreground block">{task.projects.brand_name}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={task.assigned_to_email || "unassigned"}
+                            onValueChange={(v) => {
+                              if (v === "unassigned") {
+                                assignTask(task.id, "", "");
+                                setBulkAssignTasks(bulkAssignTasks.filter(id => id !== task.id));
+                                return;
+                              }
+                              const member = itTeam.find(m => m.email === v);
+                              if (member) {
+                                assignTask(task.id, member.email, member.name);
+                                setBulkAssignTasks(bulkAssignTasks.filter(id => id !== task.id));
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-48">
+                              <SelectValue placeholder="Unassigned" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="unassigned">Unassigned</SelectItem>
+                              {itTeam.map(m => (
+                                <SelectItem key={m.id} value={m.email}>
+                                  {m.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`text-xs ${getStatusColor(task.status)}`}>
+                            {task.status?.replace("_", " ").toUpperCase() || "NOT STARTED"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`text-xs ${getPriorityColor(task.priority)}`}>
+                            {task.priority?.toUpperCase() || "MEDIUM"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className={`text-sm ${isOverdue ? "text-red-600 font-medium" : ""}`}>
+                            {task.due_date ? format(new Date(task.due_date), "dd MMM yyyy") : "—"}
+                          </span>
+                          {isOverdue && (
+                            <Badge variant="destructive" className="ml-2 text-[10px]">Overdue</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => onTaskClick?.(task)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Bulk Assign Dialog */}
+      <Dialog open={bulkAssignDialogOpen} onOpenChange={setBulkAssignDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Assign Tasks</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              {bulkAssignTasks.length} tasks selected for assignment
+            </p>
+            <div className="grid gap-2">
+              <Label>Assign to Team Member</Label>
+              <Select value={bulkAssignMember} onValueChange={setBulkAssignMember}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select team member" />
+                </SelectTrigger>
+                <SelectContent>
+                  {itTeam.map(m => (
+                    <SelectItem key={m.id} value={m.email}>
+                      {m.name} ({m.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkAssignDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkAssign} disabled={!bulkAssignMember || bulkAssignTasks.length === 0}>
+              <UsersIcon className="h-4 w-4 mr-2" />
+              Assign {bulkAssignTasks.length} Tasks
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// TASK CALENDAR VIEW COMPONENT (Fixed + Add Task support)
+// ============================================================
+function TaskCalendarView({ 
+  tasks, 
+  onTaskClick,
+  itTeam = [],
+  projects = [],
+  onAddTask,
+}: { 
+  tasks: MyTaskRow[]; 
+  onTaskClick?: (task: MyTaskRow) => void;
+  itTeam?: ITTeamMember[];
+  projects?: Project[];
+  onAddTask?: (data: {
+    task_name: string;
+    due_date: string;
+    priority: string;
+    assigned_to_email?: string | null;
+    assigned_to_name?: string | null;
+    project_id?: string;
+    description?: string;
+  }) => Promise<void> | void;
+}) {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState("medium");
+  const [newTaskAssignee, setNewTaskAssignee] = useState("unassigned");
+  const [newTaskProjectId, setNewTaskProjectId] = useState("");
+  const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const days = eachDayOfInterval({ start: startOfDay(monthStart), end: startOfDay(monthEnd) });
+  const firstDayOfMonth = getDay(monthStart);
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const getTasksForDay = (date: Date) =>
+    tasks.filter(t => t.due_date && isSameDay(new Date(t.due_date), date));
+
+  const selectedDateTasks = selectedDate ? getTasksForDay(selectedDate) : [];
+
+  const previousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
+  const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+  const goToToday = () => {
+    setCurrentMonth(new Date());
+    setSelectedDate(new Date());
+  };
+
+  const openAddTask = () => {
+    if (!selectedDate) {
+      toast.error("Pehle koi date select karein");
+      return;
+    }
+    setNewTaskName("");
+    setNewTaskPriority("medium");
+    setNewTaskAssignee("unassigned");
+    setNewTaskProjectId(projects[0]?.id || "");
+    setNewTaskDescription("");
+    setAddTaskOpen(true);
+  };
+
+  const handleAddTask = async () => {
+    if (!newTaskName.trim()) {
+      toast.error("Task name required hai");
+      return;
+    }
+    if (!selectedDate) return;
+    if (!newTaskProjectId) {
+      toast.error("Project select karein");
+      return;
+    }
+
+    setAdding(true);
+    try {
+      const member = itTeam.find(m => m.email === newTaskAssignee);
+      await onAddTask?.({
+        task_name: newTaskName.trim(),
+        due_date: format(selectedDate, "yyyy-MM-dd"),
+        priority: newTaskPriority,
+        assigned_to_email: (newTaskAssignee && newTaskAssignee !== "unassigned") ? newTaskAssignee : null,
+        assigned_to_name: member?.name || null,
+        project_id: newTaskProjectId,
+        description: newTaskDescription.trim() || undefined,
+      });
+      setAddTaskOpen(false);
+      toast.success("Task calendar se add ho gaya ✓");
+    } catch (e: any) {
+      toast.error(e?.message || "Task add nahi ho paya");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={previousMonth}>
+            <ChevronRight className="h-4 w-4 rotate-180" />
+          </Button>
+          <h2 className="text-xl font-bold min-w-[180px] text-center">
+            {format(currentMonth, "MMMM yyyy")}
+          </h2>
+          <Button variant="outline" size="sm" onClick={nextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={goToToday}>Today</Button>
+        </div>
+
+        <div className="flex items-center gap-3 text-sm flex-wrap">
+          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-red-500" /> Overdue</span>
+          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-yellow-500" /> Today</span>
+          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-blue-500" /> This Week</span>
+          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-green-500" /> Later</span>
+        </div>
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="grid grid-cols-7 gap-1">
+            {dayNames.map(d => (
+              <div key={d} className="text-center text-sm font-medium text-muted-foreground py-2">{d}</div>
+            ))}
+            {Array.from({ length: firstDayOfMonth }).map((_, i) => (
+              <div key={`empty-${i}`} className="h-28 bg-muted/20 rounded-lg" />
+            ))}
+            {days.map(day => {
+              const dayTasks = getTasksForDay(day);
+              const isCurrentDay = isToday(day);
+              const isSelected = selectedDate && isSameDay(day, selectedDate);
+              const hasOverdue = dayTasks.some(t =>
+                t.due_date && isBefore(new Date(t.due_date), startOfDay(new Date())) && t.status !== "completed"
+              );
+
+              let bg = "bg-background";
+              if (hasOverdue) bg = "bg-red-50 border-red-200";
+              else if (isCurrentDay && dayTasks.length) bg = "bg-yellow-50 border-yellow-200";
+              else if (dayTasks.length) bg = "bg-green-50 border-green-200";
+
+              return (
+                <div
+                  key={day.toISOString()}
+                  className={`h-28 p-1 border rounded-lg cursor-pointer hover:shadow-md transition-all ${bg} ${
+                    isSelected ? "ring-2 ring-primary" : ""
+                  } ${isCurrentDay ? "ring-2 ring-primary/40" : ""}`}
+                  onClick={() => setSelectedDate(day)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-medium ${isCurrentDay ? "text-primary" : ""}`}>
+                      {format(day, "d")}
+                    </span>
+                    {dayTasks.length > 0 && (
+                      <Badge variant="outline" className="text-[10px] px-1.5">{dayTasks.length}</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 space-y-0.5 overflow-y-auto max-h-16">
+                    {dayTasks.slice(0, 3).map(task => {
+                      const overdue = task.due_date &&
+                        isBefore(new Date(task.due_date), startOfDay(new Date())) &&
+                        task.status !== "completed";
+                      return (
+                        <div
+                          key={task.id}
+                          className="text-[10px] truncate px-1 py-0.5 rounded cursor-pointer hover:bg-primary/10"
+                          style={{
+                            backgroundColor: overdue ? "#fecaca" :
+                              task.priority === "urgent" ? "#fca5a5" :
+                              task.priority === "high" ? "#fdba74" :
+                              task.priority === "medium" ? "#93c5fd" : "#d1d5db"
+                          }}
+                          onClick={e => { e.stopPropagation(); onTaskClick?.(task); }}
+                        >
+                          {task.task_name}
+                        </div>
+                      );
+                    })}
+                    {dayTasks.length > 3 && (
+                      <div className="text-[10px] text-muted-foreground text-center">
+                        +{dayTasks.length - 3} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Selected Date Panel */}
+      {selectedDate && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <CalendarIcon className="h-5 w-5" />
+                Tasks for {format(selectedDate, "dd MMM yyyy")}
+                <Badge variant="outline">{selectedDateTasks.length}</Badge>
+              </CardTitle>
+              <Button size="sm" onClick={openAddTask}>
+                <Plus className="h-4 w-4 mr-1" /> Add Task
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {selectedDateTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                Is date pe koi task nahi hai. “Add Task” dabao.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {selectedDateTasks.map(task => {
+                  const isOverdue = task.due_date &&
+                    isBefore(new Date(task.due_date), startOfDay(new Date())) &&
+                    task.status !== "completed";
+                  return (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer"
+                      onClick={() => onTaskClick?.(task)}
+                    >
+                      <div>
+                        <p className="font-medium">{task.task_name}</p>
+                        <p className="text-sm text-muted-foreground">{task.projects?.name}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {task.assigned_to_name && (
+                          <span className="text-xs text-indigo-600 flex items-center gap-1">
+                            <UserCheck className="h-3 w-3" /> {task.assigned_to_name}
+                          </span>
+                        )}
+                        <Badge variant="outline" className={`text-xs ${getPriorityColor(task.priority)}`}>
+                          {task.priority?.toUpperCase() || "MEDIUM"}
+                        </Badge>
+                        {isOverdue && <Badge variant="destructive" className="text-xs">Overdue</Badge>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Add Task Dialog */}
+      <Dialog open={addTaskOpen} onOpenChange={setAddTaskOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Add Task — {selectedDate && format(selectedDate, "dd MMM yyyy")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid gap-2">
+              <Label>Task Name *</Label>
+              <Input
+                value={newTaskName}
+                onChange={e => setNewTaskName(e.target.value)}
+                placeholder="Task ka naam..."
+                onKeyDown={e => e.key === "Enter" && handleAddTask()}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Project *</Label>
+              <Select value={newTaskProjectId} onValueChange={setNewTaskProjectId}>
+                <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} {p.brand_name ? `(${p.brand_name})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Priority</Label>
+                <Select value={newTaskPriority} onValueChange={setNewTaskPriority}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">🟢 Low</SelectItem>
+                    <SelectItem value="medium">🟡 Medium</SelectItem>
+                    <SelectItem value="high">🟠 High</SelectItem>
+                    <SelectItem value="urgent">🔴 Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Assign To</Label>
+                <Select value={newTaskAssignee} onValueChange={setNewTaskAssignee}>
+                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {itTeam.map(m => (
+                      <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Description (optional)</Label>
+              <Textarea
+                rows={2}
+                value={newTaskDescription}
+                onChange={e => setNewTaskDescription(e.target.value)}
+                placeholder="Extra details..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddTaskOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddTask} disabled={adding || !newTaskName.trim() || !newTaskProjectId}>
+              {adding ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+              Add Task
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT - Updated with new tabs
 // ============================================================
 export default function Projects() {
   const { user } = useAuth();
@@ -1363,7 +3016,7 @@ export default function Projects() {
   const editProjectImageInputRef = useRef<HTMLInputElement>(null);
 
   // ── Top-level page switcher ──
-  const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat">("projects");
+  const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat" | "task_calendar" | "task_assignment">("projects");
   
   // ── States ──────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -1391,8 +3044,6 @@ export default function Projects() {
   const [agreementDialogOpen, setAgreementDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [manufacturingDialogOpen, setManufacturingDialogOpen] = useState(false);
-  // Branding dialog - commented out
-  // const [brandingDialogOpen, setBrandingDialogOpen] = useState(false);
   const [documentDialogOpen, setDocumentDialogOpen] = useState(false);
   const [communicationDialogOpen, setCommunicationDialogOpen] = useState(false);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
@@ -1410,8 +3061,6 @@ export default function Projects() {
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [manufacturing, setManufacturing] = useState<Manufacturing[]>([]);
-  // Branding items - commented out
-  // const [brandingItems, setBrandingItems] = useState<BrandingItem[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [communications, setCommunications] = useState<Communication[]>([]);
   const [notes, setNotes] = useState<ProjectNote[]>([]);
@@ -1469,7 +3118,32 @@ export default function Projects() {
   const [myTaskStatusFilter, setMyTaskStatusFilter] = useState("all");
   const [myTaskDueFilter, setMyTaskDueFilter] = useState("all");
   const [myTaskClientFilter, setMyTaskClientFilter] = useState("all");
-  const [myTaskRemarksDraft, setMyTaskRemarksDraft] = useState<Record<string, string>>({});
+
+  // ── My Tasks: inline expand + subtasks + project note ──
+  const [expandedMyTaskId, setExpandedMyTaskId] = useState<string | null>(null);
+  const [myTaskSubtasks, setMyTaskSubtasks] = useState<Record<string, TaskSubtask[]>>({});
+  const [myTaskRemarksHistory, setMyTaskRemarksHistory] = useState<Record<string, TaskRemark[]>>({});
+  const [remarksHistoryLoadingFor, setRemarksHistoryLoadingFor] = useState<string | null>(null);
+  const [newRemarkDraft, setNewRemarkDraft] = useState<Record<string, string>>({});
+  const [remarkSavingFor, setRemarkSavingFor] = useState<string | null>(null);
+  const [subtaskLoadingFor, setSubtaskLoadingFor] = useState<string | null>(null);
+  const [newSubtaskDraft, setNewSubtaskDraft] = useState<Record<string, { title: string; tag: string }>>({});
+  const [projectNoteByProject, setProjectNoteByProject] = useState<Record<string, ProjectNote | null>>({});
+  const [projectNoteDraft, setProjectNoteDraft] = useState<Record<string, string>>({});
+  const [projectNoteEditing, setProjectNoteEditing] = useState<Record<string, boolean>>({});
+  const [projectNoteLoadingFor, setProjectNoteLoadingFor] = useState<string | null>(null);
+  const [projectNoteSaving, setProjectNoteSaving] = useState<string | null>(null);
+
+  // ── Task Detail Dialog States ──
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskDetailDialogOpen, setTaskDetailDialogOpen] = useState(false);
+  const [dialogSubtasks, setDialogSubtasks] = useState<Record<string, TaskSubtask[]>>({});
+  const [dialogRemarks, setDialogRemarks] = useState<Record<string, TaskRemark[]>>({});
+  const [dialogSubtasksLoading, setDialogSubtasksLoading] = useState<Record<string, boolean>>({});
+  const [dialogRemarksLoading, setDialogRemarksLoading] = useState<Record<string, boolean>>({});
+  const [dialogSavingRemark, setDialogSavingRemark] = useState<string | null>(null);
+  const [dialogProjectNotes, setDialogProjectNotes] = useState<Record<string, ProjectNote | null>>({});
+  const [dialogProjectNotesLoading, setDialogProjectNotesLoading] = useState<Record<string, boolean>>({});
 
   const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
     queryKey: ["my_tasks", user?.email],
@@ -1481,10 +3155,38 @@ export default function Projects() {
           id, project_id, stage_id, task_name, description, department,
           assigned_to, assigned_to_email, assigned_to_name, assigned_by,
           priority, status, start_date, due_date, completion_date, employee_remarks,
-          projects ( name, project_id, brand_name )
+          created_at, updated_at,
+          projects ( name, project_id, brand_name, client_phone, client_email, client_address, current_stage, status )
         `)
         .eq("assigned_to_email", user?.email)
         .order("due_date", { ascending: true });
+
+      if (error) throw error;
+      return data as unknown as MyTaskRow[];
+    },
+  });
+
+  // ── All Tasks for Calendar and Assignment ──
+  const { data: allTasks = [] } = useQuery({
+    queryKey: ["all_tasks_for_views"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_tasks")
+        .select(`
+          *,
+          projects (
+            name,
+            project_id,
+            brand_name,
+            client_phone,
+            client_email,
+            client_address,
+            current_stage,
+            status,
+            image_url
+          )
+        `)
+        .order("due_date", { ascending: true, nullsLast: true });
 
       if (error) throw error;
       return data as unknown as MyTaskRow[];
@@ -1527,24 +3229,511 @@ export default function Projects() {
       if (error) throw error;
       toast.success("Task updated");
       queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  const saveMyTaskRemarks = async (taskId: string) => {
-    const remarks = myTaskRemarksDraft[taskId];
-    if (remarks === undefined) return;
+  const fetchRemarksHistory = async (taskId: string) => {
+    setRemarksHistoryLoadingFor(taskId);
+    try {
+      const { data, error } = await supabase
+        .from("task_remarks")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setMyTaskRemarksHistory((prev) => ({ ...prev, [taskId]: (data || []) as TaskRemark[] }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load update history");
+    } finally {
+      setRemarksHistoryLoadingFor(null);
+    }
+  };
+
+  const addRemarkToHistory = async (taskId: string) => {
+    const text = (newRemarkDraft[taskId] || "").trim();
+    if (!text) return;
+    setRemarkSavingFor(taskId);
+    try {
+      const { error: insertError } = await supabase.from("task_remarks").insert({
+        task_id: taskId,
+        remark: text,
+        created_by_email: user?.email || null,
+        created_by_name: (user as any)?.name || user?.email || null,
+      });
+      if (insertError) throw insertError;
+
+      await supabase.from("project_tasks").update({ employee_remarks: text }).eq("id", taskId);
+
+      setNewRemarkDraft((prev) => ({ ...prev, [taskId]: "" }));
+      toast.success("Update added");
+      fetchRemarksHistory(taskId);
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add update");
+    } finally {
+      setRemarkSavingFor(null);
+    }
+  };
+
+  // ── Subtasks (per task, stored in task_subtasks table) ──
+  const fetchSubtasksForTask = async (taskId: string) => {
+    setSubtaskLoadingFor(taskId);
+    try {
+      const { data, error } = await supabase
+        .from("task_subtasks")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setMyTaskSubtasks(prev => ({ ...prev, [taskId]: (data || []) as TaskSubtask[] }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load subtasks");
+    } finally {
+      setSubtaskLoadingFor(null);
+    }
+  };
+
+  const addSubtask = async (taskId: string) => {
+    const draft = newSubtaskDraft[taskId];
+    if (!draft || !draft.title?.trim()) {
+      toast.error("Subtask title is required");
+      return;
+    }
+    try {
+      const { error } = await supabase.from("task_subtasks").insert({
+        task_id: taskId,
+        title: draft.title.trim(),
+        tag: draft.tag || null,
+        status: "not_started",
+        assigned_to_email: user?.email || null,
+        assigned_to_name: (user as any)?.name || user?.email || null,
+      });
+      if (error) throw error;
+      setNewSubtaskDraft(prev => ({ ...prev, [taskId]: { title: "", tag: "" } }));
+      toast.success("Subtask added");
+      fetchSubtasksForTask(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add subtask");
+    }
+  };
+
+  const toggleSubtaskStatus = async (subtaskId: string, taskId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
     try {
       const { error } = await supabase
-        .from("project_tasks")
-        .update({ employee_remarks: remarks })
-        .eq("id", taskId);
+        .from("task_subtasks")
+        .update({ status: nextStatus })
+        .eq("id", subtaskId);
       if (error) throw error;
-      toast.success("Update saved");
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      fetchSubtasksForTask(taskId);
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to update subtask");
+    }
+  };
+
+  const deleteSubtask = async (subtaskId: string, taskId: string) => {
+    try {
+      const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
+      if (error) throw error;
+      fetchSubtasksForTask(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete subtask");
+    }
+  };
+
+  // ── Subtasks for project-detail Tasks / Departments views ──
+  const [projectTaskSubtasks, setProjectTaskSubtasks] = useState<Record<string, TaskSubtask[]>>({});
+  const [projectSubtaskLoadingFor, setProjectSubtaskLoadingFor] = useState<string | null>(null);
+
+  const fetchProjectTaskSubtasks = async (taskId: string) => {
+    setProjectSubtaskLoadingFor(taskId);
+    try {
+      const { data, error } = await supabase
+        .from("task_subtasks")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setProjectTaskSubtasks((prev) => ({ ...prev, [taskId]: (data || []) as TaskSubtask[] }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load subtasks");
+    } finally {
+      setProjectSubtaskLoadingFor(null);
+    }
+  };
+
+  const handleExpandProjectTask = (taskId: string) => {
+    if (!projectTaskSubtasks[taskId]) {
+      fetchProjectTaskSubtasks(taskId);
+    }
+  };
+
+  const addProjectTaskSubtask = async (taskId: string, title: string, tag: string) => {
+    try {
+      const { error } = await supabase.from("task_subtasks").insert({
+        task_id: taskId,
+        title,
+        tag: tag || null,
+        status: "not_started",
+        assigned_to_email: user?.email || null,
+        assigned_to_name: (user as any)?.name || user?.email || null,
+      });
+      if (error) throw error;
+      toast.success("Subtask added");
+      fetchProjectTaskSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add subtask");
+    }
+  };
+
+  const toggleProjectTaskSubtask = async (subtaskId: string, taskId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
+    try {
+      const { error } = await supabase.from("task_subtasks").update({ status: nextStatus }).eq("id", subtaskId);
+      if (error) throw error;
+      fetchProjectTaskSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update subtask");
+    }
+  };
+
+  const deleteProjectTaskSubtask = async (subtaskId: string, taskId: string) => {
+    try {
+      const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
+      if (error) throw error;
+      fetchProjectTaskSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete subtask");
+    }
+  };
+
+  // ── Project-wide "what's happening" note ──
+  const fetchProjectTeamNote = async (projectId: string) => {
+    setProjectNoteLoadingFor(projectId);
+    try {
+      const { data, error } = await supabase
+        .from("project_notes")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("note_type", "team_update")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      setProjectNoteByProject(prev => ({ ...prev, [projectId]: (data as ProjectNote) || null }));
+      setProjectNoteDraft(prev => ({ ...prev, [projectId]: data?.content || "" }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load project note");
+    } finally {
+      setProjectNoteLoadingFor(null);
+    }
+  };
+
+  const saveProjectTeamNote = async (projectId: string) => {
+    const content = projectNoteDraft[projectId] || "";
+    setProjectNoteSaving(projectId);
+    try {
+      const existing = projectNoteByProject[projectId];
+      if (existing) {
+        const { error } = await supabase
+          .from("project_notes")
+          .update({ content })
+          .eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("project_notes").insert({
+          project_id: projectId,
+          note_type: "team_update",
+          title: "What's happening in this project",
+          content,
+          created_by: user?.email || null,
+          created_by_email: user?.email || null,
+        });
+        if (error) throw error;
+      }
+      toast.success("Project update saved");
+      setProjectNoteEditing(prev => ({ ...prev, [projectId]: false }));
+      fetchProjectTeamNote(projectId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save project update");
+    } finally {
+      setProjectNoteSaving(null);
+    }
+  };
+
+  const toggleExpandMyTask = (taskId: string, projectId: string) => {
+    if (expandedMyTaskId === taskId) {
+      setExpandedMyTaskId(null);
+      return;
+    }
+    setExpandedMyTaskId(taskId);
+    if (!myTaskSubtasks[taskId]) {
+      fetchSubtasksForTask(taskId);
+    }
+    if (!myTaskRemarksHistory[taskId]) {
+      fetchRemarksHistory(taskId);
+    }
+    if (!(projectId in projectNoteByProject)) {
+      fetchProjectTeamNote(projectId);
+    }
+  };
+
+  // ── TASK DETAIL DIALOG FUNCTIONS ──
+  const fetchDialogSubtasks = async (taskId: string) => {
+    if (dialogSubtasks[taskId]) return;
+    setDialogSubtasksLoading(prev => ({ ...prev, [taskId]: true }));
+    try {
+      const { data, error } = await supabase
+        .from("task_subtasks")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setDialogSubtasks(prev => ({ ...prev, [taskId]: data || [] }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load subtasks");
+    } finally {
+      setDialogSubtasksLoading(prev => ({ ...prev, [taskId]: false }));
+    }
+  };
+
+  const fetchDialogRemarks = async (taskId: string) => {
+    if (dialogRemarks[taskId]) return;
+    setDialogRemarksLoading(prev => ({ ...prev, [taskId]: true }));
+    try {
+      const { data, error } = await supabase
+        .from("task_remarks")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setDialogRemarks(prev => ({ ...prev, [taskId]: data || [] }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load remarks");
+    } finally {
+      setDialogRemarksLoading(prev => ({ ...prev, [taskId]: false }));
+    }
+  };
+
+  const fetchDialogProjectNote = async (projectId: string) => {
+    if (dialogProjectNotes[projectId] !== undefined) return;
+    setDialogProjectNotesLoading(prev => ({ ...prev, [projectId]: true }));
+    try {
+      const { data, error } = await supabase
+        .from("project_notes")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("note_type", "team_update")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      setDialogProjectNotes(prev => ({ ...prev, [projectId]: data || null }));
+    } catch (error: any) {
+      toast.error(error.message || "Failed to load project note");
+    } finally {
+      setDialogProjectNotesLoading(prev => ({ ...prev, [projectId]: false }));
+    }
+  };
+
+  const handleTaskClick = async (task: MyTaskRow) => {
+    setSelectedTaskId(task.id);
+    setTaskDetailDialogOpen(true);
+    await Promise.all([
+      fetchDialogSubtasks(task.id),
+      fetchDialogRemarks(task.id),
+      fetchDialogProjectNote(task.project_id)
+    ]);
+  };
+
+  const handleDialogAddSubtask = async (taskId: string, title: string, tag: string, assigneeEmail: string | null) => {
+    try {
+      const assignee = itTeam.find(m => m.email === assigneeEmail);
+      const { error } = await supabase.from("task_subtasks").insert({
+        task_id: taskId,
+        title,
+        tag: tag || null,
+        status: "not_started",
+        assigned_to_email: assigneeEmail || null,
+        assigned_to_name: assignee?.name || null,
+      });
+      if (error) throw error;
+      toast.success("Subtask added");
+      fetchDialogSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add subtask");
+    }
+  };
+
+  const handleDialogToggleSubtask = async (subtaskId: string, taskId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
+    try {
+      const existing = (dialogSubtasks[taskId] || []).find(s => s.id === subtaskId);
+      const stamp = format(new Date(), "dd MMM yyyy, hh:mm a");
+      const historyLine = `[${stamp}] Status → ${nextStatus === "completed" ? "Completed" : "Not Started"}`;
+      const nextNote = existing?.note
+        ? `${existing.note}\n${historyLine}`
+        : historyLine;
+      const { error } = await supabase
+        .from("task_subtasks")
+        .update({ status: nextStatus, note: nextNote, updated_at: new Date().toISOString() })
+        .eq("id", subtaskId);
+      if (error) {
+        // Fallback without note if column missing
+        const { error: err2 } = await supabase
+          .from("task_subtasks")
+          .update({ status: nextStatus })
+          .eq("id", subtaskId);
+        if (err2) throw err2;
+      }
+      fetchDialogSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update subtask");
+    }
+  };
+
+  const handleDialogDeleteSubtask = async (subtaskId: string, taskId: string) => {
+    try {
+      const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
+      if (error) throw error;
+      toast.success("Subtask deleted");
+      fetchDialogSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete subtask");
+    }
+  };
+
+  const handleDialogUpdateSubtaskNote = async (subtaskId: string, taskId: string, note: string) => {
+    try {
+      const { error } = await supabase
+        .from("task_subtasks")
+        .update({ note: note || null, updated_at: new Date().toISOString() })
+        .eq("id", subtaskId);
+      if (error) throw error;
+      toast.success("Subtask note saved");
+      fetchDialogSubtasks(taskId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save subtask note. Ensure 'note' column exists on task_subtasks.");
+    }
+  };
+
+  const handleDialogAddRemark = async (taskId: string, remark: string) => {
+    setDialogSavingRemark(taskId);
+    try {
+      const { error: insertError } = await supabase.from("task_remarks").insert({
+        task_id: taskId,
+        remark,
+        created_by_email: user?.email || null,
+        created_by_name: (user as any)?.name || user?.email || null,
+      });
+      if (insertError) throw insertError;
+      
+      await supabase.from("project_tasks").update({ employee_remarks: remark }).eq("id", taskId);
+      
+      toast.success("Update added");
+      fetchDialogRemarks(taskId);
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add remark");
+    } finally {
+      setDialogSavingRemark(null);
+    }
+  };
+
+  const handleDialogDeleteTask = async (taskId: string) => {
+    try {
+      const { error } = await supabase.from("project_tasks").delete().eq("id", taskId);
+      if (error) throw error;
+      toast.success("Task deleted");
+      setTaskDetailDialogOpen(false);
+      setSelectedTaskId(null);
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete task");
+    }
+  };
+
+  const handleDialogSaveProjectNote = async (projectId: string, content: string) => {
+    try {
+      const existing = dialogProjectNotes[projectId];
+      if (existing) {
+        const { error } = await supabase
+          .from("project_notes")
+          .update({ content })
+          .eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("project_notes").insert({
+          project_id: projectId,
+          note_type: "team_update",
+          title: "Team Update",
+          content,
+          created_by: user?.email || null,
+          created_by_email: user?.email || null,
+        });
+        if (error) throw error;
+      }
+      toast.success("Project update saved");
+      fetchDialogProjectNote(projectId);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save project note");
+    }
+  };
+
+  const handleDialogAssign = async (taskId: string, email: string, name: string) => {
+    try {
+      const payload: Record<string, any> = {
+        assigned_to_email: email,
+        assigned_to_name: name,
+        assigned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      let { data, error } = await supabase
+        .from("project_tasks")
+        .update(payload)
+        .eq("id", taskId)
+        .select();
+      // Fallback if assigned_at column does not exist yet
+      if (error && String(error.message || "").toLowerCase().includes("assigned_at")) {
+        const retry = await supabase
+          .from("project_tasks")
+          .update({ assigned_to_email: email, assigned_to_name: name, updated_at: new Date().toISOString() })
+          .eq("id", taskId)
+          .select();
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        toast.error("Update blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
+        return;
+      }
+      toast.success(`Assigned to ${name}`);
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to assign task");
+    }
+  };
+
+  const handleDialogStatusChange = async (taskId: string, status: string) => {
+    try {
+      const { error } = await supabase.from("project_tasks").update({ status }).eq("id", taskId);
+      if (error) throw error;
+      toast.success("Status updated");
+      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update status");
     }
   };
 
@@ -1695,14 +3884,12 @@ export default function Projects() {
     start_date: "",
   });
 
-  // ── Document upload with multiple options ──
   const [newDocument, setNewDocument] = useState({
     folder: "",
     file_name: "",
     file: null as File | null,
   });
   
-  // ── Multiple upload states ──
   const [multipleFiles, setMultipleFiles] = useState<File[]>([]);
   const [uploadingMultiple, setUploadingMultiple] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -1715,7 +3902,6 @@ export default function Projects() {
     next_followup: "",
   });
 
-  // ── Notes states ──
   const [noteMode, setNoteMode] = useState<"quick" | "brand_kit" | "client_tracker">("quick");
   const [newNote, setNewNote] = useState({
     title: "",
@@ -1729,14 +3915,12 @@ export default function Projects() {
   const [existingNoteImageUrl, setExistingNoteImageUrl] = useState<string | null>(null);
   const [noteSaving, setNoteSaving] = useState(false);
 
-  // ── Project image states ──
   const [newProjectImageFile, setNewProjectImageFile] = useState<File | null>(null);
   const [newProjectImagePreview, setNewProjectImagePreview] = useState<string | null>(null);
   const [editProjectImageFile, setEditProjectImageFile] = useState<File | null>(null);
   const [editProjectImagePreview, setEditProjectImagePreview] = useState<string | null>(null);
   const [projectSaving, setProjectSaving] = useState(false);
 
-  // ── Dashboard Image Upload Handler ──
   const handleDashboardImageUpload = async (projectId: string, file: File) => {
     setUploadingImage(projectId);
     try {
@@ -1788,7 +3972,6 @@ export default function Projects() {
     }
   };
 
-  // ── Fetch Projects ──
   const { data: allProjects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
@@ -1847,7 +4030,6 @@ export default function Projects() {
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
   const generalNotes = notes.filter(n => n.note_type === "general" || n.note_type === "brand_kit" || n.note_type === "client_tracker");
 
-  // ── Fetch Project Details ──
   const fetchProjectDetails = async (projectId: string) => {
     setLoadingDetail(true);
     try {
@@ -1932,7 +4114,6 @@ export default function Projects() {
     }
   };
 
-  // ── Handle Project Click ──
   const handleProjectClick = (project: Project) => {
     setSelectedProject(project);
     setViewMode("detail");
@@ -1958,7 +4139,6 @@ export default function Projects() {
     setDocNoteContent("");
   };
 
-  // ── Create Project ──
   const [newProject, setNewProject] = useState({
     name: "",
     brand_name: "",
@@ -2093,7 +4273,6 @@ export default function Projects() {
     }
   };
 
-  // ── Update Project ──
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   const handleEditProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2162,7 +4341,6 @@ export default function Projects() {
     }
   };
 
-  // ── Add Stage ──
   const addStage = async () => {
     if (!newStage.stage_name || !selectedProject) {
       toast.error("Stage name is required");
@@ -2194,7 +4372,6 @@ export default function Projects() {
     }
   };
 
-  // ── Update Stage Status ──
   const updateStageStatus = async (stageId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -2213,7 +4390,6 @@ export default function Projects() {
     }
   };
 
-  // ── Add Department ──
   const addDepartment = async () => {
     if (!newDepartment.name || !newDepartment.department_id || !selectedProject) {
       toast.error("Department name and department are required");
@@ -2252,7 +4428,6 @@ export default function Projects() {
     }
   };
 
-  // ── Update Department ──
   const updateDepartment = async () => {
     if (!editingDepartment) return;
     if (!editingDepartment.department_id) {
@@ -2291,7 +4466,6 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Department ──
   const deleteDepartment = async (departmentId: string) => {
     if (!confirm("Delete this department? Its tasks will remain but become unassigned from any department.")) return;
 
@@ -2315,7 +4489,6 @@ export default function Projects() {
     }
   };
 
-  // ── Recompute Department Progress ──
   const recomputeDepartmentProgress = async (departmentId: string) => {
     try {
       const { data: deptTasks, error: deptTasksError } = await supabase
@@ -2337,7 +4510,6 @@ export default function Projects() {
     }
   };
 
-  // ── Update Task Status ──
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -2377,31 +4549,37 @@ export default function Projects() {
         await fetchProjectDetails(selectedProject.id);
         refetch();
       }
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  // ── Assign Task ──
   const assignTask = async (taskId: string, email: string, name: string) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("project_tasks")
         .update({ assigned_to_email: email, assigned_to_name: name })
-        .eq("id", taskId);
+        .eq("id", taskId)
+        .select();
 
       if (error) throw error;
+      if (!data || data.length === 0) {
+        toast.error("Update blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
+        return;
+      }
 
       toast.success(`Task assigned to ${name}`);
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  // ── Add Task ──
   const addTask = async () => {
     if (!newTask.task_name || !selectedProject) {
       toast.error("Task name is required");
@@ -2452,12 +4630,13 @@ export default function Projects() {
         fetchProjectDetails(selectedProject.id);
       }
       queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  // ── Delete Task ──
   const deleteTask = async (taskId: string) => {
     if (!confirm("Delete this task?")) return;
 
@@ -2478,12 +4657,13 @@ export default function Projects() {
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
+      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
     } catch (error: any) {
       toast.error(error.message);
     }
   };
 
-  // ── Update Payment Status ──
   const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
     try {
       const updates: any = { status };
@@ -2510,7 +4690,6 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Payment ──
   const deletePayment = async (paymentId: string) => {
     if (!confirm("Delete this payment record?")) return;
 
@@ -2531,7 +4710,6 @@ export default function Projects() {
     }
   };
 
-  // ── Add Agreement ──
   const [newAgreement, setNewAgreement] = useState({
     title: "",
     agreement_type: "banega_brand",
@@ -2567,7 +4745,6 @@ export default function Projects() {
     }
   };
 
-  // ── Add Payment ──
   const [newPayment, setNewPayment] = useState({
     payment_type: "client",
     milestone: "",
@@ -2607,7 +4784,6 @@ export default function Projects() {
     }
   };
 
-  // ── Add Manufacturing ──
   const addManufacturing = async () => {
     if (!newManufacturing.stage || !selectedProject) {
       toast.error("Stage is required");
@@ -2670,7 +4846,6 @@ export default function Projects() {
     }
   };
 
-  // ── Upload Single Document ──
   const uploadDocument = async () => {
     if (!newDocument.folder || !newDocument.file || !selectedProject) {
       toast.error("Folder and file are required");
@@ -2728,7 +4903,6 @@ export default function Projects() {
     }
   };
 
-  // ── Upload Multiple Files ──
   const uploadMultipleFiles = async () => {
     if (!multipleFiles.length || !selectedProject) {
       toast.error("Please select files to upload");
@@ -2798,7 +4972,6 @@ export default function Projects() {
     }
   };
 
-  // ── Handle Multiple File Selection ──
   const handleMultipleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -2808,12 +4981,10 @@ export default function Projects() {
     toast.success(`${fileArray.length} files selected`);
   };
 
-  // ── Remove file from multiple upload list ──
   const removeFileFromMultiple = (index: number) => {
     setMultipleFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ── Add Communication ──
   const addCommunication = async () => {
     if (!newCommunication.message || !selectedProject) {
       toast.error("Message is required");
@@ -2853,7 +5024,6 @@ export default function Projects() {
     }
   };
 
-  // ── Note dialog helpers ──
   const resetNoteForm = () => {
     setNoteMode("quick");
     setNewNote({ title: "", content: "" });
@@ -2940,7 +5110,6 @@ export default function Projects() {
     return urlData.publicUrl;
   };
 
-  // ── Add Note ──
   const addNote = async () => {
     if (!selectedProject) return;
 
@@ -3001,7 +5170,6 @@ export default function Projects() {
     }
   };
 
-  // ── Update Note ──
   const updateNote = async () => {
     if (!editingNote || !selectedProject) return;
 
@@ -3040,7 +5208,6 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Note ──
   const deleteNote = async (noteId: string) => {
     if (!confirm("Delete this note?")) return;
 
@@ -3061,7 +5228,6 @@ export default function Projects() {
     }
   };
 
-  // ── Save Documentation Note ──
   const saveDocumentationNote = async () => {
     if (!selectedProject) return;
 
@@ -3094,7 +5260,6 @@ export default function Projects() {
     }
   };
 
-  // ── Delete Project ──
   const deleteProject = async (id: string) => {
     if (!confirm("Delete this project? All data will be lost.")) return;
 
@@ -3116,7 +5281,6 @@ export default function Projects() {
     }
   };
 
-  // ── Calculate Payment Summary ──
   const getPaymentSummary = () => {
     const clientPayments = payments.filter(p => p.payment_type === 'client');
     const manufacturerPayments = payments.filter(p => p.payment_type === 'manufacturer');
@@ -3139,10 +5303,6 @@ export default function Projects() {
       grossProfit: received - manufacturerPaid,
     };
   };
-
-  // ════════════════════════════════════════════════════════════
-  // EXCEL IMPORT / EXPORT FUNCTIONS
-  // ════════════════════════════════════════════════════════════
 
   const exportToExcel = () => {
     try {
@@ -3362,6 +5522,24 @@ export default function Projects() {
         )}
       </Button>
       <Button
+        variant={mainView === "task_calendar" ? "default" : "outline"}
+        size="sm"
+        onClick={() => setMainView("task_calendar")}
+      >
+        <CalendarRange className="h-4 w-4 mr-2" />
+        Calendar
+      </Button>
+      {isAdmin && (
+        <Button
+          variant={mainView === "task_assignment" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setMainView("task_assignment")}
+        >
+          <UsersIcon className="h-4 w-4 mr-2" />
+          Assignment
+        </Button>
+      )}
+      <Button
         variant={mainView === "chat" ? "default" : "outline"}
         size="sm"
         onClick={() => setMainView("chat")}
@@ -3378,16 +5556,152 @@ export default function Projects() {
     </div>
   );
 
-  // ════════════════════════════════════════════════════════════
-  // MY TASKS VIEW
-  // ════════════════════════════════════════════════════════════
+  // ── TASK CALENDAR VIEW ──
+  if (mainView === "task_calendar") {
+    const calendarTasks = isAdmin ? allTasks : myTasks;
+    return (
+      <div className="space-y-6">
+        {TopNav}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Task Calendar</h1>
+            <p className="text-muted-foreground text-sm">
+              {isAdmin ? "View all tasks by due date" : "Aapke assigned tasks by due date"}
+            </p>
+          </div>
+        </div>
+        <TaskCalendarView 
+          tasks={calendarTasks} 
+          onTaskClick={handleTaskClick}
+          itTeam={itTeam}
+          projects={projects}
+          onAddTask={async (data) => {
+            const { error } = await supabase.from("project_tasks").insert({
+              project_id: data.project_id,
+              task_name: data.task_name,
+              description: data.description || null,
+              priority: data.priority || "medium",
+              status: "not_started",
+              due_date: data.due_date,
+              assigned_to_email: data.assigned_to_email || null,
+              assigned_to_name: data.assigned_to_name || null,
+              assigned_by: user?.id,
+            });
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+            queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+            queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
+          }}
+        />
+
+        {/* Task Detail Dialog */}
+        <TaskDetailDialog
+          open={taskDetailDialogOpen}
+          onOpenChange={(open) => {
+            setTaskDetailDialogOpen(open);
+            if (!open) setSelectedTaskId(null);
+          }}
+          task={allTasks.find(t => t.id === selectedTaskId) || null}
+          itTeam={itTeam}
+          subtasks={selectedTaskId ? dialogSubtasks[selectedTaskId] || [] : []}
+          remarks={selectedTaskId ? dialogRemarks[selectedTaskId] || [] : []}
+          projectNote={selectedTaskId ? dialogProjectNotes[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || null : null}
+          currentUserEmail={user?.email || ""}
+          onStatusChange={handleDialogStatusChange}
+          onAssign={handleDialogAssign}
+          onAddSubtask={handleDialogAddSubtask}
+          onToggleSubtask={handleDialogToggleSubtask}
+          onDeleteSubtask={handleDialogDeleteSubtask}
+          onUpdateSubtaskNote={handleDialogUpdateSubtaskNote}
+          onAddRemark={handleDialogAddRemark}
+          onDeleteTask={handleDialogDeleteTask}
+          onSaveProjectNote={handleDialogSaveProjectNote}
+          onFetchSubtasks={fetchDialogSubtasks}
+          onFetchRemarks={fetchDialogRemarks}
+          subtasksLoading={selectedTaskId ? dialogSubtasksLoading[selectedTaskId] || false : false}
+          remarksLoading={selectedTaskId ? dialogRemarksLoading[selectedTaskId] || false : false}
+          savingRemark={selectedTaskId ? dialogSavingRemark === selectedTaskId : false}
+          projectNoteLoading={selectedTaskId ? dialogProjectNotesLoading[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || false : false}
+        />
+      </div>
+    );
+  }
+
+  // ── TASK ASSIGNMENT VIEW (Admin only) ──
+  if (mainView === "task_assignment") {
+    if (!isAdmin) {
+      return (
+        <div className="space-y-6">
+          {TopNav}
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Shield className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+              <p className="font-medium">Access restricted</p>
+              <p className="text-sm text-muted-foreground mt-1">Task Assignment dashboard sirf Admin ke liye hai. Aap My Tasks se apne tasks dekh sakte ho.</p>
+              <Button className="mt-4" size="sm" onClick={() => setMainView("my_tasks")}>
+                <ClipboardList className="h-4 w-4 mr-2" /> Go to My Tasks
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6">
+        {TopNav}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Task Assignment</h1>
+          <p className="text-muted-foreground text-sm">Assign and manage tasks across the team</p>
+        </div>
+        <TaskAssignmentPage 
+          itTeam={itTeam} 
+          user={user} 
+          onTaskClick={handleTaskClick}
+        />
+
+        {/* Task Detail Dialog */}
+        <TaskDetailDialog
+          open={taskDetailDialogOpen}
+          onOpenChange={(open) => {
+            setTaskDetailDialogOpen(open);
+            if (!open) setSelectedTaskId(null);
+          }}
+          task={allTasks.find(t => t.id === selectedTaskId) || null}
+          itTeam={itTeam}
+          subtasks={selectedTaskId ? dialogSubtasks[selectedTaskId] || [] : []}
+          remarks={selectedTaskId ? dialogRemarks[selectedTaskId] || [] : []}
+          projectNote={selectedTaskId ? dialogProjectNotes[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || null : null}
+          currentUserEmail={user?.email || ""}
+          onStatusChange={handleDialogStatusChange}
+          onAssign={handleDialogAssign}
+          onAddSubtask={handleDialogAddSubtask}
+          onToggleSubtask={handleDialogToggleSubtask}
+          onDeleteSubtask={handleDialogDeleteSubtask}
+          onUpdateSubtaskNote={handleDialogUpdateSubtaskNote}
+          onAddRemark={handleDialogAddRemark}
+          onDeleteTask={handleDialogDeleteTask}
+          onSaveProjectNote={handleDialogSaveProjectNote}
+          onFetchSubtasks={fetchDialogSubtasks}
+          onFetchRemarks={fetchDialogRemarks}
+          subtasksLoading={selectedTaskId ? dialogSubtasksLoading[selectedTaskId] || false : false}
+          remarksLoading={selectedTaskId ? dialogRemarksLoading[selectedTaskId] || false : false}
+          savingRemark={selectedTaskId ? dialogSavingRemark === selectedTaskId : false}
+          projectNoteLoading={selectedTaskId ? dialogProjectNotesLoading[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || false : false}
+        />
+      </div>
+    );
+  }
+
+  // ── MY TASKS VIEW ──
   if (mainView === "my_tasks") {
+    const selectedTask = myTasks.find(t => t.id === selectedTaskId) || null;
+    
     return (
       <div className="space-y-6">
         {TopNav}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
-          <p className="text-muted-foreground text-sm">Sirf aapko assign kiye gaye tasks yahan dikhte hain</p>
+          <p className="text-muted-foreground text-sm">Your assigned tasks are displayed here</p>
         </div>
 
         {myTasksLoading ? (
@@ -3397,22 +5711,10 @@ export default function Projects() {
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card><CardContent className="p-4 flex items-center justify-between">
-                <div><p className="text-sm text-muted-foreground">Total</p><p className="text-2xl font-bold">{myTaskStats.total}</p></div>
-                <ClipboardList className="h-5 w-5 text-blue-600" />
-              </CardContent></Card>
-              <Card><CardContent className="p-4 flex items-center justify-between">
-                <div><p className="text-sm text-muted-foreground">Pending</p><p className="text-2xl font-bold">{myTaskStats.pending}</p></div>
-                <Clock className="h-5 w-5 text-yellow-600" />
-              </CardContent></Card>
-              <Card><CardContent className="p-4 flex items-center justify-between">
-                <div><p className="text-sm text-muted-foreground">Overdue</p><p className="text-2xl font-bold text-red-600">{myTaskStats.overdue}</p></div>
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              </CardContent></Card>
-              <Card><CardContent className="p-4 flex items-center justify-between">
-                <div><p className="text-sm text-muted-foreground">Completed</p><p className="text-2xl font-bold text-green-600">{myTaskStats.completed}</p></div>
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </CardContent></Card>
+              <StatCard icon={ClipboardList} label="Total" value={myTaskStats.total} color="blue" />
+              <StatCard icon={Clock} label="Pending" value={myTaskStats.pending} color="yellow" />
+              <StatCard icon={AlertTriangle} label="Overdue" value={myTaskStats.overdue} color="red" />
+              <StatCard icon={CheckCircle} label="Completed" value={myTaskStats.completed} color="green" />
             </div>
 
             <Card>
@@ -3483,15 +5785,42 @@ export default function Projects() {
               )}
               {filteredMyTasks.map((task) => {
                 const bucket = getDueBucket(task.due_date);
+                const isExpanded = expandedMyTaskId === task.id;
+                const subtasks = myTaskSubtasks[task.id] || [];
+                const subtasksCompleted = subtasks.filter(s => s.status === "completed").length;
+                const draft = newSubtaskDraft[task.id] || { title: "", tag: "" };
+                const projectNote = task.project_id in projectNoteByProject ? projectNoteByProject[task.project_id] : undefined;
+                const noteDraftVal = projectNoteDraft[task.project_id] ?? "";
+                const isNoteEditing = !!projectNoteEditing[task.project_id];
                 return (
-                  <Card key={task.id} className={bucket === "overdue" && task.status !== "completed" ? "border-red-300" : ""}>
+                  <Card 
+                    key={task.id} 
+                    className={`${bucket === "overdue" && task.status !== "completed" ? "border-red-300" : ""} hover:shadow-md transition-shadow cursor-pointer`}
+                    onClick={() => handleTaskClick(task)}
+                  >
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between flex-wrap gap-2">
                         <div className="flex-1 min-w-[200px]">
                           <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpandMyTask(task.id, task.project_id);
+                              }}
+                              className="shrink-0 text-muted-foreground hover:text-foreground"
+                              title={isExpanded ? "Collapse" : "Expand: client details, project update, subtasks"}
+                            >
+                              <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                            </button>
                             <span className="font-medium">{task.task_name}</span>
                             <PriorityBadge priority={task.priority} />
                             <StatusBadge status={task.status} />
+                            {subtasks.length > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                                ✅ {subtasksCompleted}/{subtasks.length} subtasks
+                              </span>
+                            )}
                             {bucket === "overdue" && task.status !== "completed" && (
                               <Badge variant="destructive" className="text-xs">Overdue</Badge>
                             )}
@@ -3511,31 +5840,186 @@ export default function Projects() {
                             </p>
                           )}
                         </div>
-                        <Select value={task.status} onValueChange={(v) => updateMyTaskStatus(task.id, v)}>
-                          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="not_started">Not Started</SelectItem>
-                            <SelectItem value="in_progress">Processing</SelectItem>
-                            <SelectItem value="review">Review</SelectItem>
-                            <SelectItem value="completed">Done</SelectItem>
-                            <SelectItem value="blocked">Blocked</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs text-muted-foreground mb-1">update / progress note:</p>
-                        <div className="flex gap-2">
-                          <Textarea
-                            rows={2}
-                            defaultValue={task.employee_remarks || ""}
-                            onChange={(e) => setMyTaskRemarksDraft((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                            placeholder="e.g. Sample send client reply..."
-                            className="text-sm"
-                          />
-                          <Button size="sm" onClick={() => saveMyTaskRemarks(task.id)}>Save</Button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {task.employee_remarks && (
+                            <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full border border-blue-200 max-w-xs truncate">
+                              💬 {task.employee_remarks}
+                            </div>
+                          )}
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
                         </div>
                       </div>
+
+                      {isExpanded && (
+                        <div className="mt-4 pt-4 border-t space-y-4" onClick={(e) => e.stopPropagation()}>
+                          <div className="bg-amber-50/50 border border-amber-100 rounded-lg p-3">
+                            <p className="text-xs font-semibold flex items-center gap-1.5 text-amber-800 mb-2">
+                              <Clock className="h-3.5 w-3.5" /> Update / Remark History
+                            </p>
+                            {remarksHistoryLoadingFor === task.id ? (
+                              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
+                            ) : (
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {(myTaskRemarksHistory[task.id] || []).map((r) => (
+                                  <div key={r.id} className="bg-white border rounded-md p-2">
+                                    <p className="text-sm whitespace-pre-wrap">{r.remark}</p>
+                                    <p className="text-[10px] text-muted-foreground mt-1">
+                                      {r.created_by_name || r.created_by_email || "You"} • {format(new Date(r.created_at), "dd MMM yyyy, hh:mm a")}
+                                    </p>
+                                  </div>
+                                ))}
+                                {(myTaskRemarksHistory[task.id] || []).length === 0 && (
+                                  <p className="text-xs text-muted-foreground py-1">No updates yet — add one below.</p>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex gap-2 mt-2">
+                              <Textarea
+                                rows={2}
+                                value={newRemarkDraft[task.id] || ""}
+                                onChange={(e) => setNewRemarkDraft((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                                placeholder="e.g. Sample sent, waiting on client reply..."
+                                className="text-sm bg-white"
+                              />
+                              <Button
+                                size="sm"
+                                disabled={remarkSavingFor === task.id || !(newRemarkDraft[task.id] || "").trim()}
+                                onClick={() => addRemarkToHistory(task.id)}
+                              >
+                                {remarkSavingFor === task.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="bg-muted/30 rounded-lg p-3">
+                            <p className="text-xs font-semibold flex items-center gap-1.5 mb-2">
+                              <Building2 className="h-3.5 w-3.5 text-blue-600" /> Client Dashboard
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                              <p><span className="text-muted-foreground">Client: </span><span className="font-medium">{task.projects?.name || "—"}</span></p>
+                              <p><span className="text-muted-foreground">Brand: </span><span className="font-medium">{task.projects?.brand_name || "—"}</span></p>
+                              {task.projects?.client_phone && (
+                                <p className="flex items-center gap-1"><Phone className="h-3 w-3 text-muted-foreground" /> {task.projects.client_phone}</p>
+                              )}
+                              {task.projects?.client_email && (
+                                <p className="flex items-center gap-1"><Mail className="h-3 w-3 text-muted-foreground" /> {task.projects.client_email}</p>
+                              )}
+                              {task.projects?.client_address && (
+                                <p className="flex items-center gap-1 sm:col-span-2"><MapPin className="h-3 w-3 text-muted-foreground" /> {task.projects.client_address}</p>
+                              )}
+                              {task.projects?.current_stage && (
+                                <p className="sm:col-span-2"><StageBadge stage={task.projects.current_stage} /></p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold flex items-center gap-1.5 text-blue-800">
+                                <StickyNote className="h-3.5 w-3.5" /> What's happening in this project (visible to whole team)
+                              </p>
+                              {!isNoteEditing ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => setProjectNoteEditing(prev => ({ ...prev, [task.project_id]: true }))}
+                                >
+                                  <Edit className="h-3 w-3 mr-1" />Edit
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                  disabled={projectNoteSaving === task.project_id}
+                                  onClick={() => saveProjectTeamNote(task.project_id)}
+                                >
+                                  {projectNoteSaving === task.project_id ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
+                                  Save
+                                </Button>
+                              )}
+                            </div>
+                            {projectNoteLoadingFor === task.project_id ? (
+                              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
+                            ) : isNoteEditing ? (
+                              <Textarea
+                                rows={3}
+                                value={noteDraftVal}
+                                onChange={(e) => setProjectNoteDraft(prev => ({ ...prev, [task.project_id]: e.target.value }))}
+                                placeholder="e.g. Client sample approved, waiting on packaging vendor..."
+                                className="text-sm bg-white"
+                              />
+                            ) : (
+                              <p className="text-sm text-blue-900 whitespace-pre-wrap">
+                                {projectNote?.content || "No update yet — click Edit to add one."}
+                              </p>
+                            )}
+                            {projectNote?.updated_at && !isNoteEditing && (
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                Last updated: {format(new Date(projectNote.updated_at), "dd MMM yyyy, hh:mm a")}
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-semibold flex items-center gap-1.5 mb-2">
+                              <ListChecks className="h-3.5 w-3.5 text-violet-600" /> Subtasks
+                            </p>
+                            {subtaskLoadingFor === task.id ? (
+                              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {subtasks.map((st) => (
+                                  <div key={st.id} className="flex items-center gap-2 border rounded-md px-2 py-1.5 bg-background">
+                                    <input
+                                      type="checkbox"
+                                      checked={st.status === "completed"}
+                                      onChange={() => toggleSubtaskStatus(st.id, task.id, st.status)}
+                                      className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                                    />
+                                    <span className={`text-sm flex-1 ${st.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
+                                      {st.title}
+                                    </span>
+                                    <SubtaskTagBadge tag={st.tag} />
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-5 w-5 text-destructive"
+                                      onClick={() => deleteSubtask(st.id, task.id)}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                ))}
+                                {subtasks.length === 0 && (
+                                  <p className="text-xs text-muted-foreground py-1">No subtasks yet — break this task down below.</p>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex gap-2 mt-2">
+                              <Input
+                                value={draft.title}
+                                onChange={(e) => setNewSubtaskDraft(prev => ({ ...prev, [task.id]: { title: e.target.value, tag: prev[task.id]?.tag || "" } }))}
+                                placeholder="Add a subtask..."
+                                className="h-8 text-sm flex-1"
+                                onKeyDown={(e) => { if (e.key === "Enter") addSubtask(task.id); }}
+                              />
+                              <Select
+                                value={draft.tag}
+                                onValueChange={(v) => setNewSubtaskDraft(prev => ({ ...prev, [task.id]: { title: prev[task.id]?.title || "", tag: v } }))}
+                              >
+                                <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Tag" /></SelectTrigger>
+                                <SelectContent>
+                                  {SUBTASK_TAGS.map(tag => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <Button size="sm" className="h-8" onClick={() => addSubtask(task.id)}>
+                                <Plus className="h-3.5 w-3.5 mr-1" />Add
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );
@@ -3543,20 +6027,47 @@ export default function Projects() {
             </div>
           </>
         )}
+
+        <TaskDetailDialog
+          open={taskDetailDialogOpen}
+          onOpenChange={(open) => {
+            setTaskDetailDialogOpen(open);
+            if (!open) setSelectedTaskId(null);
+          }}
+          task={selectedTask}
+          itTeam={itTeam}
+          subtasks={selectedTaskId ? dialogSubtasks[selectedTaskId] || [] : []}
+          remarks={selectedTaskId ? dialogRemarks[selectedTaskId] || [] : []}
+          projectNote={selectedTask ? dialogProjectNotes[selectedTask.project_id] || null : null}
+          currentUserEmail={user?.email || ""}
+          onStatusChange={handleDialogStatusChange}
+          onAssign={handleDialogAssign}
+          onAddSubtask={handleDialogAddSubtask}
+          onToggleSubtask={handleDialogToggleSubtask}
+          onDeleteSubtask={handleDialogDeleteSubtask}
+          onUpdateSubtaskNote={handleDialogUpdateSubtaskNote}
+          onAddRemark={handleDialogAddRemark}
+          onDeleteTask={handleDialogDeleteTask}
+          onSaveProjectNote={handleDialogSaveProjectNote}
+          onFetchSubtasks={fetchDialogSubtasks}
+          onFetchRemarks={fetchDialogRemarks}
+          subtasksLoading={selectedTaskId ? dialogSubtasksLoading[selectedTaskId] || false : false}
+          remarksLoading={selectedTaskId ? dialogRemarksLoading[selectedTaskId] || false : false}
+          savingRemark={selectedTaskId ? dialogSavingRemark === selectedTaskId : false}
+          projectNoteLoading={selectedTask ? dialogProjectNotesLoading[selectedTask.project_id] || false : false}
+        />
       </div>
     );
   }
 
-  // ════════════════════════════════════════════════════════════
-  // TEAM CHAT VIEW
-  // ════════════════════════════════════════════════════════════
+  // ── TEAM CHAT VIEW ──
   if (mainView === "chat") {
     return (
       <div className="space-y-4">
         {TopNav}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Team Chat</h1>
-          <p className="text-muted-foreground text-sm">IT team ke saath internal messaging</p>
+          <p className="text-muted-foreground text-sm">IT Team Internal Chat</p>
         </div>
 
         <Card>
@@ -3653,9 +6164,7 @@ export default function Projects() {
     );
   }
 
-  // ════════════════════════════════════════════════════════════
-  // DETAIL VIEW
-  // ════════════════════════════════════════════════════════════
+  // ── DETAIL VIEW ──
   if (viewMode === "detail" && selectedProject) {
     const paymentSummary = getPaymentSummary();
     
@@ -3935,7 +6444,20 @@ export default function Projects() {
                       <CardContent>
                         <div className="space-y-3">
                           {deptTasks.map(task => (
-                            <TaskCard key={task.id} task={task} itTeam={itTeam} onStatusChange={updateTaskStatus} onAssign={assignTask} onDelete={deleteTask} />
+                            <TaskCard
+                              key={task.id}
+                              task={task}
+                              itTeam={itTeam}
+                              subtasks={projectTaskSubtasks[task.id] || []}
+                              subtasksLoading={projectSubtaskLoadingFor === task.id}
+                              onStatusChange={updateTaskStatus}
+                              onAssign={assignTask}
+                              onDelete={deleteTask}
+                              onToggleExpand={handleExpandProjectTask}
+                              onAddSubtask={addProjectTaskSubtask}
+                              onToggleSubtask={toggleProjectTaskSubtask}
+                              onDeleteSubtask={deleteProjectTaskSubtask}
+                            />
                           ))}
                           {deptTasks.length === 0 && <p className="text-center text-muted-foreground py-8">No tasks in this department yet</p>}
                         </div>
@@ -4095,7 +6617,20 @@ export default function Projects() {
                 ) : (
                   <div className="space-y-3">
                     {filteredTasks.map(task => (
-                      <TaskCard key={task.id} task={task} itTeam={itTeam} onStatusChange={updateTaskStatus} onAssign={assignTask} onDelete={deleteTask} />
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        itTeam={itTeam}
+                        subtasks={projectTaskSubtasks[task.id] || []}
+                        subtasksLoading={projectSubtaskLoadingFor === task.id}
+                        onStatusChange={updateTaskStatus}
+                        onAssign={assignTask}
+                        onDelete={deleteTask}
+                        onToggleExpand={handleExpandProjectTask}
+                        onAddSubtask={addProjectTaskSubtask}
+                        onToggleSubtask={toggleProjectTaskSubtask}
+                        onDeleteSubtask={deleteProjectTaskSubtask}
+                      />
                     ))}
                     {filteredTasks.length === 0 && <p className="text-center text-muted-foreground py-8">No tasks found</p>}
                   </div>
@@ -4609,7 +7144,6 @@ export default function Projects() {
           </DialogContent>
         </Dialog>
 
-        {/* Payment Dialog with Status and Due Date removed */}
         <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Add Payment</DialogTitle></DialogHeader>
@@ -4618,7 +7152,6 @@ export default function Projects() {
               <div className="grid gap-2"><Label>Milestone *</Label><Input value={newPayment.milestone} onChange={(e) => setNewPayment({ ...newPayment, milestone: e.target.value })} placeholder="e.g., Booking Amount" /></div>
               <div className="grid gap-2"><Label>Amount (₹) *</Label><Input type="number" value={newPayment.amount} onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })} placeholder="Enter amount" /></div>
               <div className="grid gap-2"><Label>Due Date</Label><Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment({ ...newPayment, due_date: e.target.value })} /></div>
-              {/* Status field removed as requested */}
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button><Button onClick={addPayment}>Add Payment</Button></DialogFooter>
           </DialogContent>
@@ -4638,7 +7171,6 @@ export default function Projects() {
           </DialogContent>
         </Dialog>
 
-        {/* UPDATED: Document Upload Dialog with Multiple Upload Options */}
         <Dialog open={documentDialogOpen} onOpenChange={setDocumentDialogOpen}>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -4648,7 +7180,6 @@ export default function Projects() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              {/* Upload Type Selection */}
               <div className="grid gap-2">
                 <Label>Upload Type</Label>
                 <Select 
@@ -4693,7 +7224,6 @@ export default function Projects() {
                 </Select>
               </div>
 
-              {/* Single File Upload */}
               {uploadType === "single" && (
                 <div className="grid gap-2">
                   <Label>File *</Label>
@@ -4752,7 +7282,6 @@ export default function Projects() {
                 </div>
               )}
 
-              {/* Multiple File Upload */}
               {uploadType === "multiple" && (
                 <div className="grid gap-2">
                   <Label>Select Files *</Label>
@@ -5083,9 +7612,7 @@ export default function Projects() {
     );
   }
 
-  // ════════════════════════════════════════════════════════════
-  // DASHBOARD VIEW
-  // ════════════════════════════════════════════════════════════
+  // ── DASHBOARD VIEW ──
   return (
     <div className="space-y-6">
       {TopNav}
