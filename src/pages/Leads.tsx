@@ -1207,6 +1207,9 @@ export default function Leads() {
     }
     
     try {
+      // Auto-assign to the employee who is creating the lead
+      const assign_date = user?.id ? new Date().toISOString() : null;
+
       const { error } = await supabase
         .from("leads")
         .insert({
@@ -1225,19 +1228,21 @@ export default function Leads() {
           sub_stage: form.sub_stage, 
           remark: form.remark,
           temperature: form.temperature,
+          assigned_to: user?.id || null,
+          assign_date,
         });
       
       if (error) throw error;
       
       setForm(emptyForm);
       setDialogOpen(false);
-      toast.success("Lead added successfully");
+      toast.success("Lead added & assigned to you");
       await fetchLeads();
     } catch (error: any) {
       console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
     }
-  }, [form, fetchLeads, emptyForm]);
+  }, [form, fetchLeads, emptyForm, user?.id]);
 
   // ── Bulk Delete Leads ──
   const handleBulkDelete = useCallback(async () => {
