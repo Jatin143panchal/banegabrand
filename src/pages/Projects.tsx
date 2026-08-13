@@ -2699,7 +2699,7 @@ function TaskCalendarView({
   onUpdateDueDate?: (taskId: string, dueDate: string) => Promise<void> | void;
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(() => startOfDay(new Date()));
   const [addTaskOpen, setAddTaskOpen] = useState(false);
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState("medium");
@@ -2710,6 +2710,40 @@ function TaskCalendarView({
   const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null);
   const [dueDateDraft, setDueDateDraft] = useState("");
   const [savingDueDate, setSavingDueDate] = useState(false);
+
+  const startEditDueDate = (task: MyTaskRow, day?: Date) => {
+    if (day) {
+      setSelectedDate(startOfDay(day));
+      setCurrentMonth(day);
+    } else if (task.due_date) {
+      const d = startOfDay(new Date(task.due_date));
+      setSelectedDate(d);
+      setCurrentMonth(d);
+    }
+    setEditingDueDateId(task.id);
+    setDueDateDraft(task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd") : "");
+  };
+
+  const saveDueDate = async (taskId: string) => {
+    if (!dueDateDraft || !onUpdateDueDate) {
+      toast.error("Due date select karein");
+      return;
+    }
+    setSavingDueDate(true);
+    try {
+      await onUpdateDueDate(taskId, dueDateDraft);
+      setEditingDueDateId(null);
+      setDueDateDraft("");
+      const next = startOfDay(new Date(dueDateDraft));
+      setSelectedDate(next);
+      setCurrentMonth(next);
+      toast.success(`Due date → ${format(next, "dd MMM yyyy")} ✓`);
+    } catch (err: any) {
+      toast.error(err?.message || "Due date update fail");
+    } finally {
+      setSavingDueDate(false);
+    }
+  };
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -2799,6 +2833,10 @@ function TaskCalendarView({
         </div>
       </div>
 
+      <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+        💡 <strong className="text-foreground">Due date edit:</strong> Calendar pe kisi task pe click karo — neeche “Edit Due Date” open hoga. Ya date select karke task list se Edit Due Date dabao.
+      </div>
+
       <Card>
         <CardContent className="p-4">
           <div className="grid grid-cols-7 gap-1">
@@ -2845,16 +2883,22 @@ function TaskCalendarView({
                       return (
                         <div
                           key={task.id}
-                          className="text-[10px] truncate px-1 py-0.5 rounded cursor-pointer hover:bg-primary/10"
+                          className="text-[10px] truncate px-1 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-primary flex items-center gap-0.5"
                           style={{
                             backgroundColor: overdue ? "#fecaca" :
                               task.priority === "urgent" ? "#fca5a5" :
                               task.priority === "high" ? "#fdba74" :
                               task.priority === "medium" ? "#93c5fd" : "#d1d5db"
                           }}
-                          onClick={e => { e.stopPropagation(); onTaskClick?.(task); }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            // Open due-date edit panel for this task
+                            startEditDueDate(task, day);
+                          }}
+                          title="Click to edit due date"
                         >
-                          {task.task_name}
+                          <Edit className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                          <span className="truncate">{task.task_name}</span>
                         </div>
                       );
                     })}
@@ -2924,15 +2968,14 @@ function TaskCalendarView({
                           <Button
                             size="sm"
                             variant={isEditingDue ? "default" : "outline"}
-                            className="h-8 text-xs"
+                            className="h-8 text-xs border-primary text-primary"
                             onClick={(e) => {
                               e.stopPropagation();
                               if (isEditingDue) {
                                 setEditingDueDateId(null);
                                 setDueDateDraft("");
                               } else {
-                                setEditingDueDateId(task.id);
-                                setDueDateDraft(task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd") : "");
+                                startEditDueDate(task);
                               }
                             }}
                             title="Due date edit karein"
@@ -2940,16 +2983,28 @@ function TaskCalendarView({
                             <Edit className="h-3 w-3 mr-1" />
                             Edit Due Date
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onTaskClick?.(task);
+                            }}
+                            title="Task detail"
+                          >
+                            <Eye className="h-3 w-3" />
+                          </Button>
                         </div>
                       </div>
                       {isEditingDue && (
                         <div
-                          className="px-3 pb-3 pt-0 border-t bg-muted/40"
+                          className="px-3 pb-3 pt-0 border-t bg-primary/5"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="flex flex-wrap items-end gap-2 pt-3">
                             <div className="grid gap-1">
-                              <Label className="text-xs text-muted-foreground">New Due Date</Label>
+                              <Label className="text-xs font-medium">New Due Date *</Label>
                               <Input
                                 type="date"
                                 value={dueDateDraft}
@@ -2962,31 +3017,14 @@ function TaskCalendarView({
                               size="sm"
                               className="h-9"
                               disabled={savingDueDate || !dueDateDraft}
-                              onClick={async () => {
-                                if (!dueDateDraft || !onUpdateDueDate) return;
-                                setSavingDueDate(true);
-                                try {
-                                  await onUpdateDueDate(task.id, dueDateDraft);
-                                  setEditingDueDateId(null);
-                                  setDueDateDraft("");
-                                  // Move calendar selection to the new date so task stays visible
-                                  const next = startOfDay(new Date(dueDateDraft));
-                                  setSelectedDate(next);
-                                  setCurrentMonth(next);
-                                  toast.success(`Due date → ${format(next, "dd MMM yyyy")} ✓`);
-                                } catch (err: any) {
-                                  toast.error(err?.message || "Due date update fail");
-                                } finally {
-                                  setSavingDueDate(false);
-                                }
-                              }}
+                              onClick={() => saveDueDate(task.id)}
                             >
                               {savingDueDate ? (
                                 <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
                               ) : (
                                 <Save className="h-3.5 w-3.5 mr-1" />
                               )}
-                              Save
+                              Save Due Date
                             </Button>
                             <Button
                               size="sm"
@@ -3001,7 +3039,7 @@ function TaskCalendarView({
                             </Button>
                           </div>
                           <p className="text-[11px] text-muted-foreground mt-2">
-                            Nayi date choose karke Save dabao. Task us date pe shift ho jayega.
+                            Nayi date choose karke <strong>Save Due Date</strong> dabao. Task us date pe shift ho jayega.
                           </p>
                         </div>
                       )}
