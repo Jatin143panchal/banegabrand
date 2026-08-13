@@ -2834,7 +2834,7 @@ function TaskCalendarView({
       </div>
 
       <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-        💡 <strong className="text-foreground">Due date edit:</strong> Calendar pe kisi task pe click karo — neeche “Edit Due Date” open hoga. Ya date select karke task list se Edit Due Date dabao.
+        💡 <strong className="text-foreground">Due date edit:</strong> Calendar  “Edit Due Date” .
       </div>
 
       <Card>
@@ -5930,7 +5930,7 @@ export default function Projects() {
             <div className="space-y-3">
               {tasksToRender.length === 0 && (
                 <Card><CardContent className="p-8 text-center text-muted-foreground">
-                  Koi task nahi mila is filter ke saath
+                  Task
                 </CardContent></Card>
               )}
               {myTaskStatusFilter !== "completed" && activeMyTasks.length > 0 && (
@@ -6354,7 +6354,8 @@ export default function Projects() {
               <div className="md:col-span-2 flex flex-col">
                 {!activeChatMember ? (
                   <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm gap-2">
-                    <MessageSquare className="h-5 w-5" /> Chat karne ke liye kisi team member ko select karein
+                    <MessageSquare className="h-5 w-5" /> 
+                    Text here
                   </div>
                 ) : (
                   <>
