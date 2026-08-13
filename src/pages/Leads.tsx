@@ -147,9 +147,13 @@ function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" |
   if (!nextCallDate) return null;
   const d = startOfDay(new Date(nextCallDate));
   const today = startOfDay(new Date());
-  if (d.getTime() < today.getTime()) return "overdue";
-  if (d.getTime() === today.getTime()) return "today";
-  return "upcoming";
+  const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  // upcoming = future, today = same day, overdue = exactly 1 day past
+  // more than 1 day past → null (leave Follow-ups / Overdue; stay visible by stage only)
+  if (diffDays < 0) return "upcoming";
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "overdue";
+  return null;
 }
 
 function getFollowupBucketConfig(bucket: string | null) {
@@ -325,6 +329,8 @@ function FollowUpSection({
       .filter(l => l.stage !== "converted" && l.stage !== "lost")
       .filter(l => {
         const bucket = getFollowupBucket(l.next_call_date);
+        // more than 1 day past → bucket is null → leave Follow-ups entirely
+        if (!bucket) return false;
         if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
         if (fuDateFrom && new Date(l.next_call_date as string) < new Date(fuDateFrom)) return false;
         if (fuDateTo && new Date(l.next_call_date as string) > new Date(fuDateTo + "T23:59:59")) return false;
@@ -334,7 +340,11 @@ function FollowUpSection({
   }, [leads, bucketFilter, fuDateFrom, fuDateTo]);
 
   const counts = useMemo(() => {
-    const base = leads.filter(l => !!l.next_call_date && l.stage !== "converted" && l.stage !== "lost");
+    // only count leads that still belong to a follow-up bucket (null = >1 day past → excluded)
+    const base = leads.filter(l => {
+      if (!l.next_call_date || l.stage === "converted" || l.stage === "lost") return false;
+      return !!getFollowupBucket(l.next_call_date);
+    });
     return {
       overdue: base.filter(l => getFollowupBucket(l.next_call_date) === "overdue").length,
       today: base.filter(l => getFollowupBucket(l.next_call_date) === "today").length,
