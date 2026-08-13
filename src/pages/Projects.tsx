@@ -2681,6 +2681,7 @@ function TaskCalendarView({
   itTeam = [],
   projects = [],
   onAddTask,
+  onUpdateDueDate,
 }: { 
   tasks: MyTaskRow[]; 
   onTaskClick?: (task: MyTaskRow) => void;
@@ -2695,6 +2696,7 @@ function TaskCalendarView({
     project_id?: string;
     description?: string;
   }) => Promise<void> | void;
+  onUpdateDueDate?: (taskId: string, dueDate: string) => Promise<void> | void;
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -2705,6 +2707,9 @@ function TaskCalendarView({
   const [newTaskProjectId, setNewTaskProjectId] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null);
+  const [dueDateDraft, setDueDateDraft] = useState("");
+  const [savingDueDate, setSavingDueDate] = useState(false);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -2892,27 +2897,114 @@ function TaskCalendarView({
                   const isOverdue = task.due_date &&
                     isBefore(new Date(task.due_date), startOfDay(new Date())) &&
                     task.status !== "completed";
+                  const isEditingDue = editingDueDateId === task.id;
                   return (
                     <div
                       key={task.id}
-                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer"
-                      onClick={() => onTaskClick?.(task)}
+                      className="border rounded-lg hover:bg-muted/30 overflow-hidden"
                     >
-                      <div>
-                        <p className="font-medium">{task.task_name}</p>
-                        <p className="text-sm text-muted-foreground">{task.projects?.name}</p>
+                      <div className="flex items-center justify-between gap-3 p-3">
+                        <div
+                          className="flex-1 min-w-0 cursor-pointer"
+                          onClick={() => onTaskClick?.(task)}
+                        >
+                          <p className="font-medium">{task.task_name}</p>
+                          <p className="text-sm text-muted-foreground">{task.projects?.name}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap shrink-0">
+                          {task.assigned_to_name && (
+                            <span className="text-xs text-indigo-600 flex items-center gap-1">
+                              <UserCheck className="h-3 w-3" /> {task.assigned_to_name}
+                            </span>
+                          )}
+                          <Badge variant="outline" className={`text-xs ${getPriorityColor(task.priority)}`}>
+                            {task.priority?.toUpperCase() || "MEDIUM"}
+                          </Badge>
+                          {isOverdue && <Badge variant="destructive" className="text-xs">Overdue</Badge>}
+                          <Button
+                            size="sm"
+                            variant={isEditingDue ? "default" : "outline"}
+                            className="h-8 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isEditingDue) {
+                                setEditingDueDateId(null);
+                                setDueDateDraft("");
+                              } else {
+                                setEditingDueDateId(task.id);
+                                setDueDateDraft(task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd") : "");
+                              }
+                            }}
+                            title="Due date edit karein"
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Edit Due Date
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {task.assigned_to_name && (
-                          <span className="text-xs text-indigo-600 flex items-center gap-1">
-                            <UserCheck className="h-3 w-3" /> {task.assigned_to_name}
-                          </span>
-                        )}
-                        <Badge variant="outline" className={`text-xs ${getPriorityColor(task.priority)}`}>
-                          {task.priority?.toUpperCase() || "MEDIUM"}
-                        </Badge>
-                        {isOverdue && <Badge variant="destructive" className="text-xs">Overdue</Badge>}
-                      </div>
+                      {isEditingDue && (
+                        <div
+                          className="px-3 pb-3 pt-0 border-t bg-muted/40"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex flex-wrap items-end gap-2 pt-3">
+                            <div className="grid gap-1">
+                              <Label className="text-xs text-muted-foreground">New Due Date</Label>
+                              <Input
+                                type="date"
+                                value={dueDateDraft}
+                                onChange={(e) => setDueDateDraft(e.target.value)}
+                                className="h-9 w-44 text-sm"
+                                autoFocus
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              className="h-9"
+                              disabled={savingDueDate || !dueDateDraft}
+                              onClick={async () => {
+                                if (!dueDateDraft || !onUpdateDueDate) return;
+                                setSavingDueDate(true);
+                                try {
+                                  await onUpdateDueDate(task.id, dueDateDraft);
+                                  setEditingDueDateId(null);
+                                  setDueDateDraft("");
+                                  // Move calendar selection to the new date so task stays visible
+                                  const next = startOfDay(new Date(dueDateDraft));
+                                  setSelectedDate(next);
+                                  setCurrentMonth(next);
+                                  toast.success(`Due date → ${format(next, "dd MMM yyyy")} ✓`);
+                                } catch (err: any) {
+                                  toast.error(err?.message || "Due date update fail");
+                                } finally {
+                                  setSavingDueDate(false);
+                                }
+                              }}
+                            >
+                              {savingDueDate ? (
+                                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              ) : (
+                                <Save className="h-3.5 w-3.5 mr-1" />
+                              )}
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9"
+                              onClick={() => {
+                                setEditingDueDateId(null);
+                                setDueDateDraft("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-2">
+                            Nayi date choose karke Save dabao. Task us date pe shift ho jayega.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3023,7 +3115,7 @@ export default function Projects() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [sortBy, setSortBy] = useState<"date_asc" | "date_desc" | "priority">("date_asc");
+  const [sortBy, setSortBy] = useState<"date_asc" | "date_desc" | "priority">("priority");
   const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
@@ -5592,6 +5684,16 @@ export default function Projects() {
             queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
             queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
           }}
+          onUpdateDueDate={async (taskId, dueDate) => {
+            const { error } = await supabase
+              .from("project_tasks")
+              .update({ due_date: dueDate, updated_at: new Date().toISOString() })
+              .eq("id", taskId);
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+            queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+            queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
+          }}
         />
 
         {/* Task Detail Dialog */}
@@ -5777,13 +5879,30 @@ export default function Projects() {
               </CardHeader>
             </Card>
 
+            {(() => {
+              const activeMyTasks = filteredMyTasks.filter(t => t.status !== "completed");
+              const completedMyTasks = filteredMyTasks.filter(t => t.status === "completed");
+              const tasksToRender =
+                myTaskStatusFilter === "completed"
+                  ? completedMyTasks
+                  : myTaskStatusFilter === "all"
+                    ? [...activeMyTasks, ...completedMyTasks]
+                    : activeMyTasks;
+              return (
             <div className="space-y-3">
-              {filteredMyTasks.length === 0 && (
+              {tasksToRender.length === 0 && (
                 <Card><CardContent className="p-8 text-center text-muted-foreground">
                   Koi task nahi mila is filter ke saath
                 </CardContent></Card>
               )}
-              {filteredMyTasks.map((task) => {
+              {myTaskStatusFilter !== "completed" && activeMyTasks.length > 0 && (
+                <div className="flex items-center gap-2 pt-1">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-semibold">Active Tasks</h3>
+                  <Badge variant="outline" className="text-xs">{activeMyTasks.length}</Badge>
+                </div>
+              )}
+              {(myTaskStatusFilter === "completed" ? [] : activeMyTasks).map((task) => {
                 const bucket = getDueBucket(task.due_date);
                 const isExpanded = expandedMyTaskId === task.id;
                 const subtasks = myTaskSubtasks[task.id] || [];
@@ -6024,7 +6143,101 @@ export default function Projects() {
                   </Card>
                 );
               })}
+
+              {(myTaskStatusFilter === "all" || myTaskStatusFilter === "completed") && completedMyTasks.length > 0 && (
+                <>
+                  <div className="flex items-center gap-2 pt-4">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <h3 className="text-sm font-semibold">Completed Tasks</h3>
+                    <Badge variant="outline" className="text-xs">{completedMyTasks.length}</Badge>
+                  </div>
+                  {completedMyTasks.map((task) => {
+                    const bucket = getDueBucket(task.due_date);
+                    const isExpanded = expandedMyTaskId === task.id;
+                    const subtasks = myTaskSubtasks[task.id] || [];
+                    const subtasksCompleted = subtasks.filter(s => s.status === "completed").length;
+                    const draft = newSubtaskDraft[task.id] || { title: "", tag: "" };
+                    const projectNote = task.project_id in projectNoteByProject ? projectNoteByProject[task.project_id] : undefined;
+                    const noteDraftVal = projectNoteDraft[task.project_id] ?? "";
+                    const isNoteEditing = !!projectNoteEditing[task.project_id];
+                    return (
+                      <Card
+                        key={task.id}
+                        className="bg-muted/20 hover:shadow-md transition-shadow cursor-pointer opacity-90"
+                        onClick={() => handleTaskClick(task)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between flex-wrap gap-2">
+                            <div className="flex-1 min-w-[200px]">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpandMyTask(task.id, task.project_id);
+                                  }}
+                                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                                  title={isExpanded ? "Collapse" : "Expand"}
+                                >
+                                  <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                                <span className="font-medium line-through text-muted-foreground">{task.task_name}</span>
+                                <PriorityBadge priority={task.priority} />
+                                <StatusBadge status={task.status} />
+                                {subtasks.length > 0 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                                    ✅ {subtasksCompleted}/{subtasks.length} subtasks
+                                  </span>
+                                )}
+                              </div>
+                              {task.projects && (
+                                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                  <Building2 className="h-3 w-3" /> {task.projects.name}
+                                  {task.projects.brand_name ? ` • ${task.projects.brand_name}` : ""}
+                                </p>
+                              )}
+                              {task.due_date && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}
+                                </p>
+                              )}
+                            </div>
+                            <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
+                          </div>
+                          {isExpanded && (
+                            <div className="mt-3 pt-3 border-t space-y-3" onClick={(e) => e.stopPropagation()}>
+                              <p className="text-xs text-muted-foreground">
+                                Task complete ho chuka hai. Detail dekhne ke liye card pe click karein.
+                              </p>
+                              {task.description && (
+                                <p className="text-sm text-muted-foreground">{task.description}</p>
+                              )}
+                              {subtasks.length > 0 && (
+                                <div className="space-y-1">
+                                  <p className="text-xs font-semibold flex items-center gap-1">
+                                    <ListChecks className="h-3.5 w-3.5" /> Subtasks
+                                  </p>
+                                  {subtasks.map((st) => (
+                                    <div key={st.id} className="text-sm flex items-center gap-2">
+                                      <CheckCircle className="h-3 w-3 text-green-600" />
+                                      <span className={st.status === "completed" ? "line-through text-muted-foreground" : ""}>
+                                        {st.title}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </>
+              )}
             </div>
+              );
+            })()}
           </>
         )}
 
@@ -7726,7 +7939,7 @@ export default function Projects() {
               <SelectTrigger className="w-48"><SelectValue placeholder="Sort by" /></SelectTrigger>
               <SelectContent><SelectItem value="date_asc">🚀 Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">🚀 Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("date_asc"); }}>
+            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("priority"); }}>
               <X className="h-4 w-4 mr-1" />Clear
             </Button>
           </div>
