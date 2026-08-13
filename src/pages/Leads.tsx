@@ -649,7 +649,7 @@ export default function Leads() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
-  const [showAllLeads, setShowAllLeads] = useState(false);
+  const [showAllLeads, setShowAllLeads] = useState(true); // default: full list (PG/VMS/DP included)
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkStageDialogOpen, setBulkStageDialogOpen] = useState(false);
 
@@ -664,7 +664,8 @@ export default function Leads() {
     return () => clearTimeout(timeoutId);
   }, [searchInput]);
 
-  // ── Fetch leads function with role-based filtering ──
+  // ── Fetch leads — PAGINATED (Supabase default max = 1000 rows per request) ──
+  // Without pagination admin only got ~1000 newest leads → PG/VMS looked "missing"
   const fetchLeads = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -680,31 +681,60 @@ export default function Leads() {
         console.error("❌ Profile fetch error:", profileError);
       }
       
-      const isAdmin = profile?.role === "admin";
-      console.log("👑 Is Admin:", isAdmin);
+      // admin OR canAssign → full access (role string miss hone par bhi)
+      const isAdmin = profile?.role === "admin" || !!canAssign;
+      console.log("👑 Is Admin:", isAdmin, "| role:", profile?.role, "| canAssign:", canAssign);
       
-      let query = supabase
-        .from("leads")
-        .select("*")
-        .order("created_at", { ascending: false });
-      
-      if (!isAdmin && user?.id) {
-        console.log("🔍 Filtering by assigned_to:", user.id);
-        query = query.eq("assigned_to", user.id);
-      } else {
-        console.log("👑 Admin - fetching all leads");
+      const PAGE_SIZE = 1000; // Supabase API default max rows
+      let allRows: DbLead[] = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let query = supabase
+          .from("leads")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (!isAdmin && user?.id) {
+          query = query.eq("assigned_to", user.id);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error("❌ Supabase error:", error);
+          throw error;
+        }
+
+        const batch = (data as DbLead[]) || [];
+        allRows = allRows.concat(batch);
+        console.log(`📦 Batch ${from / PAGE_SIZE + 1}: ${batch.length} rows (total so far: ${allRows.length})`);
+
+        if (batch.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
       }
+
+      // Normalize stage "New" → "new" + DEDUPE by id (pagination/realtime can cause duplicates)
+      const seen = new Set<string>();
+      allRows = allRows
+        .map(l => ({
+          ...l,
+          stage: l.stage === "New" ? "new" : l.stage,
+        }))
+        .filter(l => {
+          if (!l.id || seen.has(l.id)) return false;
+          seen.add(l.id);
+          return true;
+        });
       
-      const { data, error } = await query;
-      
-      if (error) {
-        console.error("❌ Supabase error:", error);
-        throw error;
-      }
-      
-      console.log("✅ Fetched leads:", data?.length || 0);
-      setLeads(data as DbLead[] || []);
-      return data;
+      console.log("✅ Fetched leads TOTAL (deduped):", allRows.length);
+      setLeads(allRows);
+      return allRows;
     } catch (error) {
       console.error("❌ Error fetching leads:", error);
       toast.error("Failed to fetch leads");
@@ -712,7 +742,7 @@ export default function Leads() {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, canAssign]);
 
   // ── Initial fetch ──
   useEffect(() => {
@@ -737,7 +767,7 @@ export default function Leads() {
           .eq("user_id", user.id)
           .single();
         
-        const isAdmin = profile?.role === "admin";
+        const isAdmin = profile?.role === "admin" || !!canAssign;
         
         subscription = supabase
           .channel('leads-changes')
@@ -752,7 +782,7 @@ export default function Leads() {
               if (!isMounted) return;
               
               if (!isAdmin && user?.id) {
-                const lead = payload.new as DbLead;
+                const lead = (payload.new || payload.old) as DbLead;
                 if (lead && lead.assigned_to !== user.id) {
                   console.log("⏭️ Ignoring update for other employee's lead");
                   return;
@@ -761,13 +791,17 @@ export default function Leads() {
               
               setLeads(prev => {
                 switch (payload.eventType) {
-                  case 'INSERT':
-                    if (prev.some(l => l.id === (payload.new as DbLead).id)) return prev;
-                    return [payload.new as DbLead, ...prev];
-                  case 'UPDATE':
-                    return prev.map(l => 
-                      l.id === payload.new.id ? payload.new as DbLead : l
-                    );
+                  case 'INSERT': {
+                    const row = payload.new as DbLead;
+                    if (prev.some(l => l.id === row.id)) return prev;
+                    const normalized = { ...row, stage: row.stage === "New" ? "new" : row.stage };
+                    return [normalized, ...prev];
+                  }
+                  case 'UPDATE': {
+                    const row = payload.new as DbLead;
+                    const normalized = { ...row, stage: row.stage === "New" ? "new" : row.stage };
+                    return prev.map(l => l.id === normalized.id ? normalized : l);
+                  }
                   case 'DELETE':
                     return prev.filter(l => l.id !== payload.old.id);
                   default:
@@ -791,7 +825,7 @@ export default function Leads() {
         supabase.removeChannel(subscription);
       }
     };
-  }, [user?.id]);
+  }, [user?.id, canAssign]);
 
   const [filterStatus, setFilterStatus]     = useState("all");
   const [filterStage, setFilterStage]       = useState("all");
@@ -852,7 +886,7 @@ export default function Leads() {
         .select("role")
         .eq("user_id", user?.id)
         .single();
-      const isAdmin = profile?.role === "admin";
+      const isAdmin = profile?.role === "admin" || !!canAssign;
 
       let query = supabase.from("leads").select("*", { count: "exact", head: true });
       if (!isAdmin && user?.id) {
@@ -866,7 +900,7 @@ export default function Leads() {
     } catch (error) {
       console.error("Live count fetch error:", error);
     }
-  }, [user?.id]);
+  }, [user?.id, canAssign]);
 
   useEffect(() => {
     fetchLiveTotalCount();
@@ -1333,26 +1367,45 @@ export default function Leads() {
       filterPreset, employeeFilter, user, filterPresetOptions]);
 
   // ── Dashboard focus ──
+  // showAllLeads=false → only Today + Follow-ups (any active stage incl. PG/VMS/DP/ringing)
   const dashboardLeads = useMemo(() => {
+    let base: DbLead[];
     switch (statsFilter) {
       case "today":
-        return filtered.filter(l => isToday(new Date(l.created_at)));
+        base = filtered.filter(l => isToday(new Date(l.created_at)));
+        break;
       case "followup":
-        return filtered.filter(l => {
+        base = filtered.filter(l => {
           const b = getFollowupBucket(l.next_call_date);
-          return b === "overdue" || b === "today" || b === "upcoming";
+          return (b === "overdue" || b === "today" || b === "upcoming") &&
+            l.stage !== "converted" && l.stage !== "lost";
         });
+        break;
       case "hot":
       case "warm":
       case "cold":
-        return filtered.filter(l => l.temperature === statsFilter);
+        base = filtered.filter(l => l.temperature === statsFilter);
+        break;
       case "converted":
-        return filtered.filter(l => l.stage === "converted");
+        base = filtered.filter(l => l.stage === "converted");
+        break;
       case "all":
       default:
-        return filtered;
+        base = filtered;
+        break;
     }
-  }, [filtered, statsFilter]);
+
+    if (!showAllLeads && statsFilter === "all") {
+      return base.filter(l => {
+        const isTodayLead = isToday(new Date(l.created_at));
+        const bucket = getFollowupBucket(l.next_call_date);
+        const isActiveFollowup =
+          !!bucket && l.stage !== "converted" && l.stage !== "lost";
+        return isTodayLead || isActiveFollowup;
+      });
+    }
+    return base;
+  }, [filtered, statsFilter, showAllLeads]);
 
   // ── Pagination ──
   const totalPages = Math.ceil(dashboardLeads.length / itemsPerPage);
