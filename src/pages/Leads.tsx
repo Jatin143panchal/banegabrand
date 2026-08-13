@@ -1149,8 +1149,15 @@ export default function Leads() {
 
   const getProfileName = useCallback((userId: string | null) => {
     if (!userId) return "Unassigned";
-    const p = (profiles as { user_id: string; display_name: string | null }[]).find(p => p.user_id === userId);
-    return p?.display_name || "Unknown";
+    const p = (profiles as {
+      user_id: string;
+      display_name: string | null;
+      email?: string | null;
+    }[]).find((p) => p.user_id === userId);
+    if (!p) return "Unknown"; // profile not in list (often RLS blocking select)
+    if (p.display_name?.trim()) return p.display_name.trim();
+    if (p.email?.trim()) return p.email.trim();
+    return "Unnamed User";
   }, [profiles]);
 
   // ── UPDATE STAGE ──
@@ -1207,6 +1214,9 @@ export default function Leads() {
     }
     
     try {
+      // Auto-assign to the logged-in user who is creating the lead
+      const assign_date = user?.id ? new Date().toISOString() : null;
+
       const { error } = await supabase
         .from("leads")
         .insert({
@@ -1225,19 +1235,21 @@ export default function Leads() {
           sub_stage: form.sub_stage, 
           remark: form.remark,
           temperature: form.temperature,
+          assigned_to: user?.id || null,
+          assign_date,
         });
       
       if (error) throw error;
       
       setForm(emptyForm);
       setDialogOpen(false);
-      toast.success("Lead added successfully");
+      toast.success("Lead added & assigned to you");
       await fetchLeads();
     } catch (error: any) {
       console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
     }
-  }, [form, fetchLeads, emptyForm]);
+  }, [form, fetchLeads, emptyForm, user?.id]);
 
   // ── Bulk Delete Leads ──
   const handleBulkDelete = useCallback(async () => {
