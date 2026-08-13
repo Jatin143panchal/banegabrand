@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { useAllProfiles, useCanAssignTasks, useIsOwnerOrAdmin, useIsManager } fr
 import { useAuth } from "@/contexts/AuthContext";
 import { useBulkAssignLeads } from "@/hooks/useLeadComments";
 import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Phone, Calendar, Sparkles, UserCheck, Clock, Loader2,
@@ -33,32 +33,32 @@ import {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const LEAD_STAGES = [
-  { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },
-  { value: "ringing",   label: "Ringing",   color: "#f97316", bg: "#fff7ed", icon: "📞" },
-  { value: "callback",  label: "Callback",  color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
-  { value: "dp",        label: "DP",        color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
-  { value: "vms",       label: "VMS",       color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
-  { value: "pg",        label: "PG",        color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
+  { value: "new", label: "New", color: "#3b82f6", bg: "#eff6ff", icon: "✨" },
+  { value: "ringing", label: "Ringing", color: "#f97316", bg: "#fff7ed", icon: "📞" },
+  { value: "callback", label: "Callback", color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
+  { value: "dp", label: "DP", color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
+  { value: "vms", label: "VMS", color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
+  { value: "pg", label: "PG", color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
   { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
-  { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
+  { value: "lost", label: "Lost", color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
 
 const LEAD_STATUSES = [
-  { value: "Ringing",            label: "Ringing"           },
-  { value: "Callback",           label: "Callback"          },
-  { value: "DP",                 label: "DP"                },
-  { value: "VMS",                label: "VMS"               },
-  { value: "PG",                 label: "PG"                },
-  { value: "Converted",          label: "Converted"         },
-  { value: "Lost",               label: "Lost"              },
-  { value: "Meeting Booked",     label: "Meeting Booked"    },
+  { value: "Ringing", label: "Ringing" },
+  { value: "Callback", label: "Callback" },
+  { value: "DP", label: "DP" },
+  { value: "VMS", label: "VMS" },
+  { value: "PG", label: "PG" },
+  { value: "Converted", label: "Converted" },
+  { value: "Lost", label: "Lost" },
+  { value: "Meeting Booked", label: "Meeting Booked" },
   { value: "Business Generated", label: "Business Generated"},
 ];
 
 const LEAD_TEMPERATURE = [
-  { value: "hot",   label: "Hot",   color: "#ef4444", bg: "#fef2f2", icon: "🔥" },
-  { value: "warm",  label: "Warm",  color: "#f97316", bg: "#fff7ed", icon: "☀️" },
-  { value: "cold",  label: "Cold",  color: "#3b82f6", bg: "#eff6ff", icon: "❄️" },
+  { value: "hot", label: "Hot", color: "#ef4444", bg: "#fef2f2", icon: "🔥" },
+  { value: "warm", label: "Warm", color: "#f97316", bg: "#fff7ed", icon: "☀️" },
+  { value: "cold", label: "Cold", color: "#3b82f6", bg: "#eff6ff", icon: "❄️" },
 ];
 
 const AVATAR_COLORS = [
@@ -94,7 +94,6 @@ const statusColors: Record<string, "default" | "secondary" | "destructive" | "ou
 
 // ── Chart Components ──
 function DashboardCharts({ leads }: { leads: DbLead[] }) {
-  // Stage distribution data
   const stageData = useMemo(() => {
     const counts = LEAD_STAGES.map(s => ({
       name: s.label,
@@ -104,7 +103,6 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
     return counts.filter(d => d.value > 0);
   }, [leads]);
 
-  // Temperature distribution
   const temperatureData = useMemo(() => {
     const counts = LEAD_TEMPERATURE.map(t => ({
       name: t.label,
@@ -115,7 +113,6 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
     return counts.filter(d => d.value > 0);
   }, [leads]);
 
-  // Conversion status
   const conversionData = useMemo(() => {
     const converted = leads.filter(l => l.stage === "converted").length;
     const lost = leads.filter(l => l.stage === "lost").length;
@@ -127,7 +124,6 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
     ].filter(d => d.value > 0);
   }, [leads]);
 
-  // Weekly trend
   const weeklyTrend = useMemo(() => {
     const now = new Date();
     const days = 7;
@@ -146,11 +142,8 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
     return data;
   }, [leads]);
 
-  const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#10b981', '#06b6d4', '#f59e0b', '#ef4444'];
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      {/* Stage Distribution - Bar Chart */}
       <Card className="col-span-1 lg:col-span-2">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
@@ -177,7 +170,6 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
         </CardContent>
       </Card>
 
-      {/* Temperature - Pie Chart */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
@@ -210,7 +202,6 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
         </CardContent>
       </Card>
 
-      {/* Conversion - Pie Chart */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
@@ -243,7 +234,6 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
         </CardContent>
       </Card>
 
-      {/* Weekly Trend - Line Chart */}
       <Card className="col-span-1 lg:col-span-4">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
@@ -270,10 +260,10 @@ function DashboardCharts({ leads }: { leads: DbLead[] }) {
 }
 
 // ── Employee Filter Section ──────────────────────────────────────────────────
-function EmployeeFilterSection({ 
-  profiles, 
-  leads, 
-  onSelectEmployee, 
+function EmployeeFilterSection({
+  profiles,
+  leads,
+  onSelectEmployee,
   selectedEmployee,
   onSelectStage,
   selectedStage,
@@ -290,11 +280,11 @@ function EmployeeFilterSection({
   selectedStatus: string | null;
 }) {
   const [searchEmployee, setSearchEmployee] = useState("");
-  
-  const filteredProfiles = profiles.filter(p => 
+
+  const filteredProfiles = profiles.filter(p =>
     (p.display_name || "").toLowerCase().includes(searchEmployee.toLowerCase())
   );
-  
+
   const employeeStats = filteredProfiles.map(p => {
     const empLeads = leads.filter(l => l.assigned_to === p.user_id);
     const stageCounts = LEAD_STAGES.map(s => ({
@@ -312,7 +302,7 @@ function EmployeeFilterSection({
       cold: empLeads.filter(l => l.temperature === "cold").length,
     };
   }).sort((a, b) => b.total - a.total);
-  
+
   const unassignedCount = leads.filter(l => !l.assigned_to).length;
 
   return (
@@ -333,9 +323,9 @@ function EmployeeFilterSection({
               Total: {leads.length}
             </Badge>
             {selectedEmployee && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => onSelectEmployee(null)}
                 className="text-xs"
               >
@@ -356,13 +346,12 @@ function EmployeeFilterSection({
             className="pl-9"
           />
         </div>
-        
+
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mb-4">
-          {/* Unassigned Card */}
-          <div 
+          <div
             className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
-              selectedEmployee === "unassigned" 
-                ? "border-primary bg-primary/5" 
+              selectedEmployee === "unassigned"
+                ? "border-primary bg-primary/5"
                 : "border-gray-200 hover:border-gray-300"
             }`}
             onClick={() => onSelectEmployee(selectedEmployee === "unassigned" ? null : "unassigned")}
@@ -382,23 +371,23 @@ function EmployeeFilterSection({
               </Badge>
             </div>
           </div>
-          
+
           {employeeStats.map(emp => {
             const color = avatarColor(emp.display_name || "?");
             const isActive = selectedEmployee === emp.user_id;
             return (
-              <div 
+              <div
                 key={emp.user_id}
                 className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                  isActive 
-                    ? "border-primary bg-primary/5" 
+                  isActive
+                    ? "border-primary bg-primary/5"
                     : "border-gray-200 hover:border-gray-300"
                 }`}
                 onClick={() => onSelectEmployee(isActive ? null : emp.user_id)}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div 
+                    <div
                       className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
                       style={{ background: color }}
                     >
@@ -415,7 +404,7 @@ function EmployeeFilterSection({
                     {emp.total}
                   </Badge>
                 </div>
-                
+
                 <div className="flex flex-wrap gap-1 mt-2">
                   {emp.hot > 0 && (
                     <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
@@ -433,12 +422,12 @@ function EmployeeFilterSection({
                     </span>
                   )}
                 </div>
-                
+
                 {emp.total > 0 && (
                   <div className="mt-2">
-                    <Progress 
-                      value={(emp.converted / emp.total) * 100} 
-                      className="h-1" 
+                    <Progress
+                      value={(emp.converted / emp.total) * 100}
+                      className="h-1"
                     />
                   </div>
                 )}
@@ -446,10 +435,10 @@ function EmployeeFilterSection({
             );
           })}
         </div>
-        
+
         <div className="flex flex-wrap gap-2 items-center border-t pt-3">
           <span className="text-sm font-medium mr-2">Quick Filter:</span>
-          
+
           <div className="flex flex-wrap gap-1">
             {LEAD_STAGES.map(s => {
               const count = leads.filter(l => l.stage === s.value).length;
@@ -472,9 +461,9 @@ function EmployeeFilterSection({
               );
             })}
           </div>
-          
+
           <span className="text-sm font-medium mx-2">|</span>
-          
+
           <div className="flex flex-wrap gap-1">
             {LEAD_STATUSES.slice(0, 6).map(s => {
               const count = leads.filter(l => l.status === s.value).length;
@@ -492,11 +481,11 @@ function EmployeeFilterSection({
               );
             })}
           </div>
-          
+
           {(selectedEmployee || selectedStage || selectedStatus) && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 onSelectEmployee(null);
                 onSelectStage(null);
@@ -538,15 +527,100 @@ export default function LeadDashboard() {
   const canAssign = useCanAssignTasks();
   const isLeader = useIsOwnerOrAdmin() || useIsManager();
   const { data: profiles = [] } = useAllProfiles();
-  const { data: leads = [], isLoading } = useCrmQuery<DbLead>("leads");
-  const bulkAssign = useBulkAssignLeads();
-  const logActivity = useLeadActivityLogger();
+  const queryClient = useQueryClient();
 
-  const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
-  const [stageFilter, setStageFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  // Leads via useCrmQuery + local state for realtime patches
+  const { data: crmLeads = [], isLoading } = useCrmQuery<DbLead>("leads");
+  const [leads, setLeads] = useState<DbLead[]>([]);
 
-  const { data: myTasks = [] } = useQuery({
+  // Sync crmLeads → local state (initial + query refetch)
+  useEffect(() => {
+    setLeads(crmLeads);
+  }, [crmLeads]);
+
+  // ── Real-time subscription for leads ──
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let isMounted = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const setup = async () => {
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", user.id)
+          .single();
+
+        const isAdmin = profile?.role === "admin" || !!canAssign;
+
+        channel = supabase
+          .channel("dashboard-leads-changes")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "leads",
+            },
+            (payload) => {
+              if (!isMounted) return;
+
+              // Non-admin: ignore other employees' leads
+              if (!isAdmin && user?.id) {
+                const lead = (payload.new || payload.old) as DbLead;
+                if (lead && lead.assigned_to !== user.id) return;
+              }
+
+              setLeads((prev) => {
+                switch (payload.eventType) {
+                  case "INSERT": {
+                    const row = payload.new as DbLead;
+                    if (prev.some((l) => l.id === row.id)) return prev;
+                    const normalized = {
+                      ...row,
+                      stage: row.stage === "New" ? "new" : row.stage,
+                    };
+                    return [normalized, ...prev];
+                  }
+                  case "UPDATE": {
+                    const row = payload.new as DbLead;
+                    const normalized = {
+                      ...row,
+                      stage: row.stage === "New" ? "new" : row.stage,
+                    };
+                    return prev.map((l) =>
+                      l.id === normalized.id ? normalized : l
+                    );
+                  }
+                  case "DELETE":
+                    return prev.filter((l) => l.id !== (payload.old as DbLead).id);
+                  default:
+                    return prev;
+                }
+              });
+
+              // Keep react-query cache in sync
+              queryClient.invalidateQueries({ queryKey: ["leads"] });
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.error("Dashboard realtime setup error:", err);
+      }
+    };
+
+    setup();
+
+    return () => {
+      isMounted = false;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [user?.id, canAssign, queryClient]);
+
+  // ── Real-time for activities (tasks) ──
+  const { data: myTasks = [], refetch: refetchTasks } = useQuery({
     queryKey: ["my_activities", user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -560,34 +634,87 @@ export default function LeadDashboard() {
     enabled: !!user,
   });
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel("dashboard-activities-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "activities",
+          filter: `assigned_to=eq.${user.id}`,
+        },
+        () => {
+          refetchTasks();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, refetchTasks]);
+
+  const bulkAssign = useBulkAssignLeads();
+  const logActivity = useLeadActivityLogger();
+
+  const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
+  const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAssignTo, setBulkAssignTo] = useState("");
   const [detailLead, setDetailLead] = useState<DbLead | null>(null);
   const [activeTab, setActiveTab] = useState("daily");
 
-  const getProfileName = (userId: string | null) => {
+  const getProfileName = useCallback((userId: string | null) => {
     if (!userId) return "Unassigned";
-    const p = (profiles as { user_id: string; display_name: string | null }[]).find((p) => p.user_id === userId);
+    const p = (profiles as { user_id: string; display_name: string | null }[]).find(
+      (p) => p.user_id === userId
+    );
     return p?.display_name || "Unknown";
-  };
+  }, [profiles]);
 
   const filteredLeads = useMemo(() => {
-    return leads.filter(l => {
+    return leads.filter((l) => {
       if (employeeFilter === "unassigned" && l.assigned_to) return false;
-      if (employeeFilter && employeeFilter !== "unassigned" && l.assigned_to !== employeeFilter) return false;
+      if (
+        employeeFilter &&
+        employeeFilter !== "unassigned" &&
+        l.assigned_to !== employeeFilter
+      )
+        return false;
       if (stageFilter && l.stage !== stageFilter) return false;
       if (statusFilter && l.status !== statusFilter) return false;
       return true;
     });
   }, [leads, employeeFilter, stageFilter, statusFilter]);
 
-  const myLeads = useMemo(() => filteredLeads.filter((l) => l.assigned_to === user?.id), [filteredLeads, user]);
+  const myLeads = useMemo(
+    () => filteredLeads.filter((l) => l.assigned_to === user?.id),
+    [filteredLeads, user]
+  );
   const todayLeads = useMemo(() => filteredLeads.filter(isTodayLead), [filteredLeads]);
   const freshLeads = useMemo(() => filteredLeads.filter(isFreshLead), [filteredLeads]);
-  const followUpLeads = useMemo(() => filteredLeads.filter(isFollowUpDue), [filteredLeads]);
-  const unassignedLeads = useMemo(() => filteredLeads.filter((l) => !l.assigned_to), [filteredLeads]);
-  const todayTasks = useMemo(() =>
-    myTasks.filter((t) => t.due_date && isToday(new Date(t.due_date)) && t.task_status !== "completed"),
+  const followUpLeads = useMemo(
+    () => filteredLeads.filter(isFollowUpDue),
+    [filteredLeads]
+  );
+  const unassignedLeads = useMemo(
+    () => filteredLeads.filter((l) => !l.assigned_to),
+    [filteredLeads]
+  );
+
+  const todayTasks = useMemo(
+    () =>
+      myTasks.filter(
+        (t) =>
+          t.due_date &&
+          isToday(new Date(t.due_date)) &&
+          t.task_status !== "completed"
+      ),
     [myTasks]
   );
 
@@ -618,15 +745,26 @@ export default function LeadDashboard() {
   };
 
   const handleBulkAssign = async () => {
-    if (selectedIds.size === 0) { toast.error("Pehle leads select karo"); return; }
-    if (!bulkAssignTo) { toast.error("Employee select karo"); return; }
+    if (selectedIds.size === 0) {
+      toast.error("Please select leads first");
+      return;
+    }
+    if (!bulkAssignTo) {
+      toast.error("Please select an employee");
+      return;
+    }
     try {
-      const count = await bulkAssign.mutateAsync({ leadIds: Array.from(selectedIds), assignedTo: bulkAssignTo });
-      toast.success(`${count} leads assign ho gaye — ${getProfileName(bulkAssignTo)}`);
+      const count = await bulkAssign.mutateAsync({
+        leadIds: Array.from(selectedIds),
+        assignedTo: bulkAssignTo,
+      });
+      toast.success(
+        `${count} lead(s) assigned to ${getProfileName(bulkAssignTo)}`
+      );
       setSelectedIds(new Set());
       setBulkAssignTo("");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Assign nahi hua");
+      toast.error(e instanceof Error ? e.message : "Assignment failed");
     }
   };
 
@@ -637,13 +775,20 @@ export default function LeadDashboard() {
 
   const getTabLeads = (): DbLead[] => {
     switch (activeTab) {
-      case "daily": return myLeads.filter(isFollowUpDue);
-      case "today": return todayLeads;
-      case "fresh": return freshLeads;
-      case "mine": return myLeads;
-      case "followup": return followUpLeads;
-      case "unassigned": return unassignedLeads;
-      default: return myLeads;
+      case "daily":
+        return myLeads.filter(isFollowUpDue);
+      case "today":
+        return todayLeads;
+      case "fresh":
+        return freshLeads;
+      case "mine":
+        return myLeads;
+      case "followup":
+        return followUpLeads;
+      case "unassigned":
+        return unassignedLeads;
+      default:
+        return myLeads;
     }
   };
 
@@ -657,7 +802,9 @@ export default function LeadDashboard() {
             {canAssign && (
               <TableHead className="w-10">
                 <Checkbox
-                  checked={list.length > 0 && list.every((l) => selectedIds.has(l.id))}
+                  checked={
+                    list.length > 0 && list.every((l) => selectedIds.has(l.id))
+                  }
                   onCheckedChange={() => toggleSelectAll(list)}
                 />
               </TableHead>
@@ -673,59 +820,124 @@ export default function LeadDashboard() {
         <TableBody>
           {list.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={canAssign ? 7 : 6} className="text-center text-sm text-muted-foreground py-8">
-                Koi lead nahi mili is filter mein
+              <TableCell
+                colSpan={canAssign ? 7 : 6}
+                className="text-center text-sm text-muted-foreground py-8"
+              >
+                No leads found for this filter
               </TableCell>
             </TableRow>
-          ) : list.map((lead) => (
-            <TableRow key={lead.id} className={isFollowUpDue(lead) ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}>
-              {canAssign && (
-                <TableCell>
-                  <Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} />
-                </TableCell>
-              )}
-              <TableCell>
-                <p className="font-medium text-sm">{lead.name}</p>
-                {lead.phone && (
-                  <a href={`tel:${lead.phone}`} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                    <Phone className="h-3 w-3" />{lead.phone}
-                  </a>
+          ) : (
+            list.map((lead) => (
+              <TableRow
+                key={lead.id}
+                className={
+                  isFollowUpDue(lead)
+                    ? "bg-amber-50/50 dark:bg-amber-950/20"
+                    : ""
+                }
+              >
+                {canAssign && (
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedIds.has(lead.id)}
+                      onCheckedChange={() => toggleSelect(lead.id)}
+                    />
+                  </TableCell>
                 )}
-                {lead.company && <p className="text-xs text-muted-foreground">{lead.company}</p>}
-              </TableCell>
-              <TableCell><span className="text-xs">{formatStageLabel(lead.stage)}</span></TableCell>
-              <TableCell><Badge variant={statusColors[lead.status] || "outline"} className="text-xs">{formatStageLabel(lead.status)}</Badge></TableCell>
-              <TableCell className="text-xs">{getProfileName(lead.assigned_to)}</TableCell>
-              <TableCell>
-                {lead.next_call_date ? (
-                  <span className={`text-xs flex items-center gap-1 ${isPast(new Date(lead.next_call_date)) && !isToday(new Date(lead.next_call_date)) ? "text-destructive font-medium" : ""}`}>
-                    <Calendar className="h-3 w-3" />
-                    {format(new Date(lead.next_call_date), "dd MMM yyyy")}
-                  </span>
-                ) : <span className="text-xs text-muted-foreground">—</span>}
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-1">
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openLead(lead)}>Open</Button>
+                <TableCell>
+                  <p className="font-medium text-sm">{lead.name}</p>
                   {lead.phone && (
-                    <Button size="sm" variant="ghost" className="h-7" asChild>
-                      <a href={`tel:${lead.phone}`} onClick={() => logActivity(lead.id, "called", lead.phone || undefined)}>
-                        <Phone className="h-3.5 w-3.5" />
-                      </a>
-                    </Button>
+                    <a
+                      href={`tel:${lead.phone}`}
+                      className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                    >
+                      <Phone className="h-3 w-3" />
+                      {lead.phone}
+                    </a>
                   )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                  {lead.company && (
+                    <p className="text-xs text-muted-foreground">
+                      {lead.company}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <span className="text-xs">
+                    {formatStageLabel(lead.stage)}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={statusColors[lead.status] || "outline"}
+                    className="text-xs"
+                  >
+                    {formatStageLabel(lead.status)}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-xs">
+                  {getProfileName(lead.assigned_to)}
+                </TableCell>
+                <TableCell>
+                  {lead.next_call_date ? (
+                    <span
+                      className={`text-xs flex items-center gap-1 ${
+                        isPast(new Date(lead.next_call_date)) &&
+                        !isToday(new Date(lead.next_call_date))
+                          ? "text-destructive font-medium"
+                          : ""
+                      }`}
+                    >
+                      <Calendar className="h-3 w-3" />
+                      {format(new Date(lead.next_call_date), "dd MMM yyyy")}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => openLead(lead)}
+                    >
+                      Open
+                    </Button>
+                    {lead.phone && (
+                      <Button size="sm" variant="ghost" className="h-7" asChild>
+                        <a
+                          href={`tel:${lead.phone}`}
+                          onClick={() =>
+                            logActivity(
+                              lead.id,
+                              "called",
+                              lead.phone || undefined
+                            )
+                          }
+                        >
+                          <Phone className="h-3.5 w-3.5" />
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
         </TableBody>
       </Table>
     </div>
   );
 
-  if (isLoading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (isLoading)
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
 
-  // Stats for cards
   const stats = {
     myLeads: myLeads.length,
     todayLeads: todayLeads.length,
@@ -739,63 +951,99 @@ export default function LeadDashboard() {
     <div className="space-y-6 p-4 md:p-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Lead Dashboard</h1>
-        <p className="text-muted-foreground">Daily calls, follow-ups, comments aur bulk assignment — sab ek jagah</p>
+        <p className="text-muted-foreground">
+          Daily calls, follow-ups, comments and bulk assignment — all in one place
+        </p>
       </div>
 
       {/* Stats Cards */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0"><Phone className="h-5 w-5 text-primary" /></div>
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Phone className="h-5 w-5 text-primary" />
+            </div>
             <div className="min-w-0">
               <p className="text-2xl font-bold leading-none">{stats.myLeads}</p>
-              <p className="text-xs text-muted-foreground mt-1 truncate">Mere Leads</p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                My Leads
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0"><Calendar className="h-5 w-5 text-blue-500" /></div>
+            <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+              <Calendar className="h-5 w-5 text-blue-500" />
+            </div>
             <div className="min-w-0">
-              <p className="text-2xl font-bold leading-none">{stats.todayLeads}</p>
-              <p className="text-xs text-muted-foreground mt-1 truncate">Aaj ke Leads</p>
+              <p className="text-2xl font-bold leading-none">
+                {stats.todayLeads}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                Today's Leads
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0"><Sparkles className="h-5 w-5 text-green-500" /></div>
+            <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="h-5 w-5 text-green-500" />
+            </div>
             <div className="min-w-0">
-              <p className="text-2xl font-bold leading-none">{stats.freshLeads}</p>
-              <p className="text-xs text-muted-foreground mt-1 truncate">Fresh Leads</p>
+              <p className="text-2xl font-bold leading-none">
+                {stats.freshLeads}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                Fresh Leads
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0"><AlertCircle className="h-5 w-5 text-amber-500" /></div>
+            <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+            </div>
             <div className="min-w-0">
-              <p className="text-2xl font-bold leading-none">{stats.followUpLeads}</p>
-              <p className="text-xs text-muted-foreground mt-1 truncate">Follow-up Due</p>
+              <p className="text-2xl font-bold leading-none">
+                {stats.followUpLeads}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                Follow-up Due
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0"><CheckSquare className="h-5 w-5 text-purple-500" /></div>
+            <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+              <CheckSquare className="h-5 w-5 text-purple-500" />
+            </div>
             <div className="min-w-0">
-              <p className="text-2xl font-bold leading-none">{stats.todayTasks}</p>
-              <p className="text-xs text-muted-foreground mt-1 truncate">Aaj ke Tasks</p>
+              <p className="text-2xl font-bold leading-none">
+                {stats.todayTasks}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                Today's Tasks
+              </p>
             </div>
           </CardContent>
         </Card>
         {canAssign && (
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center flex-shrink-0"><Users className="h-5 w-5 text-orange-500" /></div>
+              <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center flex-shrink-0">
+                <Users className="h-5 w-5 text-orange-500" />
+              </div>
               <div className="min-w-0">
-                <p className="text-2xl font-bold leading-none">{stats.unassignedLeads}</p>
-                <p className="text-xs text-muted-foreground mt-1 truncate">Unassigned</p>
+                <p className="text-2xl font-bold leading-none">
+                  {stats.unassignedLeads}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">
+                  Unassigned
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -807,7 +1055,9 @@ export default function LeadDashboard() {
 
       {/* Employee Filter Section */}
       <EmployeeFilterSection
-        profiles={profiles as { user_id: string; display_name: string | null }[]}
+        profiles={
+          profiles as { user_id: string; display_name: string | null }[]
+        }
         leads={leads}
         onSelectEmployee={setEmployeeFilter}
         selectedEmployee={employeeFilter}
@@ -821,15 +1071,22 @@ export default function LeadDashboard() {
       {todayTasks.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> Aaj ke Daily Tasks</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="h-4 w-4" /> Today's Daily Tasks
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {todayTasks.map((task) => (
-                <div key={task.id} className="flex flex-wrap items-center justify-between p-3 rounded-lg border gap-2">
+                <div
+                  key={task.id}
+                  className="flex flex-wrap items-center justify-between p-3 rounded-lg border gap-2"
+                >
                   <div>
                     <p className="text-sm font-medium">{task.title}</p>
-                    <Badge variant="outline" className="text-xs mt-1">{task.type}</Badge>
+                    <Badge variant="outline" className="text-xs mt-1">
+                      {task.type}
+                    </Badge>
                   </div>
                   <Badge>{task.task_status || "pending"}</Badge>
                 </div>
@@ -843,19 +1100,48 @@ export default function LeadDashboard() {
       {canAssign && selectedIds.size > 0 && (
         <Card className="border-primary/50 bg-primary/5">
           <CardContent className="p-4 flex flex-wrap items-center gap-3">
-            <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} leads selected</Badge>
+            <Badge variant="default">
+              <CheckSquare className="h-3 w-3 mr-1" />
+              {selectedIds.size} leads selected
+            </Badge>
             <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
-              <SelectTrigger className="w-48 h-9"><SelectValue placeholder="Employee select karo" /></SelectTrigger>
+              <SelectTrigger className="w-48 h-9">
+                <SelectValue placeholder="Select employee" />
+              </SelectTrigger>
               <SelectContent>
-                {(profiles as { user_id: string; display_name: string | null }[]).map((p) => (
-                  <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
+                {(
+                  profiles as {
+                    user_id: string;
+                    display_name: string | null;
+                  }[]
+                ).map((p) => (
+                  <SelectItem key={p.user_id} value={p.user_id}>
+                    {p.display_name || "Unknown"}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" onClick={handleBulkAssign} disabled={bulkAssign.isPending}>
-              {bulkAssign.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <><UserCheck className="mr-1 h-4 w-4" />Bulk Assign</>}
+            <Button
+              size="sm"
+              onClick={handleBulkAssign}
+              disabled={bulkAssign.isPending}
+            >
+              {bulkAssign.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <UserCheck className="mr-1 h-4 w-4" />
+                  Bulk Assign
+                </>
+              )}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -865,12 +1151,26 @@ export default function LeadDashboard() {
         <CardHeader className="pb-0">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="flex-wrap h-auto gap-1">
-              <TabsTrigger value="daily" className="text-xs">Aaj Call Karo ({myLeads.filter(isFollowUpDue).length})</TabsTrigger>
-              <TabsTrigger value="today" className="text-xs">Today's Leads ({todayLeads.length})</TabsTrigger>
-              <TabsTrigger value="fresh" className="text-xs">Fresh Leads ({freshLeads.length})</TabsTrigger>
-              <TabsTrigger value="mine" className="text-xs">Mere Leads ({myLeads.length})</TabsTrigger>
-              <TabsTrigger value="followup" className="text-xs">Follow-ups ({followUpLeads.length})</TabsTrigger>
-              {canAssign && <TabsTrigger value="unassigned" className="text-xs">Unassigned ({unassignedLeads.length})</TabsTrigger>}
+              <TabsTrigger value="daily" className="text-xs">
+                Call Today ({myLeads.filter(isFollowUpDue).length})
+              </TabsTrigger>
+              <TabsTrigger value="today" className="text-xs">
+                Today's Leads ({todayLeads.length})
+              </TabsTrigger>
+              <TabsTrigger value="fresh" className="text-xs">
+                Fresh Leads ({freshLeads.length})
+              </TabsTrigger>
+              <TabsTrigger value="mine" className="text-xs">
+                My Leads ({myLeads.length})
+              </TabsTrigger>
+              <TabsTrigger value="followup" className="text-xs">
+                Follow-ups ({followUpLeads.length})
+              </TabsTrigger>
+              {canAssign && (
+                <TabsTrigger value="unassigned" className="text-xs">
+                  Unassigned ({unassignedLeads.length})
+                </TabsTrigger>
+              )}
             </TabsList>
           </Tabs>
         </CardHeader>
@@ -894,28 +1194,71 @@ export default function LeadDashboard() {
           {detailLead && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium">{detailLead.phone || "—"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Company</p><p className="font-medium">{detailLead.company || "—"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Stage</p><p className="font-medium">{formatStageLabel(detailLead.stage)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Assigned</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Phone</p>
+                  <p className="font-medium">{detailLead.phone || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Company</p>
+                  <p className="font-medium">{detailLead.company || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Stage</p>
+                  <p className="font-medium">
+                    {formatStageLabel(detailLead.stage)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Assigned</p>
+                  <p className="font-medium">
+                    {getProfileName(detailLead.assigned_to)}
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {detailLead.phone && (
                   <Button size="sm" variant="outline" asChild>
-                    <a href={`tel:${detailLead.phone}`} onClick={() => logActivity(detailLead.id, "called", detailLead.phone || undefined)}>
-                      <Phone className="mr-1 h-4 w-4" />Call
+                    <a
+                      href={`tel:${detailLead.phone}`}
+                      onClick={() =>
+                        logActivity(
+                          detailLead.id,
+                          "called",
+                          detailLead.phone || undefined
+                        )
+                      }
+                    >
+                      <Phone className="mr-1 h-4 w-4" />
+                      Call
                     </a>
                   </Button>
                 )}
                 {detailLead.phone && (
                   <Button size="sm" variant="outline" asChild>
-                    <a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}>
+                    <a
+                      href={`https://wa.me/${detailLead.phone.replace(
+                        /[^0-9]/g,
+                        ""
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() =>
+                        logActivity(
+                          detailLead.id,
+                          "whatsapp",
+                          detailLead.phone || undefined
+                        )
+                      }
+                    >
                       WhatsApp
                     </a>
                   </Button>
                 )}
               </div>
-              <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
+              <LeadCommentsPanel
+                leadId={detailLead.id}
+                leadStage={detailLead.stage}
+              />
             </div>
           )}
         </DialogContent>
