@@ -15,18 +15,18 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Building2, Send } from "lucide-react";
-import { useState } from "react";
+import { Loader2, Building2, Send, ClipboardList, Clock, CheckCircle, AlertTriangle, XCircle, Filter } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format, isBefore, isToday, startOfDay } from "date-fns";
 
-const STATUSES = ["not_started", "in_progress", "review", "completed", "blocked"];
+const STATUSES = ["not_started", "in_progress", "review", "completed", "blocked"] as const;
 
 const STATUS_LABELS: Record<string, string> = {
   not_started: "Not Started",
-  in_progress: "Processing",
+  in_progress: "In Progress",
   review: "Review",
-  completed: "Done",
+  completed: "Completed",
   blocked: "Blocked",
 };
 
@@ -67,9 +67,58 @@ interface TaskHistoryRow {
   created_at: string;
 }
 
+type StatFilter = "all" | "not_started" | "in_progress" | "review" | "completed" | "blocked" | "overdue" | "today";
+
+function getDueBucket(dueDate: string | null) {
+  if (!dueDate) return "no_date";
+  const d = startOfDay(new Date(dueDate));
+  const today = startOfDay(new Date());
+  if (isBefore(d, today)) return "overdue";
+  if (isToday(d)) return "today";
+  return "later";
+}
+
+function StatFilterCard({
+  label,
+  value,
+  active,
+  onClick,
+  icon: Icon,
+  colorClass,
+}: {
+  label: string;
+  value: number;
+  active?: boolean;
+  onClick?: () => void;
+  icon?: any;
+  colorClass?: string;
+}) {
+  return (
+    <Card
+      className={`transition-all ${onClick ? "cursor-pointer hover:shadow-md hover:border-primary" : ""} ${
+        active ? "border-primary shadow-md ring-2 ring-primary/30" : ""
+      }`}
+      onClick={onClick}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold">{value}</p>
+          </div>
+          {Icon && (
+            <div className={`p-2 rounded-full ${colorClass || "bg-muted text-muted-foreground"}`}>
+              <Icon className="h-4 w-4" />
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ============================================================
-// Task Detail Dialog — task pe click karte hi khulta hai,
-// history permanently DB me save hoti hai (task_history table)
+// Task Detail Dialog
 // ============================================================
 function TaskDetailDialog({
   task,
@@ -104,13 +153,11 @@ function TaskDetailDialog({
       if (!task) return;
       const patch: any = { status };
       if (status === "completed") patch.completion_date = new Date().toISOString();
-
       const { error: updateError } = await supabase
         .from("project_tasks")
         .update(patch)
         .eq("id", task.id);
       if (updateError) throw updateError;
-
       const { error: historyError } = await supabase.from("task_history").insert({
         task_id: task.id,
         changed_by_email: user?.email ?? null,
@@ -125,19 +172,18 @@ function TaskDetailDialog({
       qc.invalidateQueries({ queryKey: ["task_history", task?.id] });
       toast({ title: "Status updated" });
     },
-    onError: (e: any) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+    onError: (e: any) =>
+      toast({ title: "Update failed", description: e.message, variant: "destructive" }),
   });
 
   const sendRemark = useMutation({
     mutationFn: async (text: string) => {
       if (!task || !text.trim()) return;
-
       const { error: updateError } = await supabase
         .from("project_tasks")
         .update({ employee_remarks: text })
         .eq("id", task.id);
       if (updateError) throw updateError;
-
       const { error: historyError } = await supabase.from("task_history").insert({
         task_id: task.id,
         changed_by_email: user?.email ?? null,
@@ -150,8 +196,10 @@ function TaskDetailDialog({
       setMessage("");
       qc.invalidateQueries({ queryKey: ["my_tasks"] });
       qc.invalidateQueries({ queryKey: ["task_history", task?.id] });
+      toast({ title: "Update saved" });
     },
-    onError: (e: any) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+    onError: (e: any) =>
+      toast({ title: "Update failed", description: e.message, variant: "destructive" }),
   });
 
   if (!task) return null;
@@ -173,7 +221,11 @@ function TaskDetailDialog({
             </span>
           )}
           {task.department && <Badge variant="outline">{task.department}</Badge>}
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium}`}>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+              PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium
+            }`}
+          >
             {task.priority?.charAt(0).toUpperCase() + task.priority?.slice(1)}
           </span>
           {task.due_date && (
@@ -185,7 +237,10 @@ function TaskDetailDialog({
 
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Status:</span>
-          <Select value={task.status || "not_started"} onValueChange={(v) => updateStatus.mutate(v)}>
+          <Select
+            value={task.status || "not_started"}
+            onValueChange={(v) => updateStatus.mutate(v)}
+          >
             <SelectTrigger className="w-40 h-8">
               <SelectValue />
             </SelectTrigger>
@@ -210,7 +265,7 @@ function TaskDetailDialog({
               </div>
             ) : history.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-6">
-                Abhi tak koi history nahi hai
+                No history yet
               </p>
             ) : (
               <div className="space-y-3">
@@ -226,9 +281,12 @@ function TaskDetailDialog({
                       <p className="text-sm">
                         Status changed:{" "}
                         <span className="text-muted-foreground">
-                          {STATUS_LABELS[h.old_value || "not_started"]}
+                          {STATUS_LABELS[h.old_value || "not_started"] || h.old_value}
                         </span>{" "}
-                        → <span className="font-medium">{STATUS_LABELS[h.new_value || "not_started"]}</span>
+                        →{" "}
+                        <span className="font-medium">
+                          {STATUS_LABELS[h.new_value || "not_started"] || h.new_value}
+                        </span>
                       </p>
                     ) : (
                       <p className="text-sm whitespace-pre-wrap">{h.message}</p>
@@ -241,7 +299,7 @@ function TaskDetailDialog({
           <div className="border-t p-2 flex items-end gap-2">
             <Textarea
               className="min-h-[44px] max-h-32 resize-none"
-              placeholder="Update likhein..."
+              placeholder="Write an update..."
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={(e) => {
@@ -276,6 +334,7 @@ export default function MyTasks() {
   const { user } = useAuth();
   const [selectedTask, setSelectedTask] = useState<ProjectTaskRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [statFilter, setStatFilter] = useState<StatFilter>("all");
 
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ["my_tasks", user?.email],
@@ -296,6 +355,45 @@ export default function MyTasks() {
     },
   });
 
+  const counts = useMemo(() => {
+    const byStatus = STATUSES.reduce(
+      (acc, s) => ({
+        ...acc,
+        [s]: tasks.filter((t) => (t.status || "not_started") === s).length,
+      }),
+      {} as Record<string, number>
+    );
+    return {
+      total: tasks.length,
+      ...byStatus,
+      overdue: tasks.filter(
+        (t) => getDueBucket(t.due_date) === "overdue" && t.status !== "completed"
+      ).length,
+      today: tasks.filter(
+        (t) => getDueBucket(t.due_date) === "today" && t.status !== "completed"
+      ).length,
+    };
+  }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      const status = t.status || "not_started";
+      if (statFilter === "all") return true;
+      if (statFilter === "overdue") {
+        return getDueBucket(t.due_date) === "overdue" && status !== "completed";
+      }
+      if (statFilter === "today") {
+        return getDueBucket(t.due_date) === "today" && status !== "completed";
+      }
+      return status === statFilter;
+    });
+  }, [tasks, statFilter]);
+
+  const openTask = (task: ProjectTaskRow) => {
+    setSelectedTask(task);
+    setDialogOpen(true);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -304,43 +402,103 @@ export default function MyTasks() {
     );
   }
 
-  const counts = STATUSES.reduce(
-    (acc, s) => ({ ...acc, [s]: tasks.filter((t) => (t.status || "not_started") === s).length }),
-    {} as Record<string, number>
-  );
-
-  const openTask = (task: ProjectTaskRow) => {
-    setSelectedTask(task);
-    setDialogOpen(true);
-  };
-
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
-        <p className="text-muted-foreground">Aapko sabhi projects se jo tasks assign hue hain, wo yahan dikhte hain</p>
+        <p className="text-muted-foreground">
+          Tasks assigned to you across all projects
+        </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs uppercase text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold">{tasks.length}</p>
-          </CardContent>
-        </Card>
-        {STATUSES.map((s) => (
-          <Card key={s}>
-            <CardContent className="p-4">
-              <p className="text-xs uppercase text-muted-foreground">{STATUS_LABELS[s]}</p>
-              <p className="text-2xl font-bold">{counts[s] || 0}</p>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Clickable filter cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+        <StatFilterCard
+          label="Total"
+          value={counts.total}
+          active={statFilter === "all"}
+          onClick={() => setStatFilter("all")}
+          icon={ClipboardList}
+          colorClass="bg-blue-100 text-blue-600"
+        />
+        <StatFilterCard
+          label="Not Started"
+          value={counts.not_started || 0}
+          active={statFilter === "not_started"}
+          onClick={() => setStatFilter("not_started")}
+          icon={Clock}
+          colorClass="bg-gray-100 text-gray-600"
+        />
+        <StatFilterCard
+          label="In Progress"
+          value={counts.in_progress || 0}
+          active={statFilter === "in_progress"}
+          onClick={() => setStatFilter("in_progress")}
+          icon={Loader2}
+          colorClass="bg-indigo-100 text-indigo-600"
+        />
+        <StatFilterCard
+          label="Review"
+          value={counts.review || 0}
+          active={statFilter === "review"}
+          onClick={() => setStatFilter("review")}
+          icon={Filter}
+          colorClass="bg-purple-100 text-purple-600"
+        />
+        <StatFilterCard
+          label="Completed"
+          value={counts.completed || 0}
+          active={statFilter === "completed"}
+          onClick={() => setStatFilter("completed")}
+          icon={CheckCircle}
+          colorClass="bg-green-100 text-green-600"
+        />
+        <StatFilterCard
+          label="Blocked"
+          value={counts.blocked || 0}
+          active={statFilter === "blocked"}
+          onClick={() => setStatFilter("blocked")}
+          icon={XCircle}
+          colorClass="bg-red-100 text-red-600"
+        />
+        <StatFilterCard
+          label="Overdue"
+          value={counts.overdue}
+          active={statFilter === "overdue"}
+          onClick={() => setStatFilter("overdue")}
+          icon={AlertTriangle}
+          colorClass="bg-orange-100 text-orange-600"
+        />
+        <StatFilterCard
+          label="Today"
+          value={counts.today}
+          active={statFilter === "today"}
+          onClick={() => setStatFilter("today")}
+          icon={Clock}
+          colorClass="bg-amber-100 text-amber-600"
+        />
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Assigned Tasks</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardTitle className="text-base">
+            Assigned Tasks
+            {statFilter !== "all" && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                · filtered:{" "}
+                {statFilter === "today"
+                  ? "Today"
+                  : statFilter === "overdue"
+                  ? "Overdue"
+                  : STATUS_LABELS[statFilter] || statFilter}
+              </span>
+            )}
+          </CardTitle>
+          {statFilter !== "all" && (
+            <Button variant="outline" size="sm" onClick={() => setStatFilter("all")}>
+              Clear filter
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <Table>
@@ -355,7 +513,7 @@ export default function MyTasks() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tasks.map((t) => (
+              {filteredTasks.map((t) => (
                 <TableRow
                   key={t.id}
                   className="cursor-pointer hover:bg-muted/50"
@@ -377,17 +535,27 @@ export default function MyTasks() {
                         {t.projects.brand_name && (
                           <p className="text-xs text-muted-foreground">{t.projects.brand_name}</p>
                         )}
-                        <p className="text-xs text-muted-foreground font-mono">{t.projects.project_id}</p>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {t.projects.project_id}
+                        </p>
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell>
-                    {t.department ? <Badge variant="outline">{t.department}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
+                    {t.department ? (
+                      <Badge variant="outline">{t.department}</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.medium}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+                        PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.medium
+                      }`}
+                    >
                       {t.priority?.charAt(0).toUpperCase() + t.priority?.slice(1)}
                     </span>
                   </TableCell>
@@ -395,14 +563,21 @@ export default function MyTasks() {
                     {t.due_date ? format(new Date(t.due_date), "dd MMM yyyy") : "—"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{STATUS_LABELS[t.status || "not_started"]}</Badge>
+                    <Badge variant="secondary">
+                      {STATUS_LABELS[t.status || "not_started"] || t.status}
+                    </Badge>
                   </TableCell>
                 </TableRow>
               ))}
-              {tasks.length === 0 && (
+              {filteredTasks.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-sm text-muted-foreground">
-                    Koi task assign nahi hua hai abhi
+                  <TableCell
+                    colSpan={6}
+                    className="text-center py-8 text-sm text-muted-foreground"
+                  >
+                    {tasks.length === 0
+                      ? "No tasks assigned yet"
+                      : "No tasks match this filter"}
                   </TableCell>
                 </TableRow>
               )}
@@ -411,7 +586,11 @@ export default function MyTasks() {
         </CardContent>
       </Card>
 
-      <TaskDetailDialog task={selectedTask} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <TaskDetailDialog
+        task={selectedTask}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
     </div>
   );
 }
