@@ -47,13 +47,31 @@ import {
 // ============================================================
 // CONSTANTS (Same as before)
 // ============================================================
+// Project Stages only (projects.current_stage) — order: Social Media → Development → Ecommerce
 const PROJECT_STAGES = [
-  { value: "discovery", label: "Product Discovery & Validation", icon: "🔍", color: "#3b82f6" },
-  { value: "development", label: "Product Development & Sourcing", icon: "🏭", color: "#f97316" },
-  { value: "branding", label: "Brand Creation", icon: "🎨", color: "#8b5cf6" },
-  { value: "launch_prep", label: "Launch Preparation", icon: "🚀", color: "#06b6d4" },
-  { value: "launch", label: "Product Launch", icon: "🎯", color: "#10b981" },
-  { value: "growth", label: "Growth & Scale", icon: "📈", color: "#ec4899" },
+  // Social Media
+  { value: "brand_identity", label: "Brand Identity", icon: "", color: "#8b5cf6" },
+  { value: "brand_name", label: "Brand Name", icon: "", color: "#a855f7" },
+  { value: "logo", label: "Logo", icon: "", color: "#ec4899" },
+  { value: "domain_registration", label: "Domain Registration", icon: "", color: "#3b82f6" },
+  { value: "trademark", label: "Trademark", icon: "", color: "#10b981" },
+  { value: "mockups", label: "Mockups", icon: "", color: "#f59e0b" },
+  { value: "product_name", label: "Product Name", icon: "", color: "#f97316" },
+  { value: "social_media_activation", label: "Social Media Activation", icon: "", color: "#06b6d4" },
+  // Development
+  { value: "ui_ux", label: "UI / UX", icon: "", color: "#6366f1" },
+  { value: "shopify_theme", label: "Shopify Theme (Paid / Free)", icon: "", color: "#96bf48" },
+  { value: "mobile_view", label: "Mobile View", icon: "", color: "#0ea5e9" },
+  { value: "payment_gateway", label: "Payment Gateway", icon: "", color: "#ef4444" },
+  { value: "logistics_integration", label: "Logistics Integration", icon: "", color: "#f97316" },
+  { value: "account_creation", label: "Account Creation", icon: "", color: "#64748b" },
+  { value: "qa_testing", label: "QA Testing", icon: "", color: "#22c55e" },
+  { value: "live_website", label: "Live Website", icon: "", color: "#14b8a6" },
+  // Ecommerce
+  { value: "ecommerce_account", label: "Ecommerce Account Creation", icon: "", color: "#8b5cf6" },
+  { value: "amazon_creation", label: "Amazon Account Creation", icon: "", color: "#ff9900" },
+  { value: "flipkart_creation", label: "Flipkart Account Creation", icon: "", color: "#2874f0" },
+  { value: "scale", label: "Scale", icon: "", color: "#ec4899" },
 ];
 
 const PROJECT_STATUSES = [
@@ -64,35 +82,34 @@ const PROJECT_STATUSES = [
 ];
 
 const PROJECT_TYPES = [
-  { value: "perfume", label: "Perfume", icon: "🌸" },
-  { value: "ayurveda", label: "Ayurveda", icon: "🌿" },
-  { value: "cosmetics", label: "Cosmetics", icon: "💄" },
-  { value: "food", label: "Food", icon: "🍽️" },
-  { value: "supplements", label: "Supplements", icon: "💊" },
+  { value: "perfume", label: "Perfume", icon: "" },
+  { value: "ayurveda", label: "Ayurveda", icon: "" },
+  { value: "cosmetics", label: "Cosmetics", icon: "" },
+  { value: "food", label: "Food", icon: "" },
+  { value: "supplements", label: "Supplements", icon: "" },
 ];
 
 const PROJECT_PRIORITIES = [
-  { value: "high", label: "High", color: "#ef4444", icon: "🔴" },
-  { value: "medium", label: "Medium", color: "#f59e0b", icon: "🟡" },
-  { value: "low", label: "Low", color: "#10b981", icon: "🟢" },
+  { value: "high", label: "High", color: "#ef4444", icon: "" },
+  { value: "medium", label: "Medium", color: "#f59e0b", icon: "" },
+  { value: "low", label: "Low", color: "#10b981", icon: "" },
 ];
 
 const MANUFACTURING_STAGES = [
-  "Sample Requested",
-  "Sample Sent",
-  "Sample Approved",
-  "Packaging Approved",
-  "Bottle Procurement",
-  "Raw Material Procurement",
-  "Production Started",
-  "Filling",
+  "Advanced Payment",
+  "Sample",
+  "Documentation",
+  "Production",
+  "PKG Selection",
   "Quality Check",
-  "Packing",
   "Dispatch",
-  "Delivered"
+  "Delivery"
 ];
 
 const DOCUMENT_FOLDERS = [
+  "Brand File",
+  "PAN Card",
+  "Aadhaar Card",
   "Company Registration",
   "GST",
   "Trademark",
@@ -355,7 +372,7 @@ function getStageLabel(value: string) {
 
 function getStageIcon(value: string) {
   const stage = PROJECT_STAGES.find(s => s.value === value);
-  return stage?.icon || "📋";
+  return stage?.icon || "";
 }
 
 function getStageColor(value: string) {
@@ -363,13 +380,25 @@ function getStageColor(value: string) {
   return stage?.color || "#64748b";
 }
 
+/** Normalize DB status values: "On Hold", "on-hold", "ON_HOLD" → "on_hold" */
+function normalizeProjectStatus(status: string | null | undefined): string {
+  if (!status) return "";
+  const raw = String(status).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (raw === "hold" || raw === "onhold") return "on_hold";
+  if (raw === "cancel" || raw === "canceled") return "cancelled";
+  if (raw === "complete" || raw === "done") return "completed";
+  return raw;
+}
+
 function getStatusColor(status: string) {
-  const s = PROJECT_STATUSES.find(ps => ps.value === status);
+  const normalized = normalizeProjectStatus(status);
+  const s = PROJECT_STATUSES.find(ps => ps.value === normalized);
   return s?.color || "#64748b";
 }
 
 function getStatusLabel(status: string) {
-  const s = PROJECT_STATUSES.find(ps => ps.value === status);
+  const normalized = normalizeProjectStatus(status);
+  const s = PROJECT_STATUSES.find(ps => ps.value === normalized);
   return s?.label || status;
 }
 
@@ -454,7 +483,7 @@ function parseClientTracker(content: string): { fields: Record<string, string>; 
 // ============================================================
 
 // ── Stat Card ──────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, color, subtitle, onClick }: any) {
+function StatCard({ icon: Icon, label, value, color, subtitle, onClick, active }: any) {
   const colors: any = {
     blue: "bg-blue-100 text-blue-600",
     green: "bg-green-100 text-green-600",
@@ -468,7 +497,12 @@ function StatCard({ icon: Icon, label, value, color, subtitle, onClick }: any) {
   };
 
   return (
-    <Card className={`cursor-pointer hover:shadow-md transition-shadow ${onClick ? 'hover:border-primary' : ''}`} onClick={onClick}>
+    <Card
+      className={`transition-all ${onClick ? "cursor-pointer hover:shadow-md hover:border-primary" : ""} ${
+        active ? "border-primary shadow-md ring-2 ring-primary/30" : ""
+      }`}
+      onClick={onClick}
+    >
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
@@ -517,7 +551,7 @@ function StageBadge({ stage }: { stage: string }) {
         border: `1px solid ${color}30`
       }}
     >
-      {icon} {label}
+      {icon ? <span>{icon}</span> : null} {label}
     </span>
   );
 }
@@ -530,7 +564,7 @@ function ProjectPriorityBadge({ priority }: { priority: string }) {
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
       style={{ color: meta.color, background: `${meta.color}20`, border: `1px solid ${meta.color}30` }}
     >
-      {meta.icon} {meta.label}
+      {meta.icon ? <span>{meta.icon}</span> : null} {meta.label}
     </span>
   );
 }
@@ -562,16 +596,31 @@ function SubtaskTagBadge({ tag }: { tag: string | null }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────
-function ProjectCard({ project, onClick, onImageUpload, uploading }: { 
+function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote }: { 
   project: Project; 
   onClick: () => void;
   onImageUpload?: (projectId: string, file: File) => Promise<void>;
   uploading?: boolean;
+  lastNote?: ProjectNote | null;
 }) {
   const progress = project.completion_percentage || 0;
-  const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "📋";
+  const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "";
   const [isHovering, setIsHovering] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const lastNotePreview = (() => {
+    if (!lastNote) return null;
+    if (lastNote.note_type === "brand_kit") {
+      const kit = parseBrandKit(lastNote.content);
+      return kit?.fields?.brand_name || kit?.fields?.tagline || lastNote.title || "Brand kit";
+    }
+    if (lastNote.note_type === "client_tracker") {
+      const t = parseClientTracker(lastNote.content);
+      return t?.fields?.client_full_name || lastNote.title || "Client tracker";
+    }
+    const text = (lastNote.content || "").replace(/\n\[image\].*$/s, "").trim();
+    return text || lastNote.title || "Note";
+  })();
 
   const handleImageClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -615,7 +664,11 @@ function ProjectCard({ project, onClick, onImageUpload, uploading }: {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <span className="text-2xl">{typeIcon}</span>
+              typeIcon ? (
+                <span className="text-2xl">{typeIcon}</span>
+              ) : (
+                <FolderKanban className="h-6 w-6 text-muted-foreground" />
+              )
             )}
             
             {(isHovering || !project.image_url) && (
@@ -661,6 +714,19 @@ function ProjectCard({ project, onClick, onImageUpload, uploading }: {
                 </span>
               )}
             </div>
+            {lastNotePreview && (
+              <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5 max-w-xl">
+                <StickyNote className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                <div className="min-w-0">
+                  <p className="line-clamp-2 break-words">{lastNotePreview}</p>
+                  {lastNote?.updated_at || lastNote?.created_at ? (
+                    <p className="text-[10px] mt-0.5 opacity-80">
+                      {format(new Date(lastNote.updated_at || lastNote.created_at), "dd MMM yyyy")}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -671,7 +737,7 @@ function ProjectCard({ project, onClick, onImageUpload, uploading }: {
             </div>
             {project.expected_launch_date && (
               <p className="text-xs text-muted-foreground mt-1">
-                🚀 {format(new Date(project.expected_launch_date), "dd MMM yyyy")}
+                Launch {format(new Date(project.expected_launch_date), "dd MMM yyyy")}
               </p>
             )}
           </div>
@@ -749,7 +815,7 @@ function DepartmentCard({ department, taskCounts, onClick, onEdit, onDelete }: {
       </div>
       {department.due_date && (
         <p className="text-xs text-muted-foreground mt-2">
-          📅 Due: {format(new Date(department.due_date), "dd MMM yyyy")}
+          Due: {format(new Date(department.due_date), "dd MMM yyyy")}
         </p>
       )}
     </div>
@@ -797,10 +863,10 @@ function PaymentCard({ payment, onStatusChange, onDelete }: {
           <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
             <span>💳 {payment.payment_type === 'client' ? 'Client Payment' : 'Manufacturer Payment'}</span>
             {payment.due_date && (
-              <span>📅 Due: {format(new Date(payment.due_date), "dd MMM yyyy")}</span>
+              <span>Due: {format(new Date(payment.due_date), "dd MMM yyyy")}</span>
             )}
             {payment.paid_date && (
-              <span>✅ Paid: {format(new Date(payment.paid_date), "dd MMM yyyy")}</span>
+              <span>Paid: {format(new Date(payment.paid_date), "dd MMM yyyy")}</span>
             )}
           </div>
         </div>
@@ -1119,7 +1185,7 @@ function TaskCard({
             <StatusBadge status={task.status} />
             {subtasks.length > 0 && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                ✅ {subtasksCompleted}/{subtasks.length} subtasks
+                Completed {subtasksCompleted}/{subtasks.length} subtasks
               </span>
             )}
           </div>
@@ -1129,7 +1195,7 @@ function TaskCard({
           <div className="flex items-center gap-4 mt-1 ml-9 text-xs text-muted-foreground flex-wrap">
             {task.department && <span>📁 {task.department}</span>}
             {task.due_date && (
-              <span>📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
+              <span>Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
             )}
             {task.assigned_to_name || task.assigned_to_email ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
@@ -1335,7 +1401,7 @@ function TaskKanbanCard({ task, onStatusChange, onDelete }: {
         <PriorityBadge priority={task.priority} />
         {task.due_date && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${bucket === "overdue" && task.status !== "completed" ? "bg-red-50 text-red-600 border-red-200" : "bg-muted text-muted-foreground"}`}>
-            📅 {format(new Date(task.due_date), "dd MMM")}
+            Due {format(new Date(task.due_date), "dd MMM")}
           </span>
         )}
       </div>
@@ -2700,6 +2766,7 @@ function TaskCalendarView({
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(() => startOfDay(new Date()));
+  const [selectedClientId, setSelectedClientId] = useState<string>("all");
   const [addTaskOpen, setAddTaskOpen] = useState(false);
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState("medium");
@@ -2710,6 +2777,96 @@ function TaskCalendarView({
   const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null);
   const [dueDateDraft, setDueDateDraft] = useState("");
   const [savingDueDate, setSavingDueDate] = useState(false);
+  const dayClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Per-project calendar: selected project ke tasks hi dikhenge
+  const filteredCalendarTasks = selectedClientId === "all"
+    ? tasks
+    : tasks.filter(t => t.project_id === selectedClientId);
+
+  // Har project ke task counts (alag calendar cards ke liye)
+  const projectCalendarList = (() => {
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      brand: string | null;
+      total: number;
+      overdue: number;
+      completed: number;
+    }>();
+    projects.forEach(p => {
+      map.set(p.id, {
+        id: p.id,
+        name: p.name,
+        brand: p.brand_name,
+        total: 0,
+        overdue: 0,
+        completed: 0,
+      });
+    });
+    tasks.forEach(t => {
+      if (!t.project_id) return;
+      if (!map.has(t.project_id)) {
+        map.set(t.project_id, {
+          id: t.project_id,
+          name: t.projects?.name || "Unknown Project",
+          brand: t.projects?.brand_name || null,
+          total: 0,
+          overdue: 0,
+          completed: 0,
+        });
+      }
+      const row = map.get(t.project_id)!;
+      row.total += 1;
+      if (t.status === "completed") row.completed += 1;
+      if (
+        t.due_date &&
+        isBefore(new Date(t.due_date), startOfDay(new Date())) &&
+        t.status !== "completed"
+      ) {
+        row.overdue += 1;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const selectedProjectMeta = selectedClientId === "all"
+    ? null
+    : projectCalendarList.find(p => p.id === selectedClientId) || null;
+
+  const clientOptions = projectCalendarList.map(p => ({
+    id: p.id,
+    name: p.name + (p.brand ? ` (${p.brand})` : ""),
+  }));
+
+  const handleDaySingleClick = (day: Date) => {
+    if (dayClickTimerRef.current) {
+      clearTimeout(dayClickTimerRef.current);
+      dayClickTimerRef.current = null;
+    }
+    // Delay so double-click can cancel single-click action
+    dayClickTimerRef.current = setTimeout(() => {
+      dayClickTimerRef.current = null;
+      setSelectedDate(startOfDay(day));
+      setCurrentMonth(day);
+      setNewTaskName("");
+      setNewTaskPriority("medium");
+      setNewTaskAssignee("unassigned");
+      setNewTaskProjectId(selectedClientId !== "all" ? selectedClientId : (projects[0]?.id || ""));
+      setNewTaskDescription("");
+      setAddTaskOpen(true);
+    }, 250);
+  };
+
+  const handleDayDoubleClick = (day: Date) => {
+    if (dayClickTimerRef.current) {
+      clearTimeout(dayClickTimerRef.current);
+      dayClickTimerRef.current = null;
+    }
+    setSelectedDate(startOfDay(day));
+    setCurrentMonth(day);
+    setAddTaskOpen(false);
+  };
 
   const startEditDueDate = (task: MyTaskRow, day?: Date) => {
     if (day) {
@@ -2726,7 +2883,7 @@ function TaskCalendarView({
 
   const saveDueDate = async (taskId: string) => {
     if (!dueDateDraft || !onUpdateDueDate) {
-      toast.error("Due date select karein");
+      toast.error("Please select a due date");
       return;
     }
     setSavingDueDate(true);
@@ -2739,7 +2896,7 @@ function TaskCalendarView({
       setCurrentMonth(next);
       toast.success(`Due date → ${format(next, "dd MMM yyyy")} ✓`);
     } catch (err: any) {
-      toast.error(err?.message || "Due date update fail");
+      toast.error(err?.message || "Failed to update due date");
     } finally {
       setSavingDueDate(false);
     }
@@ -2752,7 +2909,7 @@ function TaskCalendarView({
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const getTasksForDay = (date: Date) =>
-    tasks.filter(t => t.due_date && isSameDay(new Date(t.due_date), date));
+    filteredCalendarTasks.filter(t => t.due_date && isSameDay(new Date(t.due_date), date));
 
   const selectedDateTasks = selectedDate ? getTasksForDay(selectedDate) : [];
 
@@ -2765,25 +2922,25 @@ function TaskCalendarView({
 
   const openAddTask = () => {
     if (!selectedDate) {
-      toast.error("Pehle koi date select karein");
+      toast.error("Please select a date first");
       return;
     }
     setNewTaskName("");
     setNewTaskPriority("medium");
     setNewTaskAssignee("unassigned");
-    setNewTaskProjectId(projects[0]?.id || "");
+    setNewTaskProjectId(selectedClientId !== "all" ? selectedClientId : (projects[0]?.id || ""));
     setNewTaskDescription("");
     setAddTaskOpen(true);
   };
 
   const handleAddTask = async () => {
     if (!newTaskName.trim()) {
-      toast.error("Task name required hai");
+      toast.error("Task name is required");
       return;
     }
     if (!selectedDate) return;
     if (!newTaskProjectId) {
-      toast.error("Project select karein");
+      toast.error("Please select a project");
       return;
     }
 
@@ -2800,9 +2957,9 @@ function TaskCalendarView({
         description: newTaskDescription.trim() || undefined,
       });
       setAddTaskOpen(false);
-      toast.success("Task calendar se add ho gaya ✓");
+      toast.success("Task added from calendar");
     } catch (e: any) {
-      toast.error(e?.message || "Task add nahi ho paya");
+      toast.error(e?.message || "Failed to add task");
     } finally {
       setAdding(false);
     }
@@ -2810,7 +2967,42 @@ function TaskCalendarView({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Project filter — dropdown */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 min-w-[260px] flex-1">
+          <FolderKanban className="h-4 w-4 text-primary shrink-0" />
+          <Label className="text-sm whitespace-nowrap">Project</Label>
+          <Select
+            value={selectedClientId}
+            onValueChange={(v) => {
+              setSelectedClientId(v);
+              if (v !== "all") setNewTaskProjectId(v);
+            }}
+          >
+            <SelectTrigger className="w-full max-w-md h-9">
+              <SelectValue placeholder="Select project" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Projects ({tasks.length} tasks)</SelectItem>
+              {projectCalendarList.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                  {p.brand ? ` (${p.brand})` : ""} — {p.total} tasks
+                  {p.overdue > 0 ? ` · ${p.overdue} overdue` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {selectedProjectMeta && (
+          <Badge variant="outline" className="text-xs">
+            Showing: {selectedProjectMeta.name}
+            {selectedProjectMeta.brand ? ` (${selectedProjectMeta.brand})` : ""} — {selectedProjectMeta.total} tasks
+          </Badge>
+        )}
+      </div>
+
+      {/* Month nav + legend */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={previousMonth}>
@@ -2834,7 +3026,7 @@ function TaskCalendarView({
       </div>
 
       <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-        💡 <strong className="text-foreground">Due date edit:</strong> Calendar  “Edit Due Date” .
+        Select a project to filter tasks. Single click a date = Add Task · Double click a date = Open day · Double click a task = Open details
       </div>
 
       <Card>
@@ -2865,7 +3057,12 @@ function TaskCalendarView({
                   className={`h-28 p-1 border rounded-lg cursor-pointer hover:shadow-md transition-all ${bg} ${
                     isSelected ? "ring-2 ring-primary" : ""
                   } ${isCurrentDay ? "ring-2 ring-primary/40" : ""}`}
-                  onClick={() => setSelectedDate(day)}
+                  onClick={() => handleDaySingleClick(day)}
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    handleDayDoubleClick(day);
+                  }}
+                  title="Single click: Add Task · Double click: Open day"
                 >
                   <div className="flex items-center justify-between">
                     <span className={`text-sm font-medium ${isCurrentDay ? "text-primary" : ""}`}>
@@ -2892,10 +3089,17 @@ function TaskCalendarView({
                           }}
                           onClick={e => {
                             e.stopPropagation();
-                            // Open due-date edit panel for this task
+                            // Single click task → edit due date
                             startEditDueDate(task, day);
                           }}
-                          title="Click to edit due date"
+                          onDoubleClick={e => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            // Double click task → open task detail
+                            setSelectedDate(startOfDay(day));
+                            onTaskClick?.(task);
+                          }}
+                          title="Single click: Edit due date · Double click: Open task"
                         >
                           <Edit className="h-2.5 w-2.5 shrink-0 opacity-70" />
                           <span className="truncate">{task.task_name}</span>
@@ -2933,7 +3137,7 @@ function TaskCalendarView({
           <CardContent>
             {selectedDateTasks.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-6">
-                Is date pe koi task nahi hai. “Add Task” dabao.
+                No tasks on this date. Click “Add Task”.
               </p>
             ) : (
               <div className="space-y-2">
@@ -2978,7 +3182,7 @@ function TaskCalendarView({
                                 startEditDueDate(task);
                               }
                             }}
-                            title="Due date edit karein"
+                            title="Edit due date"
                           >
                             <Edit className="h-3 w-3 mr-1" />
                             Edit Due Date
@@ -3348,9 +3552,35 @@ export default function Projects() {
 
   const myTaskStats = {
     total: myTasks.length,
-    pending: myTasks.filter(t => t.status !== "completed").length,
+    active: myTasks.filter(t => t.status === "in_progress").length,
+    pending: myTasks.filter(t => t.status === "not_started" || t.status === "pending").length,
     overdue: myTasks.filter(t => getDueBucket(t.due_date) === "overdue" && t.status !== "completed").length,
     completed: myTasks.filter(t => t.status === "completed").length,
+    today: myTasks.filter(t => getDueBucket(t.due_date) === "today" && t.status !== "completed").length,
+  };
+
+  const applyMyTaskStatFilter = (key: "all" | "active" | "pending" | "overdue" | "completed" | "today") => {
+    setMyTaskPriorityFilter("all");
+    setMyTaskClientFilter("all");
+    if (key === "all") {
+      setMyTaskStatusFilter("all");
+      setMyTaskDueFilter("all");
+    } else if (key === "active") {
+      setMyTaskStatusFilter("in_progress");
+      setMyTaskDueFilter("all");
+    } else if (key === "pending") {
+      setMyTaskStatusFilter("not_started");
+      setMyTaskDueFilter("all");
+    } else if (key === "overdue") {
+      setMyTaskStatusFilter("all");
+      setMyTaskDueFilter("overdue");
+    } else if (key === "completed") {
+      setMyTaskStatusFilter("completed");
+      setMyTaskDueFilter("all");
+    } else if (key === "today") {
+      setMyTaskStatusFilter("all");
+      setMyTaskDueFilter("today");
+    }
   };
 
   const updateMyTaskStatus = async (taskId: string, status: string) => {
@@ -4115,15 +4345,64 @@ export default function Projects() {
     },
   });
 
+  // Latest note per project (for project list cards)
+  const { data: lastNotesByProject = {} } = useQuery({
+    queryKey: ["project_last_notes"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_notes")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const map: Record<string, ProjectNote> = {};
+      for (const note of (data || []) as ProjectNote[]) {
+        // Skip pure documentation placeholder if you want only real notes — still show all types
+        if (!map[note.project_id]) {
+          // Prefer non-documentation when picking "last" note content for card
+          map[note.project_id] = note;
+        } else if (
+          map[note.project_id].note_type === "documentation" &&
+          note.note_type !== "documentation"
+        ) {
+          map[note.project_id] = note;
+        } else {
+          const existing = map[note.project_id];
+          const tExisting = new Date(existing.updated_at || existing.created_at).getTime();
+          const tNote = new Date(note.updated_at || note.created_at).getTime();
+          if (tNote > tExisting) map[note.project_id] = note;
+        }
+      }
+      // Second pass: ensure we pick truly latest by updated_at/created_at
+      const byProject: Record<string, ProjectNote[]> = {};
+      for (const note of (data || []) as ProjectNote[]) {
+        if (!byProject[note.project_id]) byProject[note.project_id] = [];
+        byProject[note.project_id].push(note);
+      }
+      const result: Record<string, ProjectNote> = {};
+      for (const [pid, list] of Object.entries(byProject)) {
+        const sorted = [...list].sort((a, b) => {
+          const ta = new Date(a.updated_at || a.created_at).getTime();
+          const tb = new Date(b.updated_at || b.created_at).getTime();
+          return tb - ta;
+        });
+        // Prefer latest non-documentation if exists, else latest any
+        result[pid] =
+          sorted.find((n) => n.note_type !== "documentation") || sorted[0];
+      }
+      return result;
+    },
+  });
+
   const projects = isAdmin
     ? allProjects
     : allProjects.filter((p: Project) => assignedProjectIds.has(p.id));
 
   const stats = {
     total: projects.length,
-    active: projects.filter((p: Project) => p.status === "active").length,
-    onHold: projects.filter((p: Project) => p.status === "on_hold").length,
-    completed: projects.filter((p: Project) => p.status === "completed").length,
+    active: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "active").length,
+    onHold: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "on_hold").length,
+    cancelled: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "cancelled").length,
+    completed: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "completed").length,
     totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
   };
 
@@ -4136,7 +4415,8 @@ export default function Projects() {
         (project.brand_name || "").toLowerCase().includes(search.toLowerCase()) ||
         project.project_id.toLowerCase().includes(search.toLowerCase());
       
-      const matchStatus = filterStatus === "all" || project.status === filterStatus;
+      const matchStatus =
+        filterStatus === "all" || normalizeProjectStatus(project.status) === filterStatus;
       const matchStage = filterStage === "all" || project.current_stage === filterStage;
       const matchPriority = filterPriority === "all" || project.priority === filterPriority;
       
@@ -4158,7 +4438,14 @@ export default function Projects() {
   });
 
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
-  const generalNotes = notes.filter(n => n.note_type === "general" || n.note_type === "brand_kit" || n.note_type === "client_tracker");
+  const generalNotes = notes
+    .filter(n => n.note_type === "general" || n.note_type === "brand_kit" || n.note_type === "client_tracker" || n.note_type === "team_update" || !n.note_type)
+    .sort((a, b) => {
+      const ta = new Date(a.updated_at || a.created_at).getTime();
+      const tb = new Date(b.updated_at || b.created_at).getTime();
+      return tb - ta;
+    });
+  const lastNote = generalNotes[0] || null;
 
   const fetchProjectDetails = async (projectId: string) => {
     setLoadingDetail(true);
@@ -4223,14 +4510,30 @@ export default function Projects() {
         .order("communication_date", { ascending: false });
       if (communicationsData) setCommunications(communicationsData);
 
-      const { data: notesData } = await supabase
+      const { data: notesData, error: notesError } = await supabase
         .from("project_notes")
         .select("*")
         .eq("project_id", projectId)
-        .order("created_at", { ascending: false });
-      if (notesData) {
-        setNotes(notesData);
-        const docNote = notesData.find((n: ProjectNote) => n.note_type === "documentation");
+        .order("updated_at", { ascending: false, nullsFirst: false });
+      if (notesError) {
+        // Fallback if updated_at sort fails
+        const { data: notesFallback } = await supabase
+          .from("project_notes")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false });
+        setNotes(notesFallback || []);
+        const docNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "documentation");
+        setDocNoteContent(docNote?.content || "");
+      } else if (notesData) {
+        // Client-side sort: prefer updated_at, else created_at
+        const sorted = [...notesData].sort((a, b) => {
+          const ta = new Date(a.updated_at || a.created_at).getTime();
+          const tb = new Date(b.updated_at || b.created_at).getTime();
+          return tb - ta;
+        });
+        setNotes(sorted);
+        const docNote = sorted.find((n: ProjectNote) => n.note_type === "documentation");
         setDocNoteContent(docNote?.content || "");
       } else {
         setNotes([]);
@@ -4346,7 +4649,7 @@ export default function Projects() {
           client_address: newProject.client_address || null,
           client_phone: newProject.client_phone || null,
           client_email: newProject.client_email || null,
-          current_stage: "discovery",
+          current_stage: "brand_identity",
           status: "active",
           completion_percentage: 0,
         })
@@ -4434,6 +4737,10 @@ export default function Projects() {
         if (uploadedUrl) imageUrl = uploadedUrl;
       }
 
+      const normalizedStatus = normalizeProjectStatus(editingProject.status) || editingProject.status;
+
+      // Note: .select() after update often returns [] under RLS even when UPDATE succeeds.
+      // So we update without relying on returned rows, then optimistically update UI + refetch.
       const { error } = await supabase
         .from("projects")
         .update({
@@ -4442,30 +4749,45 @@ export default function Projects() {
           project_type: editingProject.project_type,
           project_value: editingProject.project_value,
           priority: editingProject.priority,
-          start_date: editingProject.start_date,
-          expected_launch_date: editingProject.expected_launch_date,
-          status: editingProject.status,
+          start_date: editingProject.start_date || null,
+          expected_launch_date: editingProject.expected_launch_date || null,
+          status: normalizedStatus,
           current_stage: editingProject.current_stage,
           client_address: editingProject.client_address,
           client_phone: editingProject.client_phone,
           client_email: editingProject.client_email,
           image_url: imageUrl,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", editingProject.id);
 
       if (error) throw error;
 
-      toast.success("Project updated successfully!");
+      const saved: Project = {
+        ...editingProject,
+        status: normalizedStatus,
+        image_url: imageUrl,
+      };
+
+      toast.success(
+        normalizedStatus === "on_hold"
+          ? "Project moved to On Hold"
+          : normalizedStatus === "active"
+          ? "Project set to Active"
+          : normalizedStatus === "cancelled"
+          ? "Project Cancelled"
+          : "Project updated successfully"
+      );
       setEditDialogOpen(false);
       setEditingProject(null);
       setEditProjectImageFile(null);
       setEditProjectImagePreview(null);
-      refetch();
-      if (selectedProject) {
-        setSelectedProject({ ...selectedProject, ...editingProject, image_url: imageUrl });
+      if (selectedProject?.id === saved.id) {
+        setSelectedProject({ ...selectedProject, ...saved });
       }
+      await refetch();
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error.message || "Failed to update project");
     } finally {
       setProjectSaving(false);
     }
@@ -4504,9 +4826,12 @@ export default function Projects() {
 
   const updateStageStatus = async (stageId: string, status: string) => {
     try {
+      const payload: Record<string, any> = { status };
+      if (status === "completed") payload.completion_date = new Date().toISOString();
+      if (status === "in_progress") payload.start_date = new Date().toISOString();
       const { error } = await supabase
         .from("project_stages")
-        .update({ status })
+        .update(payload)
         .eq("id", stageId);
       
       if (error) throw error;
@@ -4517,6 +4842,104 @@ export default function Projects() {
       }
     } catch (error: any) {
       toast.error(error.message);
+    }
+  };
+
+  // Set status on fixed Project Stages pipeline (create row if missing)
+  const upsertProjectStageStatus = async (
+    stageLabel: string,
+    stageOrder: number,
+    status: string,
+    stageValue?: string
+  ) => {
+    if (!selectedProject) return;
+    try {
+      const existing =
+        projectStages.find(
+          (s) =>
+            s.stage_name === stageLabel ||
+            s.stage_name?.toLowerCase() === stageLabel.toLowerCase() ||
+            (stageValue && s.stage_name?.toLowerCase() === stageValue.toLowerCase())
+        ) ||
+        projectStages.find((s) => s.stage_order === stageOrder);
+
+      if (existing) {
+        const payload: Record<string, any> = {
+          status,
+          stage_name: stageLabel,
+          stage_order: stageOrder,
+        };
+        if (status === "completed") payload.completion_date = new Date().toISOString();
+        if (status === "in_progress" && !existing.start_date) {
+          payload.start_date = new Date().toISOString();
+        }
+        const { error } = await supabase
+          .from("project_stages")
+          .update(payload)
+          .eq("id", existing.id);
+        if (error) throw error;
+        // Optimistic local update
+        setProjectStages((prev) =>
+          prev.map((s) => (s.id === existing.id ? { ...s, ...payload } : s))
+        );
+      } else {
+        const { error } = await supabase.from("project_stages").insert({
+          project_id: selectedProject.id,
+          stage_name: stageLabel,
+          stage_order: stageOrder,
+          status,
+          ...(status === "in_progress" ? { start_date: new Date().toISOString() } : {}),
+          ...(status === "completed" ? { completion_date: new Date().toISOString() } : {}),
+        });
+        if (error) throw error;
+      }
+
+      // Keep projects.current_stage in sync when a stage is started or completed
+      if (status === "in_progress" || status === "completed") {
+        const stageMeta = PROJECT_STAGES.find((s) => s.label === stageLabel);
+        if (stageMeta) {
+          await supabase
+            .from("projects")
+            .update({ current_stage: stageMeta.value, updated_at: new Date().toISOString() })
+            .eq("id", selectedProject.id);
+          setSelectedProject((prev) =>
+            prev ? { ...prev, current_stage: stageMeta.value } : prev
+          );
+        }
+      }
+
+      toast.success("Stage updated successfully");
+      fetchProjectDetails(selectedProject.id);
+      refetch();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update stage");
+    }
+  };
+
+  // Sync default Project Stages list onto older projects
+  const syncDefaultProjectStages = async () => {
+    if (!selectedProject) return;
+    try {
+      const existingNames = new Set(projectStages.map((s) => (s.stage_name || "").toLowerCase()));
+      const toInsert = PROJECT_STAGES
+        .map((stage, index) => ({
+          project_id: selectedProject.id,
+          stage_name: stage.label,
+          stage_order: index + 1,
+          status: "pending" as const,
+        }))
+        .filter((s) => !existingNames.has(s.stage_name.toLowerCase()));
+
+      if (toInsert.length === 0) {
+        toast.info("All project stages are already loaded");
+        return;
+      }
+      const { error } = await supabase.from("project_stages").insert(toInsert);
+      if (error) throw error;
+      toast.success(`${toInsert.length} stages add ho gayi`);
+      fetchProjectDetails(selectedProject.id);
+    } catch (error: any) {
+      toast.error(error.message || "Sync fail");
     }
   };
 
@@ -5102,6 +5525,30 @@ export default function Projects() {
     }
   };
 
+  const deleteDocument = async (doc: Document) => {
+    if (!confirm(`Delete file "${doc.file_name}"?`)) return;
+    try {
+      const { error } = await supabase.from("project_documents").delete().eq("id", doc.id);
+      if (error) throw error;
+      // Best-effort storage cleanup if path can be derived
+      try {
+        const marker = "/project-documents/";
+        const idx = doc.file_url?.indexOf(marker);
+        if (idx != null && idx >= 0) {
+          const path = doc.file_url.substring(idx + marker.length);
+          if (path) await supabase.storage.from("project-documents").remove([path]);
+        }
+      } catch {
+        /* storage cleanup optional */
+      }
+      toast.success("Document deleted");
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+      if (selectedProject) fetchProjectDetails(selectedProject.id);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete document");
+    }
+  };
+
   const handleMultipleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -5307,7 +5754,9 @@ export default function Projects() {
     try {
       const imageUrl = await uploadNoteImageIfNeeded();
 
-      let updatePayload: any = {};
+      let updatePayload: any = {
+        updated_at: new Date().toISOString(),
+      };
 
       if (noteMode === "client_tracker") {
         updatePayload.title = clientTrackerFields.client_full_name || "Client Progress Tracker";
@@ -5365,7 +5814,7 @@ export default function Projects() {
       if (documentationNote) {
         const { error } = await supabase
           .from("project_notes")
-          .update({ content: docNoteContent })
+          .update({ content: docNoteContent, updated_at: new Date().toISOString() })
           .eq("id", documentationNote.id);
         if (error) throw error;
       } else {
@@ -5375,7 +5824,8 @@ export default function Projects() {
             project_id: selectedProject.id,
             note_type: "documentation",
             title: "Project Documentation",
-            content: docNoteContent || "test",
+            content: docNoteContent || "",
+            updated_at: new Date().toISOString(),
             created_by: user?.email || null,
             created_by_email: user?.email || null,
           });
@@ -5549,7 +5999,7 @@ export default function Projects() {
           priority: (row as any)['Priority'] || (row as any)['priority'] || 'medium',
           project_value: Number((row as any)['Project Value'] || (row as any)['project_value'] || 0) || 0,
           status: (row as any)['Status'] || (row as any)['status'] || 'active',
-          current_stage: (row as any)['Current Stage'] || (row as any)['current_stage'] || 'discovery',
+          current_stage: (row as any)['Current Stage'] || (row as any)['current_stage'] || 'brand_identity',
           completion_percentage: Number((row as any)['Completion %'] || (row as any)['completion'] || 0) || 0,
           start_date: (row as any)['Start Date'] || (row as any)['start_date'] || null,
           expected_launch_date: (row as any)['Expected Launch'] || (row as any)['expected_launch'] || null,
@@ -5696,7 +6146,9 @@ export default function Projects() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Task Calendar</h1>
             <p className="text-muted-foreground text-sm">
-              {isAdmin ? "View all tasks by due date" : "Aapke assigned tasks by due date"}
+              {isAdmin
+                ? "Filter by project from the dropdown · Single click date = Add Task · Double click = Open day"
+                : "Your assigned tasks · Filter by project · Single click date = Add Task · Double click = Open day"}
             </p>
           </div>
         </div>
@@ -5850,11 +6302,55 @@ export default function Projects() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard icon={ClipboardList} label="Total" value={myTaskStats.total} color="blue" />
-              <StatCard icon={Clock} label="Pending" value={myTaskStats.pending} color="yellow" />
-              <StatCard icon={AlertTriangle} label="Overdue" value={myTaskStats.overdue} color="red" />
-              <StatCard icon={CheckCircle} label="Completed" value={myTaskStats.completed} color="green" />
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <StatCard
+                icon={ClipboardList}
+                label="Total Tasks"
+                value={myTaskStats.total}
+                color="blue"
+                active={myTaskStatusFilter === "all" && myTaskDueFilter === "all"}
+                onClick={() => applyMyTaskStatFilter("all")}
+              />
+              <StatCard
+                icon={Zap}
+                label="Active"
+                value={myTaskStats.active}
+                color="indigo"
+                active={myTaskStatusFilter === "in_progress"}
+                onClick={() => applyMyTaskStatFilter("active")}
+              />
+              <StatCard
+                icon={Clock}
+                label="Pending"
+                value={myTaskStats.pending}
+                color="yellow"
+                active={myTaskStatusFilter === "not_started"}
+                onClick={() => applyMyTaskStatFilter("pending")}
+              />
+              <StatCard
+                icon={AlertTriangle}
+                label="Overdue"
+                value={myTaskStats.overdue}
+                color="red"
+                active={myTaskDueFilter === "overdue"}
+                onClick={() => applyMyTaskStatFilter("overdue")}
+              />
+              <StatCard
+                icon={CheckCircle}
+                label="Completed"
+                value={myTaskStats.completed}
+                color="green"
+                active={myTaskStatusFilter === "completed"}
+                onClick={() => applyMyTaskStatFilter("completed")}
+              />
+              <StatCard
+                icon={CalendarDays}
+                label="Today's Tasks"
+                value={myTaskStats.today}
+                color="orange"
+                active={myTaskDueFilter === "today"}
+                onClick={() => applyMyTaskStatFilter("today")}
+              />
             </div>
 
             <Card>
@@ -5975,7 +6471,7 @@ export default function Projects() {
                             <StatusBadge status={task.status} />
                             {subtasks.length > 0 && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                                ✅ {subtasksCompleted}/{subtasks.length} subtasks
+                                Completed {subtasksCompleted}/{subtasks.length} subtasks
                               </span>
                             )}
                             {bucket === "overdue" && task.status !== "completed" && (
@@ -5993,7 +6489,7 @@ export default function Projects() {
                           )}
                           {task.due_date && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}
+                              Due: {format(new Date(task.due_date), "dd MMM yyyy")}
                             </p>
                           )}
                         </div>
@@ -6224,7 +6720,7 @@ export default function Projects() {
                                 <StatusBadge status={task.status} />
                                 {subtasks.length > 0 && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                                    ✅ {subtasksCompleted}/{subtasks.length} subtasks
+                                    Completed {subtasksCompleted}/{subtasks.length} subtasks
                                   </span>
                                 )}
                               </div>
@@ -6236,7 +6732,7 @@ export default function Projects() {
                               )}
                               {task.due_date && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  📅 Due: {format(new Date(task.due_date), "dd MMM yyyy")}
+                                  Due: {format(new Date(task.due_date), "dd MMM yyyy")}
                                 </p>
                               )}
                             </div>
@@ -6245,7 +6741,7 @@ export default function Projects() {
                           {isExpanded && (
                             <div className="mt-3 pt-3 border-t space-y-3" onClick={(e) => e.stopPropagation()}>
                               <p className="text-xs text-muted-foreground">
-                                Task complete ho chuka hai. Detail dekhne ke liye card pe click karein.
+                                Task is complete. Click the card to view details.
                               </p>
                               {task.description && (
                                 <p className="text-sm text-muted-foreground">{task.description}</p>
@@ -6347,7 +6843,7 @@ export default function Projects() {
                   ))
                 )}
                 {!itLoading && chatTeamList.length === 0 && (
-                  <p className="text-sm text-muted-foreground p-4">Koi aur IT team member nahi mila</p>
+                  <p className="text-sm text-muted-foreground p-4">No other IT team members found</p>
                 )}
               </div>
 
@@ -6525,8 +7021,8 @@ export default function Projects() {
           </div>
           <Progress value={selectedProject.completion_percentage || 0} className="h-3" />
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>📅 Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
-            <span>🚀 Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
+            <span>Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
+            <span>Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
           </div>
         </div>
 
@@ -6545,11 +7041,115 @@ export default function Projects() {
 
           <TabsContent value="overview" className="space-y-4 mt-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Status</p><StatusBadge status={selectedProject.status} /></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Stage</p><StageBadge stage={selectedProject.current_stage} /></CardContent></Card>
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <Select
+                    value={normalizeProjectStatus(selectedProject.status) || selectedProject.status || "active"}
+                    onValueChange={async (v) => {
+                      try {
+                        const { error } = await supabase
+                          .from("projects")
+                          .update({ status: v, updated_at: new Date().toISOString() })
+                          .eq("id", selectedProject.id);
+                        if (error) throw error;
+                        setSelectedProject({ ...selectedProject, status: v });
+                        toast.success(`Status → ${getStatusLabel(v)}`);
+                        refetch();
+                      } catch (e: any) {
+                        toast.error(e.message || "Failed to update status");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_STATUSES.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-sm text-muted-foreground">Current Stage</p>
+                  <Select
+                    value={selectedProject.current_stage || "brand_identity"}
+                    onValueChange={async (v) => {
+                      try {
+                        const { error } = await supabase
+                          .from("projects")
+                          .update({ current_stage: v, updated_at: new Date().toISOString() })
+                          .eq("id", selectedProject.id);
+                        if (error) throw error;
+                        setSelectedProject({ ...selectedProject, current_stage: v });
+                        const meta = PROJECT_STAGES.find((s) => s.value === v);
+                        if (meta) {
+                          const order = PROJECT_STAGES.findIndex((s) => s.value === v) + 1;
+                          await upsertProjectStageStatus(meta.label, order, "in_progress", meta.value);
+                        }
+                        toast.success(`Stage → ${getStageLabel(v)}`);
+                        refetch();
+                      } catch (e: any) {
+                        toast.error(e.message || "Failed to update stage");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_STAGES.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
               <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Project Value</p><p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p></CardContent></Card>
               <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Tasks</p><p className="text-xl font-bold">{projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}</p></CardContent></Card>
             </div>
+
+            {/* Last note */}
+            <Card className="border-amber-200 bg-amber-50/40">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <StickyNote className="h-5 w-5 text-amber-600" />
+                    Last Note
+                  </CardTitle>
+                  <Button size="sm" variant="outline" onClick={() => setActiveTab("notes")}>
+                    View all notes
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {lastNote ? (
+                  <div className="space-y-1">
+                    {lastNote.title && <p className="font-medium text-sm">{lastNote.title}</p>}
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">
+                      {(() => {
+                        const kit = lastNote.note_type === "brand_kit" ? parseBrandKit(lastNote.content) : null;
+                        const tracker = lastNote.note_type === "client_tracker" ? parseClientTracker(lastNote.content) : null;
+                        if (kit) return kit.fields.brand_name || kit.fields.tagline || "Brand Identity Kit";
+                        if (tracker) return tracker.fields.client_full_name || "Client Progress Tracker";
+                        return lastNote.content;
+                      })()}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {format(new Date(lastNote.updated_at || lastNote.created_at), "dd MMM yyyy, hh:mm a")}
+                      {lastNote.created_by_email || lastNote.created_by
+                        ? ` · ${lastNote.created_by_email || lastNote.created_by}`
+                        : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No notes yet. Add one from the Notes tab.</p>
+                )}
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader><CardTitle className="text-lg">Client Details</CardTitle></CardHeader>
@@ -6780,45 +7380,240 @@ export default function Projects() {
           <TabsContent value="stages" className="mt-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-lg">Project Stages</CardTitle>
-                  <Button size="sm" onClick={() => setStageDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Stage</Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={syncDefaultProjectStages}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Load / Sync Stages
+                    </Button>
+                    <Button size="sm" onClick={() => setStageDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />Add Custom Stage
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
                 {loadingDetail ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
                 ) : (
-                  <div className="space-y-4">
-                    {projectStages.map((stage) => (
-                      <div key={stage.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-semibold">{stage.stage_name}</h4>
-                            <p className="text-sm text-muted-foreground">Order: {stage.stage_order}</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">{stage.status || "pending"}</Badge>
-                            <Select value={stage.status || "pending"} onValueChange={(v) => updateStageStatus(stage.id, v)}>
-                              <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="pending">Pending</SelectItem>
-                                <SelectItem value="in_progress">In Progress</SelectItem>
-                                <SelectItem value="completed">Completed</SelectItem>
-                                <SelectItem value="blocked">Blocked</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        {stage.start_date && (
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Started: {format(new Date(stage.start_date), "dd MMM yyyy")}
-                            {stage.completion_date && ` • Completed: ${format(new Date(stage.completion_date), "dd MMM yyyy")}`}
-                          </p>
-                        )}
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Stages Progress</span>
+                        <span className="font-semibold">
+                          {PROJECT_STAGES.filter((ps) => {
+                            const item = projectStages.find(
+                              (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                            );
+                            return item?.status === "completed";
+                          }).length}
+                          /{PROJECT_STAGES.length}
+                        </span>
                       </div>
-                    ))}
-                    {projectStages.length === 0 && <p className="text-center text-muted-foreground py-8">No stages yet</p>}
+                      <Progress
+                        value={
+                          (PROJECT_STAGES.filter((ps) => {
+                            const item = projectStages.find(
+                              (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                            );
+                            return item?.status === "completed";
+                          }).length /
+                            PROJECT_STAGES.length) *
+                          100
+                        }
+                        className="h-2"
+                      />
+                    </div>
+
+                    {/* Social Media */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-purple-700 flex items-center gap-2">
+                        Social Media
+                      </p>
+                      {PROJECT_STAGES.slice(0, 8).map((ps, index) => {
+                        const item = projectStages.find(
+                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                        );
+                        return (
+                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`w-3 h-3 rounded-full shrink-0 ${
+                                    item?.status === "completed"
+                                      ? "bg-green-500"
+                                      : item?.status === "in_progress"
+                                      ? "bg-blue-500"
+                                      : item?.status === "blocked"
+                                      ? "bg-red-500"
+                                      : "bg-gray-300"
+                                  }`}
+                                />
+                                <span className="font-medium">
+                                  {ps.label}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {item?.status || "pending"}
+                                </Badge>
+                                <Select
+                                  value={item?.status || "pending"}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 1, v, ps.value)}
+                                >
+                                  <SelectTrigger className="w-36 h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
+                                    <SelectItem value="blocked">Blocked</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            {item?.start_date && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">
+                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
+                                {item.completion_date &&
+                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
+                              </p>
+                            )}
+                            {!item && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Development */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-indigo-700 flex items-center gap-2">
+                        Development
+                      </p>
+                      {PROJECT_STAGES.slice(8, 16).map((ps, index) => {
+                        const item = projectStages.find(
+                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                        );
+                        return (
+                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`w-3 h-3 rounded-full shrink-0 ${
+                                    item?.status === "completed"
+                                      ? "bg-green-500"
+                                      : item?.status === "in_progress"
+                                      ? "bg-blue-500"
+                                      : item?.status === "blocked"
+                                      ? "bg-red-500"
+                                      : "bg-gray-300"
+                                  }`}
+                                />
+                                <span className="font-medium">
+                                  {ps.label}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {item?.status || "pending"}
+                                </Badge>
+                                <Select
+                                  value={item?.status || "pending"}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 9, v, ps.value)}
+                                >
+                                  <SelectTrigger className="w-36 h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
+                                    <SelectItem value="blocked">Blocked</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            {item?.start_date && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">
+                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
+                                {item.completion_date &&
+                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
+                              </p>
+                            )}
+                            {!item && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Ecommerce */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-orange-700 flex items-center gap-2">
+                        Ecommerce
+                      </p>
+                      {PROJECT_STAGES.slice(16).map((ps, index) => {
+                        const item = projectStages.find(
+                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                        );
+                        return (
+                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`w-3 h-3 rounded-full shrink-0 ${
+                                    item?.status === "completed"
+                                      ? "bg-green-500"
+                                      : item?.status === "in_progress"
+                                      ? "bg-blue-500"
+                                      : item?.status === "blocked"
+                                      ? "bg-red-500"
+                                      : "bg-gray-300"
+                                  }`}
+                                />
+                                <span className="font-medium">
+                                  {ps.label}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {item?.status || "pending"}
+                                </Badge>
+                                <Select
+                                  value={item?.status || "pending"}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 17, v, ps.value)}
+                                >
+                                  <SelectTrigger className="w-36 h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
+                                    <SelectItem value="blocked">Blocked</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            {item?.start_date && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">
+                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
+                                {item.completion_date &&
+                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
+                              </p>
+                            )}
+                            {!item && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -6990,10 +7785,10 @@ export default function Projects() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="pending">⏸️ Pending</SelectItem>
-                                    <SelectItem value="in_progress">⏳ In Progress</SelectItem>
-                                    <SelectItem value="completed">✅ Completed</SelectItem>
-                                    <SelectItem value="blocked">🚫 Blocked</SelectItem>
+                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
+                                    <SelectItem value="blocked">Blocked</SelectItem>
                                   </SelectContent>
                                 </Select>
                               )}
@@ -7019,7 +7814,7 @@ export default function Projects() {
                           )}
                           {item?.start_date && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              📅 {item.completion_date ? 
+                              Due {item.completion_date ? 
                                 `Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}` :
                                 `Started: ${format(new Date(item.start_date), "dd MMM yyyy")}`
                               }
@@ -7085,6 +7880,17 @@ export default function Projects() {
                                 >
                                   <Download className="h-3 w-3 text-muted-foreground" />
                                 </a>
+                                <button
+                                  type="button"
+                                  title="Delete"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteDocument(file);
+                                  }}
+                                  className="opacity-70 hover:opacity-100 shrink-0"
+                                >
+                                  <Trash2 className="h-3 w-3 text-red-500" />
+                                </button>
                               </div>
                             ))}
                             {files.length > 3 && (
@@ -7243,6 +8049,15 @@ export default function Projects() {
                       <Download className="h-4 w-4" />
                     </Button>
                   </a>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="Delete"
+                    onClick={() => deleteDocument(file)}
+                  >
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
                 </div>
               ))}
               {documents.filter(d => d.folder === activeFolderView).length === 0 && (
@@ -7413,8 +8228,8 @@ export default function Projects() {
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-orange-500" />Update Manufacturing</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Stage *</Label><Select value={newManufacturing.stage} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, stage: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent>{MANUFACTURING_STAGES.map(s => <SelectItem key={s} value={s}>{manufacturing.find(m => m.stage === s)?.status === 'completed' ? '✅ ' : ''}{manufacturing.find(m => m.stage === s)?.status === 'in_progress' ? '⏳ ' : ''}{s}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Status</Label><Select value={newManufacturing.status} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">⏸️ Pending</SelectItem><SelectItem value="in_progress">⏳ In Progress</SelectItem><SelectItem value="completed">✅ Completed</SelectItem><SelectItem value="blocked">🚫 Blocked</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Stage *</Label><Select value={newManufacturing.stage} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, stage: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent>{MANUFACTURING_STAGES.map(s => <SelectItem key={s} value={s}>{manufacturing.find(m => m.stage === s)?.status === 'completed' ? 'Completed ' : ''}{manufacturing.find(m => m.stage === s)?.status === 'in_progress' ? '⏳ ' : ''}{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Status</Label><Select value={newManufacturing.status} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem><SelectItem value="blocked">Blocked</SelectItem></SelectContent></Select></div>
               <div className="grid gap-2"><Label>Remarks</Label><Textarea value={newManufacturing.remarks} onChange={(e) => setNewManufacturing({ ...newManufacturing, remarks: e.target.value })} placeholder="Enter remarks" rows={2} /></div>
               <div className="grid gap-2"><Label>Responsible Person</Label><Input value={newManufacturing.responsible_person} onChange={(e) => setNewManufacturing({ ...newManufacturing, responsible_person: e.target.value })} placeholder="Enter name" /></div>
               <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newManufacturing.start_date} onChange={(e) => setNewManufacturing({ ...newManufacturing, start_date: e.target.value })} /></div>
@@ -7637,7 +8452,7 @@ export default function Projects() {
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-blue-500" />Add Communication</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Type</Label><Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="call">📞 Call</SelectItem><SelectItem value="email">✉️ Email</SelectItem><SelectItem value="whatsapp">💬 WhatsApp</SelectItem><SelectItem value="meeting">📅 Meeting</SelectItem><SelectItem value="comment">💭 Comment</SelectItem><SelectItem value="followup">🔔 Follow-up</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Type</Label><Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="call">📞 Call</SelectItem><SelectItem value="email">✉️ Email</SelectItem><SelectItem value="whatsapp">💬 WhatsApp</SelectItem><SelectItem value="meeting">Due Meeting</SelectItem><SelectItem value="comment">💭 Comment</SelectItem><SelectItem value="followup">🔔 Follow-up</SelectItem></SelectContent></Select></div>
               <div className="grid gap-2"><Label>Subject</Label><Input value={newCommunication.subject} onChange={(e) => setNewCommunication({ ...newCommunication, subject: e.target.value })} placeholder="Enter subject" /></div>
               <div className="grid gap-2"><Label>Message *</Label><Textarea value={newCommunication.message} onChange={(e) => setNewCommunication({ ...newCommunication, message: e.target.value })} placeholder="Enter message" rows={3} /></div>
               <div className="grid gap-2"><Label>Next Follow-up</Label><Input type="datetime-local" value={newCommunication.next_followup} onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })} /></div>
@@ -7845,8 +8660,21 @@ export default function Projects() {
                 <div className="grid gap-2"><Label>Project Type</Label><Select value={editingProject.project_type || "perfume"} onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2"><Label>Priority</Label><Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} /></div>
-                <div className="grid gap-2"><Label>Status</Label><Select value={editingProject.status} onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Current Stage</Label><Select value={editingProject.current_stage} onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2">
+                  <Label>Status</Label>
+                  <Select
+                    value={normalizeProjectStatus(editingProject.status) || editingProject.status || "active"}
+                    onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_STATUSES.map(s => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2"><Label>Current Stage</Label><Select value={editingProject.current_stage} onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={editingProject.start_date || ""} onChange={(e) => setEditingProject({ ...editingProject, start_date: e.target.value })} /></div>
                 <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={editingProject.expected_launch_date || ""} onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })} /></div>
               </div>
@@ -7948,11 +8776,53 @@ export default function Projects() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={FolderKanban} label="Total Projects" value={stats.total} color="blue" />
-        <StatCard icon={CheckCircle} label="Active" value={stats.active} color="green" />
-        <StatCard icon={AlertTriangle} label="On Hold" value={stats.onHold} color="red" />
-        <StatCard icon={DollarSign} label="Total Value" value={formatCurrency(stats.totalValue)} color="purple" />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard
+          icon={FolderKanban}
+          label="Total Projects"
+          value={stats.total}
+          color="blue"
+          active={filterStatus === "all"}
+          onClick={() => setFilterStatus("all")}
+        />
+        <StatCard
+          icon={CheckCircle}
+          label="Active"
+          value={stats.active}
+          color="green"
+          active={filterStatus === "active"}
+          onClick={() => setFilterStatus("active")}
+        />
+        <StatCard
+          icon={AlertTriangle}
+          label="On Hold"
+          value={stats.onHold}
+          color="orange"
+          active={filterStatus === "on_hold"}
+          onClick={() => setFilterStatus("on_hold")}
+        />
+        <StatCard
+          icon={XCircle}
+          label="Cancelled"
+          value={stats.cancelled}
+          color="red"
+          active={filterStatus === "cancelled"}
+          onClick={() => setFilterStatus("cancelled")}
+        />
+        <StatCard
+          icon={Award}
+          label="Completed"
+          value={stats.completed}
+          color="teal"
+          active={filterStatus === "completed"}
+          onClick={() => setFilterStatus("completed")}
+        />
+        <StatCard
+          icon={DollarSign}
+          label="Total Value"
+          value={formatCurrency(stats.totalValue)}
+          color="purple"
+        />
       </div>
 
       <Card>
@@ -7968,7 +8838,7 @@ export default function Projects() {
             </Select>
             <Select value={filterStage} onValueChange={setFilterStage}>
               <SelectTrigger className="w-48"><SelectValue placeholder="Stage" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Stages</SelectItem>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}</SelectContent>
+              <SelectContent><SelectItem value="all">All Stages</SelectItem>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={filterPriority} onValueChange={setFilterPriority}>
               <SelectTrigger className="w-36"><SelectValue placeholder="Priority" /></SelectTrigger>
@@ -7976,7 +8846,7 @@ export default function Projects() {
             </Select>
             <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
               <SelectTrigger className="w-48"><SelectValue placeholder="Sort by" /></SelectTrigger>
-              <SelectContent><SelectItem value="date_asc">🚀 Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">🚀 Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
+              <SelectContent><SelectItem value="date_asc">Launch Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">Launch Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
             </Select>
             <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("priority"); }}>
               <X className="h-4 w-4 mr-1" />Clear
@@ -7992,7 +8862,7 @@ export default function Projects() {
               <div className="text-center py-12">
                 <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
-                  {isAdmin ? "No projects found" : "Aapko abhi tak kisi project mein task assign nahi hua hai"}
+                  {isAdmin ? "No projects found" : "You have no tasks assigned on any project yet"}
                 </p>
                 {isAdmin && (
                   <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
@@ -8008,6 +8878,7 @@ export default function Projects() {
                   onClick={() => handleProjectClick(project)}
                   onImageUpload={handleDashboardImageUpload}
                   uploading={uploadingImage === project.id}
+                  lastNote={lastNotesByProject[project.id] || null}
                 />
               ))
             )}
