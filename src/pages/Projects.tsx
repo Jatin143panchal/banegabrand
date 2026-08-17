@@ -79,6 +79,7 @@ const PROJECT_STATUSES = [
   { value: "on_hold", label: "On Hold", color: "#f59e0b" },
   { value: "completed", label: "Completed", color: "#3b82f6" },
   { value: "cancelled", label: "Cancelled", color: "#ef4444" },
+  { value: "refund", label: "Refund", color: "#a855f7" },
 ];
 
 const PROJECT_TYPES = [
@@ -387,6 +388,7 @@ function normalizeProjectStatus(status: string | null | undefined): string {
   if (raw === "hold" || raw === "onhold") return "on_hold";
   if (raw === "cancel" || raw === "canceled") return "cancelled";
   if (raw === "complete" || raw === "done") return "completed";
+  if (raw === "refunded" || raw === "refund_project") return "refund";
   return raw;
 }
 
@@ -596,12 +598,13 @@ function SubtaskTagBadge({ tag }: { tag: string | null }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────
-function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote }: { 
+function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee }: { 
   project: Project; 
   onClick: () => void;
   onImageUpload?: (projectId: string, file: File) => Promise<void>;
   uploading?: boolean;
   lastNote?: ProjectNote | null;
+  lastAssignee?: { name: string | null; email: string | null; taskName?: string | null; assignedAt?: string | null } | null;
 }) {
   const progress = project.completion_percentage || 0;
   const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "";
@@ -646,12 +649,12 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote }: {
 
   return (
     <div 
-      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50 relative group"
+      className="border rounded-lg p-3 sm:p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50 relative group"
       onClick={onClick}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
     >
-      <div className="flex items-start justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div 
             className="relative h-14 w-14 rounded-md border shrink-0 overflow-hidden bg-muted flex items-center justify-center"
@@ -714,25 +717,47 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote }: {
                 </span>
               )}
             </div>
-            {lastNotePreview && (
-              <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5 max-w-xl">
-                <StickyNote className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
-                <div className="min-w-0">
-                  <p className="line-clamp-2 break-words">{lastNotePreview}</p>
-                  {lastNote?.updated_at || lastNote?.created_at ? (
-                    <p className="text-[10px] mt-0.5 opacity-80">
-                      {format(new Date(lastNote.updated_at || lastNote.created_at), "dd MMM yyyy")}
-                    </p>
-                  ) : null}
-                </div>
+            {(lastNotePreview || lastAssignee) && (
+              <div className="mt-2 space-y-1.5 max-w-xl">
+                {lastNotePreview && (
+                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5">
+                    <StickyNote className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                    <div className="min-w-0">
+                      <p className="line-clamp-2 break-words">{lastNotePreview}</p>
+                      {lastNote?.updated_at || lastNote?.created_at ? (
+                        <p className="text-[10px] mt-0.5 opacity-80">
+                          {format(new Date(lastNote.updated_at || lastNote.created_at), "dd MMM yyyy")}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+                {lastAssignee && (lastAssignee.name || lastAssignee.email) && (
+                  <div className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-1.5">
+                    <UserCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">
+                        Last task → {lastAssignee.name || lastAssignee.email}
+                      </p>
+                      {lastAssignee.taskName && (
+                        <p className="text-[10px] opacity-80 line-clamp-1">{lastAssignee.taskName}</p>
+                      )}
+                      {lastAssignee.assignedAt && (
+                        <p className="text-[10px] mt-0.5 opacity-70">
+                          {format(new Date(lastAssignee.assignedAt), "dd MMM yyyy, hh:mm a")}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
+        <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="text-left sm:text-right">
             <div className="flex items-center gap-2">
-              <Progress value={progress} className="w-24 h-2" />
+              <Progress value={progress} className="w-20 sm:w-24 h-2" />
               <span className="text-xs font-medium">{progress}%</span>
             </div>
             {project.expected_launch_date && (
@@ -741,7 +766,7 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote }: {
               </p>
             )}
           </div>
-          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
         </div>
       </div>
     </div>
@@ -2349,6 +2374,7 @@ function TaskAssignmentPage({
       queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
       queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
+      queryClient.invalidateQueries({ queryKey: ["project_last_assignees"] });
     } catch (error: any) {
       toast.error(error.message || "Failed to assign task");
     }
@@ -3733,40 +3759,79 @@ export default function Projects() {
   };
 
   const addProjectTaskSubtask = async (taskId: string, title: string, tag: string) => {
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: TaskSubtask = {
+      id: tempId,
+      task_id: taskId,
+      title,
+      tag: tag || null,
+      status: "not_started",
+      assigned_to_email: user?.email || null,
+      assigned_to_name: (user as any)?.name || user?.email || null,
+      note: null,
+      created_at: new Date().toISOString(),
+    };
+    setProjectTaskSubtasks((prev) => ({
+      ...prev,
+      [taskId]: [...(prev[taskId] || []), optimistic],
+    }));
     try {
-      const { error } = await supabase.from("task_subtasks").insert({
+      const { data, error } = await supabase.from("task_subtasks").insert({
         task_id: taskId,
         title,
         tag: tag || null,
         status: "not_started",
         assigned_to_email: user?.email || null,
         assigned_to_name: (user as any)?.name || user?.email || null,
-      });
+      }).select().single();
       if (error) throw error;
+      setProjectTaskSubtasks((prev) => ({
+        ...prev,
+        [taskId]: (prev[taskId] || []).map((s) => (s.id === tempId ? (data as TaskSubtask) : s)),
+      }));
       toast.success("Subtask added");
-      fetchProjectTaskSubtasks(taskId);
     } catch (error: any) {
+      setProjectTaskSubtasks((prev) => ({
+        ...prev,
+        [taskId]: (prev[taskId] || []).filter((s) => s.id !== tempId),
+      }));
       toast.error(error.message || "Failed to add subtask");
     }
   };
 
   const toggleProjectTaskSubtask = async (subtaskId: string, taskId: string, currentStatus: string) => {
     const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
+    setProjectTaskSubtasks((prev) => ({
+      ...prev,
+      [taskId]: (prev[taskId] || []).map((s) =>
+        s.id === subtaskId ? { ...s, status: nextStatus } : s
+      ),
+    }));
     try {
       const { error } = await supabase.from("task_subtasks").update({ status: nextStatus }).eq("id", subtaskId);
       if (error) throw error;
-      fetchProjectTaskSubtasks(taskId);
     } catch (error: any) {
+      setProjectTaskSubtasks((prev) => ({
+        ...prev,
+        [taskId]: (prev[taskId] || []).map((s) =>
+          s.id === subtaskId ? { ...s, status: currentStatus } : s
+        ),
+      }));
       toast.error(error.message || "Failed to update subtask");
     }
   };
 
   const deleteProjectTaskSubtask = async (subtaskId: string, taskId: string) => {
+    const prevList = projectTaskSubtasks[taskId] || [];
+    setProjectTaskSubtasks((prev) => ({
+      ...prev,
+      [taskId]: (prev[taskId] || []).filter((s) => s.id !== subtaskId),
+    }));
     try {
       const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
       if (error) throw error;
-      fetchProjectTaskSubtasks(taskId);
     } catch (error: any) {
+      setProjectTaskSubtasks((prev) => ({ ...prev, [taskId]: prevList }));
       toast.error(error.message || "Failed to delete subtask");
     }
   };
@@ -4079,6 +4144,7 @@ export default function Projects() {
       queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["project_last_assignees"] });
     } catch (error: any) {
       toast.error(error.message || "Failed to assign task");
     }
@@ -4393,6 +4459,30 @@ export default function Projects() {
     },
   });
 
+  const { data: lastAssigneeByProject = {} } = useQuery({
+    queryKey: ["project_last_assignees"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_tasks")
+        .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at")
+        .not("assigned_to_email", "is", null)
+        .order("assigned_at", { ascending: false, nullsFirst: false });
+      if (error) throw error;
+      const map: Record<string, { name: string | null; email: string | null; taskName: string | null; assignedAt: string | null }> = {};
+      for (const t of data || []) {
+        if (!t.project_id || map[t.project_id]) continue;
+        const at = t.assigned_at || t.updated_at || t.created_at || null;
+        map[t.project_id] = {
+          name: t.assigned_to_name || null,
+          email: t.assigned_to_email || null,
+          taskName: t.task_name || null,
+          assignedAt: at,
+        };
+      }
+      return map;
+    },
+  });
+
   const projects = isAdmin
     ? allProjects
     : allProjects.filter((p: Project) => assignedProjectIds.has(p.id));
@@ -4403,6 +4493,7 @@ export default function Projects() {
     onHold: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "on_hold").length,
     cancelled: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "cancelled").length,
     completed: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "completed").length,
+    refund: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "refund").length,
     totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
   };
 
@@ -5128,6 +5219,7 @@ export default function Projects() {
       }
       queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["project_last_assignees"] });
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -5740,6 +5832,7 @@ export default function Projects() {
       setNoteDialogOpen(false);
       resetNoteForm();
       fetchProjectDetails(selectedProject.id);
+      queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
     } catch (error: any) {
       toast.error(error.message || "Failed to save note");
     } finally {
@@ -5780,6 +5873,7 @@ export default function Projects() {
       setNoteDialogOpen(false);
       resetNoteForm();
       fetchProjectDetails(selectedProject.id);
+      queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
     } catch (error: any) {
       toast.error(error.message || "Failed to update note");
     } finally {
@@ -5802,6 +5896,7 @@ export default function Projects() {
       if (selectedProject) {
         fetchProjectDetails(selectedProject.id);
       }
+      queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -8776,7 +8871,7 @@ export default function Projects() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
         <StatCard
           icon={FolderKanban}
           label="Total Projects"
@@ -8810,6 +8905,14 @@ export default function Projects() {
           onClick={() => setFilterStatus("cancelled")}
         />
         <StatCard
+          icon={RefreshCw}
+          label="Refund"
+          value={stats.refund}
+          color="purple"
+          active={filterStatus === "refund"}
+          onClick={() => setFilterStatus("refund")}
+        />
+        <StatCard
           icon={Award}
           label="Completed"
           value={stats.completed}
@@ -8821,7 +8924,7 @@ export default function Projects() {
           icon={DollarSign}
           label="Total Value"
           value={formatCurrency(stats.totalValue)}
-          color="purple"
+          color="indigo"
         />
       </div>
 
@@ -8879,6 +8982,7 @@ export default function Projects() {
                   onImageUpload={handleDashboardImageUpload}
                   uploading={uploadingImage === project.id}
                   lastNote={lastNotesByProject[project.id] || null}
+                  lastAssignee={lastAssigneeByProject[project.id] || null}
                 />
               ))
             )}
