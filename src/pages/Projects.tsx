@@ -604,7 +604,7 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, las
   onImageUpload?: (projectId: string, file: File) => Promise<void>;
   uploading?: boolean;
   lastNote?: ProjectNote | null;
-  lastAssignee?: { name: string | null; email: string | null; taskName?: string | null; assignedAt?: string | null } | null;
+  lastAssignee?: { name: string | null; email: string | null; taskName?: string | null; assignedAt?: string | null; status?: string | null } | null;
 }) {
   const progress = project.completion_percentage || 0;
   const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "";
@@ -733,12 +733,28 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, las
                   </div>
                 )}
                 {lastAssignee && (lastAssignee.name || lastAssignee.email) && (
-                  <div className="flex items-start gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-1.5">
+                  <div className={`flex items-start gap-1.5 text-xs rounded-md px-2 py-1.5 border ${
+                    lastAssignee.status === "completed"
+                      ? "text-green-700 bg-green-50 border-green-200"
+                      : "text-indigo-700 bg-indigo-50 border-indigo-100"
+                  }`}>
                     <UserCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">
-                        Last task → {lastAssignee.name || lastAssignee.email}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-medium truncate">
+                          Last task → {lastAssignee.name || lastAssignee.email}
+                        </p>
+                        {lastAssignee.status === "completed" && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200">
+                            <CheckCircle className="h-2.5 w-2.5" /> Completed
+                          </span>
+                        )}
+                        {lastAssignee.status && lastAssignee.status !== "completed" && (
+                          <span className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-white/70 border border-current/20 opacity-80">
+                            {String(lastAssignee.status).replace(/_/g, " ")}
+                          </span>
+                        )}
+                      </div>
                       {lastAssignee.taskName && (
                         <p className="text-[10px] opacity-80 line-clamp-1">{lastAssignee.taskName}</p>
                       )}
@@ -4464,11 +4480,11 @@ export default function Projects() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_tasks")
-        .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at")
+        .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at, status")
         .not("assigned_to_email", "is", null)
         .order("assigned_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      const map: Record<string, { name: string | null; email: string | null; taskName: string | null; assignedAt: string | null }> = {};
+      const map: Record<string, { name: string | null; email: string | null; taskName: string | null; assignedAt: string | null; status: string | null }> = {};
       for (const t of data || []) {
         if (!t.project_id || map[t.project_id]) continue;
         const at = t.assigned_at || t.updated_at || t.created_at || null;
@@ -4477,6 +4493,7 @@ export default function Projects() {
           email: t.assigned_to_email || null,
           taskName: t.task_name || null,
           assignedAt: at,
+          status: t.status || null,
         };
       }
       return map;
