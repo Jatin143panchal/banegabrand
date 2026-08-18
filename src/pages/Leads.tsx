@@ -137,12 +137,14 @@ interface DbLead {
   temperature?: string | null;
   /** true = admin put this lead in Shared Pool (visible to employees until claimed) */
   in_shared_pool?: boolean | null;
+  /** true = employee claimed this lead from Shared Pool (counts toward the 10 pool limit) */
+  claimed_from_pool?: boolean | null;
 }
 
-function countActiveAssigned(leads: DbLead[], userId: string | undefined) {
+/** Only leads claimed from Shared Pool count toward the max-10 limit. Admin-assigned leads do not. */
+function countPoolClaims(leads: DbLead[], userId: string | undefined) {
   if (!userId) return 0;
-  // Count ALL leads assigned to this employee — any stage (including converted / lost)
-  return leads.filter(l => l.assigned_to === userId).length;
+  return leads.filter(l => l.assigned_to === userId && l.claimed_from_pool === true).length;
 }
 
 // ── Follow-up urgency config ──
@@ -365,13 +367,13 @@ function SharedLeadsPool({
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {isAdmin
-                ? "Select leads in the main table, then click Add to Pool. Use Assign to me on each pool lead below."
-                : "Click Assign to me next to Call. The first person to claim a lead gets it. One lead at a time."}
+                ? "Select leads in the main table, then click Add to Pool. Employees click Assign to me on a pool lead."
+                : "Click Assign to me next to Call. First person to claim a lead gets it. One lead at a time."}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-sm">
-              Your leads: {myActiveCount}/{maxClaims} · {remainingClaims} remaining
+              From pool: {myActiveCount}/{maxClaims} · {remainingClaims} remaining
             </Badge>
             <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
@@ -411,7 +413,7 @@ function SharedLeadsPool({
                       rowLocked ? "opacity-50" : ""
                     }`}
                   >
-                    {/* Left: Call + Assign to me (first click wins) */}
+                    {/* Left: Call + Assign to me */}
                     <div className="flex flex-col gap-1 flex-shrink-0 order-2 sm:order-1">
                       <div className="flex items-center gap-2">
                         {lead.phone ? (
@@ -428,9 +430,10 @@ function SharedLeadsPool({
                           </Button>
                         )}
                         <Button
+                          type="button"
                           size="sm"
                           disabled={remainingClaims <= 0 || isBusy}
-                          className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
+                          className="bg-violet-600 hover:bg-violet-700 text-white whitespace-nowrap"
                           title={
                             remainingClaims <= 0
                               ? "Limit reached"
@@ -439,6 +442,7 @@ function SharedLeadsPool({
                               : "Assign this lead to yourself"
                           }
                           onClick={async e => {
+                            e.preventDefault();
                             e.stopPropagation();
                             if (isBusy || remainingClaims <= 0) return;
                             setClaimingId(lead.id);
@@ -513,12 +517,12 @@ function SharedLeadsPool({
           )}
           {remainingClaims <= 0 && (
             <p className="text-xs text-red-600 mt-3">
-              Limit reached ({maxClaims} leads). Remove or reassign some of your leads before taking more from the pool.
+              Shared pool limit reached ({maxClaims} leads claimed from pool). You cannot claim more from the pool until some are unassigned.
             </p>
           )}
           {remainingClaims > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              One lead at a time. Click Assign to me next to Call. The first person to claim a lead gets it.
+              One lead at a time. Click Assign to me next to Call. Only leads taken from this pool count toward the {maxClaims} limit.
             </p>
           )}
         </CardContent>
@@ -1551,7 +1555,7 @@ export default function Leads() {
   }, [selectedIds, logActivity, fetchLeads]);
 
   const myActiveCount = useMemo(
-    () => countActiveAssigned(leads, user?.id),
+    () => countPoolClaims(leads, user?.id),
     [leads, user?.id]
   );
   const remainingClaims = Math.max(0, MAX_POOL_CLAIMS_PER_EMPLOYEE - myActiveCount);
@@ -1581,17 +1585,24 @@ export default function Leads() {
       return;
     }
     if (myActiveCount >= MAX_POOL_CLAIMS_PER_EMPLOYEE) {
-      toast.error(`You already have ${MAX_POOL_CLAIMS_PER_EMPLOYEE} leads. Remove some before assigning more from the pool.`);
+      toast.error(
+        `You already claimed ${MAX_POOL_CLAIMS_PER_EMPLOYEE} leads from the shared pool. Limit reached.`
+      );
       return;
     }
-
 
     const assign_date = new Date().toISOString();
 
     setLeads(prev =>
       prev.map(l =>
         l.id === lead.id
-          ? { ...l, assigned_to: user.id!, assign_date, in_shared_pool: false }
+          ? {
+              ...l,
+              assigned_to: user.id!,
+              assign_date,
+              in_shared_pool: false,
+              claimed_from_pool: true,
+            }
           : l
       )
     );
@@ -1603,6 +1614,7 @@ export default function Leads() {
           assigned_to: user.id,
           assign_date,
           in_shared_pool: false,
+          claimed_from_pool: true,
         })
         .eq("id", lead.id)
         .is("assigned_to", null)
@@ -1617,10 +1629,10 @@ export default function Leads() {
         return;
       }
 
-      logActivity(lead.id, "updated", "Added from shared pool");
-      toast.success(`${lead.name} has been added to you`);
+      logActivity(lead.id, "updated", "Assigned from shared pool");
+      toast.success(`${lead.name} has been assigned to you`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to add lead");
+      toast.error(e.message || "Failed to assign lead");
       await fetchLeads();
     }
   }, [user?.id, myActiveCount, fetchLeads, logActivity]);
