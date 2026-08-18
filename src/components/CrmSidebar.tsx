@@ -1,10 +1,7 @@
 import {
-  LayoutDashboard,
   Users,
   UserPlus,
   Handshake,
-  CalendarCheck,
-  BarChart3,
   Settings,
   Building2,
   Shield,
@@ -12,12 +9,10 @@ import {
   Megaphone,
   UserCog,
   Users2,
-  Phone,
   UserCircle,
   Tent,
   GraduationCap,
   Briefcase,
-  MessageSquare,
   ListTodo,
   BarChart2,
   Megaphone as MegaphoneIcon,
@@ -40,19 +35,13 @@ import {
 } from "@/components/ui/sidebar";
 
 const mainItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Lead Dashboard", url: "/leads/dashboard", icon: Phone },
   { title: "Leads", url: "/leads", icon: UserPlus },
   { title: "Expo Leads", url: "/expo-leads", icon: Tent },
   { title: "Workshop Leads", url: "/workshop-leads", icon: GraduationCap },
-  { title: "Contacts", url: "/contacts", icon: Users },
   { title: "Deals", url: "/deals", icon: Handshake },
-  { title: "Activities", url: "/activities", icon: CalendarCheck },
   { title: "Marketing", url: "/marketing", icon: Megaphone },
   { title: "My Tasks", url: "/my-tasks", icon: ListTodo },
   { title: "Projects", url: "/projects", icon: Briefcase },
-  { title: "Messenger", url: "/messenger", icon: MessageSquare },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
 ];
 
 const fullAdminItems = [
@@ -124,93 +113,10 @@ export function CrmSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const currentPath = location.pathname;
-  const isActive = (path: string) => currentPath === path || currentPath.startsWith(path + "/");
+  const isActive = (path: string) =>
+    currentPath === path || currentPath.startsWith(path + "/");
   const isOwnerOrAdmin = useIsOwnerOrAdmin();
   const isManager = useIsManager();
   const isHR = useHasRole("hr_manager");
 
-  return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary">
-            <Building2 className="h-5 w-5 text-sidebar-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-sidebar-accent-foreground">BanegaBrand</span>
-              <span className="text-xs text-sidebar-foreground/60">Sales CRM</span>
-            </div>
-          )}
-        </div>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <NavLink
-                      to={item.url}
-                      end
-                      className="hover:bg-sidebar-accent/50"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <item.icon className="mr-2 h-4 w-4" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        {isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="Admin (Full Access)"
-            items={fullAdminItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
-        )}
-        {isManager && !isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="Manager"
-            items={managerItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
-        )}
-        {isHR && !isOwnerOrAdmin && (
-          <SidebarNavGroup
-            label="HR"
-            items={hrItems}
-            collapsed={collapsed}
-            isActive={isActive}
-          />
-        )}
-      </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          {settingsItems.map((item) => (
-            <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                <NavLink
-                  to={item.url}
-                  end
-                  className="hover:bg-sidebar-accent/50"
-                  activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                >
-                  <item.icon className="mr-2 h-4 w-4" />
-                  {!collapsed && <span>{item.title}</span>}
-                </NavLink>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarFooter>
-    </Sidebar>
-  );
-}
+  return
