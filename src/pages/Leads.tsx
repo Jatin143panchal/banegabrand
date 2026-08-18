@@ -366,7 +366,7 @@ function SharedLeadsPool({
             <p className="text-sm text-muted-foreground mt-1">
               {isAdmin
                 ? "Select leads in the main table, then click Add to Pool. Only those leads appear here for employees."
-                : "Use Assign to me on one lead at a time (next to Call). Maximum limit applies to all your assigned leads."}
+                : "Click Add to me next to Call on a lead. The first employee to claim it gets that lead. One lead at a time."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -413,50 +413,57 @@ function SharedLeadsPool({
                       rowLocked ? "opacity-50" : ""
                     }`}
                   >
-                    {/* Left: Assign to me + Call */}
-                    <div className="flex items-center gap-2 flex-shrink-0 order-2 sm:order-1">
-                      {!isAdmin && (
-                        <Button
-                          size="sm"
-                          disabled={remainingClaims <= 0 || isBusy}
-                          className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
-                          title={
-                            remainingClaims <= 0
-                              ? "Limit reached"
-                              : isBusy
-                              ? "Only one lead can be assigned at a time"
-                              : "Assign this lead to yourself"
-                          }
-                          onClick={async e => {
-                            e.stopPropagation();
-                            if (isBusy || remainingClaims <= 0) return;
-                            setClaimingId(lead.id);
-                            try {
-                              await onClaim(lead);
-                            } finally {
-                              setClaimingId(null);
-                            }
-                          }}
-                        >
-                          {isThisBusy ? (
-                            <><Loader2 className="h-4 w-4 animate-spin mr-1" />Assigning…</>
-                          ) : (
-                            "Assign to me"
-                          )}
-                        </Button>
-                      )}
-                      {lead.phone ? (
-                        <Button variant="outline" size="sm" className="whitespace-nowrap" asChild>
-                          <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}>
+                    {/* Left: Call + Add to me (first click wins) */}
+                    <div className="flex flex-col gap-1 flex-shrink-0 order-2 sm:order-1">
+                      <div className="flex items-center gap-2">
+                        {lead.phone ? (
+                          <Button variant="outline" size="sm" className="whitespace-nowrap" asChild>
+                            <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}>
+                              <Phone className="h-3.5 w-3.5 mr-1" />
+                              Call
+                            </a>
+                          </Button>
+                        ) : (
+                          <Button variant="outline" size="sm" disabled className="whitespace-nowrap">
                             <Phone className="h-3.5 w-3.5 mr-1" />
                             Call
-                          </a>
-                        </Button>
-                      ) : (
-                        <Button variant="outline" size="sm" disabled className="whitespace-nowrap">
-                          <Phone className="h-3.5 w-3.5 mr-1" />
-                          Call
-                        </Button>
+                          </Button>
+                        )}
+                        {!isAdmin && (
+                          <Button
+                            size="sm"
+                            disabled={remainingClaims <= 0 || isBusy}
+                            className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
+                            title={
+                              remainingClaims <= 0
+                                ? "Limit reached"
+                                : isBusy
+                                ? "Only one lead can be claimed at a time"
+                                : "Add this lead to yourself (first employee wins)"
+                            }
+                            onClick={async e => {
+                              e.stopPropagation();
+                              if (isBusy || remainingClaims <= 0) return;
+                              setClaimingId(lead.id);
+                              try {
+                                await onClaim(lead);
+                              } finally {
+                                setClaimingId(null);
+                              }
+                            }}
+                          >
+                            {isThisBusy ? (
+                              <><Loader2 className="h-4 w-4 animate-spin mr-1" />Adding…</>
+                            ) : (
+                              "Add to me"
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                      {!isAdmin && (
+                        <p className="text-[10px] text-muted-foreground max-w-[200px]">
+                          First employee to click Add to me gets this lead.
+                        </p>
                       )}
                     </div>
 
@@ -517,7 +524,7 @@ function SharedLeadsPool({
           )}
           {!isAdmin && remainingClaims > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              You can assign only one shared-pool lead at a time. Use Assign to me next to Call on that lead.
+              One lead at a time. Click Add to me next to Call. The first employee to claim a lead gets it.
             </p>
           )}
         </CardContent>
@@ -1616,10 +1623,10 @@ export default function Leads() {
         return;
       }
 
-      logActivity(lead.id, "updated", "Assigned from shared pool");
-      toast.success(`${lead.name} has been assigned to you`);
+      logActivity(lead.id, "updated", "Added from shared pool");
+      toast.success(`${lead.name} has been added to you`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to assign lead");
+      toast.error(e.message || "Failed to add lead");
       await fetchLeads();
     }
   }, [user?.id, myActiveCount, fetchLeads, logActivity]);
