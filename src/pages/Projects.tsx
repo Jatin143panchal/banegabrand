@@ -90,6 +90,24 @@ const PROJECT_TYPES = [
   { value: "supplements", label: "Supplements", icon: "" },
 ];
 
+/** Product category options shown in Project Overview */
+const PRODUCT_CATEGORIES = [
+  { value: "perfume", label: "Perfume" },
+  { value: "ayurveda", label: "Ayurveda" },
+  { value: "cosmetics", label: "Cosmetics" },
+  { value: "food", label: "Food & Beverage" },
+  { value: "supplements", label: "Supplements / Nutraceutical" },
+  { value: "herbal", label: "Herbal & Ayurvedic" },
+  { value: "pharma", label: "Pharma" },
+  { value: "other", label: "Other" },
+];
+
+/** How many products to launch (1–10) */
+const PRODUCTS_TO_LAUNCH_OPTIONS = Array.from({ length: 10 }, (_, i) => ({
+  value: String(i + 1),
+  label: String(i + 1),
+}));
+
 const PROJECT_PRIORITIES = [
   { value: "high", label: "High", color: "#ef4444", icon: "" },
   { value: "medium", label: "Medium", color: "#f59e0b", icon: "" },
@@ -178,6 +196,10 @@ interface Project {
   client_phone: string | null;
   client_email: string | null;
   image_url: string | null;
+  product_category: string | null;
+  products_to_launch: number | null;
+  /** Free-text note e.g. fragrance of perfume, or custom text when category is Other */
+  product_category_note: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -4691,6 +4713,9 @@ export default function Projects() {
     client_address: "",
     client_phone: "",
     client_email: "",
+    product_category: "perfume",
+    products_to_launch: "1",
+    product_category_note: "",
   });
 
   const handleNewProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4757,6 +4782,9 @@ export default function Projects() {
           client_address: newProject.client_address || null,
           client_phone: newProject.client_phone || null,
           client_email: newProject.client_email || null,
+          product_category: newProject.product_category || null,
+          products_to_launch: Number(newProject.products_to_launch) || 1,
+          product_category_note: newProject.product_category_note || null,
           current_stage: "brand_identity",
           status: "active",
           completion_percentage: 0,
@@ -4864,6 +4892,9 @@ export default function Projects() {
           client_address: editingProject.client_address,
           client_phone: editingProject.client_phone,
           client_email: editingProject.client_email,
+          product_category: editingProject.product_category || null,
+          products_to_launch: editingProject.products_to_launch ?? null,
+          product_category_note: editingProject.product_category_note || null,
           image_url: imageUrl,
           updated_at: new Date().toISOString(),
         })
@@ -7224,6 +7255,122 @@ export default function Projects() {
               <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Tasks</p><p className="text-xl font-bold">{projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}</p></CardContent></Card>
             </div>
 
+            {/* Product category & products to launch */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-sm text-muted-foreground">Product Category</p>
+                  <Select
+                    value={selectedProject.product_category || ""}
+                    onValueChange={async (v) => {
+                      try {
+                        const { error } = await supabase
+                          .from("projects")
+                          .update({ product_category: v, updated_at: new Date().toISOString() })
+                          .eq("id", selectedProject.id);
+                        if (error) throw error;
+                        setSelectedProject({ ...selectedProject, product_category: v });
+                        toast.success(`Product category → ${PRODUCT_CATEGORIES.find(c => c.value === v)?.label || v}`);
+                        refetch();
+                      } catch (e: any) {
+                        toast.error(e.message || "Failed to update product category");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Select product category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRODUCT_CATEGORIES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-sm text-muted-foreground">How Many Products to Launch</p>
+                  <Select
+                    value={selectedProject.products_to_launch != null ? String(selectedProject.products_to_launch) : ""}
+                    onValueChange={async (v) => {
+                      try {
+                        const num = Number(v);
+                        const { error } = await supabase
+                          .from("projects")
+                          .update({ products_to_launch: num, updated_at: new Date().toISOString() })
+                          .eq("id", selectedProject.id);
+                        if (error) throw error;
+                        setSelectedProject({ ...selectedProject, products_to_launch: num });
+                        toast.success(`Products to launch → ${num}`);
+                        refetch();
+                      } catch (e: any) {
+                        toast.error(e.message || "Failed to update products to launch");
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Select 1 to 10" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRODUCTS_TO_LAUNCH_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Product category note (fragrance, custom Other note, etc.) */}
+            <Card>
+              <CardContent className="p-4 space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Product note
+                  <span className="text-xs text-muted-foreground/80 ml-1">
+                    (e.g. fragrance of perfume, or your own note when category is Other)
+                  </span>
+                </p>
+                <Textarea
+                  value={selectedProject.product_category_note || ""}
+                  placeholder={
+                    selectedProject.product_category === "other"
+                      ? "Write your own note for Other category..."
+                      : selectedProject.product_category === "perfume"
+                      ? "e.g. Fragrance: woody, floral, citrus..."
+                      : "Add product details or notes..."
+                  }
+                  className="min-h-[80px] text-sm"
+                  onChange={(e) =>
+                    setSelectedProject({
+                      ...selectedProject,
+                      product_category_note: e.target.value,
+                    })
+                  }
+                  onBlur={async (e) => {
+                    const note = e.target.value || null;
+                    try {
+                      const { error } = await supabase
+                        .from("projects")
+                        .update({
+                          product_category_note: note,
+                          updated_at: new Date().toISOString(),
+                        })
+                        .eq("id", selectedProject.id);
+                      if (error) throw error;
+                      setSelectedProject((prev) =>
+                        prev ? { ...prev, product_category_note: note } : prev
+                      );
+                      toast.success("Product note saved");
+                      refetch();
+                    } catch (err: any) {
+                      toast.error(err.message || "Failed to save product note");
+                    }
+                  }}
+                />
+              </CardContent>
+            </Card>
+
             {/* Last note */}
             <Card className="border-amber-200 bg-amber-50/40">
               <CardHeader className="pb-2">
@@ -8770,6 +8917,23 @@ export default function Projects() {
                 <div className="grid gap-2"><Label>Client Email</Label><Input value={editingProject.client_email || ""} onChange={(e) => setEditingProject({ ...editingProject, client_email: e.target.value })} placeholder="Enter email address" /></div>
                 <div className="grid gap-2"><Label>Client Address</Label><Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" /></div>
                 <div className="grid gap-2"><Label>Project Type</Label><Select value={editingProject.project_type || "perfume"} onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>Product Category</Label><Select value={editingProject.product_category || ""} onValueChange={(v) => setEditingProject({ ...editingProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={editingProject.products_to_launch != null ? String(editingProject.products_to_launch) : ""} onValueChange={(v) => setEditingProject({ ...editingProject, products_to_launch: Number(v) })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>Product note</Label>
+                  <Textarea
+                    value={editingProject.product_category_note || ""}
+                    onChange={(e) => setEditingProject({ ...editingProject, product_category_note: e.target.value })}
+                    placeholder={
+                      editingProject.product_category === "other"
+                        ? "Write your own note for Other category..."
+                        : editingProject.product_category === "perfume"
+                        ? "e.g. Fragrance: woody, floral, citrus..."
+                        : "Add product details or notes..."
+                    }
+                    className="min-h-[80px]"
+                  />
+                </div>
                 <div className="grid gap-2"><Label>Priority</Label><Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} /></div>
                 <div className="grid gap-2">
@@ -8869,6 +9033,23 @@ export default function Projects() {
                     <div className="grid gap-2"><Label>Client Email</Label><Input value={newProject.client_email} onChange={(e) => setNewProject({ ...newProject, client_email: e.target.value })} placeholder="Enter email address" /></div>
                     <div className="grid gap-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
                     <div className="grid gap-2"><Label>Project Type</Label><Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2"><Label>Product Category</Label><Select value={newProject.product_category} onValueChange={(v) => setNewProject({ ...newProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={newProject.products_to_launch} onValueChange={(v) => setNewProject({ ...newProject, products_to_launch: v })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label>Product note</Label>
+                      <Textarea
+                        value={newProject.product_category_note}
+                        onChange={(e) => setNewProject({ ...newProject, product_category_note: e.target.value })}
+                        placeholder={
+                          newProject.product_category === "other"
+                            ? "Write your own note for Other category..."
+                            : newProject.product_category === "perfume"
+                            ? "e.g. Fragrance: woody, floral, citrus..."
+                            : "Add product details or notes..."
+                        }
+                        className="min-h-[80px]"
+                      />
+                    </div>
                     <div className="grid gap-2"><Label>Priority</Label><Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
                     <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" /></div>
                     <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} /></div>
