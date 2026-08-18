@@ -365,16 +365,14 @@ function SharedLeadsPool({
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {isAdmin
-                ? "Select leads in the main table, then click Add to Pool. Only those leads appear here for employees."
-                : "Click Add to me next to Call on a lead. The first employee to claim it gets that lead. One lead at a time."}
+                ? "Select leads in the main table, then click Add to Pool. Use Assign to me on each pool lead below."
+                : "Click Assign to me next to Call. The first person to claim a lead gets it. One lead at a time."}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {!isAdmin && (
-              <Badge variant="outline" className="text-sm">
-                Your leads: {myActiveCount}/{maxClaims} · {remainingClaims} remaining
-              </Badge>
-            )}
+            <Badge variant="outline" className="text-sm">
+              Your leads: {myActiveCount}/{maxClaims} · {remainingClaims} remaining
+            </Badge>
             <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
             </Button>
@@ -413,7 +411,7 @@ function SharedLeadsPool({
                       rowLocked ? "opacity-50" : ""
                     }`}
                   >
-                    {/* Left: Call + Add to me (first click wins) */}
+                    {/* Left: Call + Assign to me (first click wins) */}
                     <div className="flex flex-col gap-1 flex-shrink-0 order-2 sm:order-1">
                       <div className="flex items-center gap-2">
                         {lead.phone ? (
@@ -429,42 +427,38 @@ function SharedLeadsPool({
                             Call
                           </Button>
                         )}
-                        {!isAdmin && (
-                          <Button
-                            size="sm"
-                            disabled={remainingClaims <= 0 || isBusy}
-                            className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
-                            title={
-                              remainingClaims <= 0
-                                ? "Limit reached"
-                                : isBusy
-                                ? "Only one lead can be claimed at a time"
-                                : "Add this lead to yourself (first employee wins)"
+                        <Button
+                          size="sm"
+                          disabled={remainingClaims <= 0 || isBusy}
+                          className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
+                          title={
+                            remainingClaims <= 0
+                              ? "Limit reached"
+                              : isBusy
+                              ? "Only one lead can be assigned at a time"
+                              : "Assign this lead to yourself"
+                          }
+                          onClick={async e => {
+                            e.stopPropagation();
+                            if (isBusy || remainingClaims <= 0) return;
+                            setClaimingId(lead.id);
+                            try {
+                              await onClaim(lead);
+                            } finally {
+                              setClaimingId(null);
                             }
-                            onClick={async e => {
-                              e.stopPropagation();
-                              if (isBusy || remainingClaims <= 0) return;
-                              setClaimingId(lead.id);
-                              try {
-                                await onClaim(lead);
-                              } finally {
-                                setClaimingId(null);
-                              }
-                            }}
-                          >
-                            {isThisBusy ? (
-                              <><Loader2 className="h-4 w-4 animate-spin mr-1" />Adding…</>
-                            ) : (
-                              "Add to me"
-                            )}
-                          </Button>
-                        )}
+                          }}
+                        >
+                          {isThisBusy ? (
+                            <><Loader2 className="h-4 w-4 animate-spin mr-1" />Assigning…</>
+                          ) : (
+                            "Assign to me"
+                          )}
+                        </Button>
                       </div>
-                      {!isAdmin && (
-                        <p className="text-[10px] text-muted-foreground max-w-[200px]">
-                          First employee to click Add to me gets this lead.
-                        </p>
-                      )}
+                      <p className="text-[10px] text-muted-foreground max-w-[220px]">
+                        First person to click Assign to me gets this lead.
+                      </p>
                     </div>
 
                     <div className="flex items-start gap-3 flex-1 min-w-0 order-1 sm:order-2">
@@ -517,14 +511,14 @@ function SharedLeadsPool({
               })}
             </div>
           )}
-          {!isAdmin && remainingClaims <= 0 && (
+          {remainingClaims <= 0 && (
             <p className="text-xs text-red-600 mt-3">
               Limit reached ({maxClaims} leads). Remove or reassign some of your leads before taking more from the pool.
             </p>
           )}
-          {!isAdmin && remainingClaims > 0 && (
+          {remainingClaims > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              One lead at a time. Click Add to me next to Call. The first employee to claim a lead gets it.
+              One lead at a time. Click Assign to me next to Call. The first person to claim a lead gets it.
             </p>
           )}
         </CardContent>
