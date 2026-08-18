@@ -36,6 +36,7 @@ import {
 
 // ── Stages config ─────────────────────────────────────────────────────────────
 const DEFAULT_LEAD_STAGE = "new";
+const MAX_POOL_CLAIMS_PER_EMPLOYEE = 10;
 
 const LEAD_STAGES = [
   { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },
@@ -134,6 +135,14 @@ interface DbLead {
   leegality_status?: string | null;
   leegality_signed_at?: string | null;
   temperature?: string | null;
+  /** true = admin put this lead in Shared Pool (visible to employees until claimed) */
+  in_shared_pool?: boolean | null;
+}
+
+function countActiveAssigned(leads: DbLead[], userId: string | undefined) {
+  if (!userId) return 0;
+  // Count ALL leads assigned to this employee — any stage (including converted / lost)
+  return leads.filter(l => l.assigned_to === userId).length;
 }
 
 // ── Follow-up urgency config ──
@@ -148,8 +157,6 @@ function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" |
   const d = startOfDay(new Date(nextCallDate));
   const today = startOfDay(new Date());
   const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-  // upcoming = future, today = same day, overdue = exactly 1 day past
-  // more than 1 day past → null (leave Follow-ups / Overdue; stay visible by stage only)
   if (diffDays < 0) return "upcoming";
   if (diffDays === 0) return "today";
   if (diffDays === 1) return "overdue";
@@ -287,7 +294,6 @@ function LeadCharts({ leads }: { leads: DbLead[] }) {
     }
   }, [leads]);
 
-  // Check if there's any data to display
   const hasData = leads && leads.length > 0;
 
   if (!hasData) {
@@ -310,6 +316,178 @@ function LeadCharts({ leads }: { leads: DbLead[] }) {
   );
 }
 
+// ── Shared Leads Pool ──────────────────────────────────────────────────────
+function SharedLeadsPool({
+  poolLeads,
+  remainingClaims,
+  maxClaims,
+  myActiveCount,
+  isAdmin,
+  onClaim,
+  onOpenLead,
+}: {
+  poolLeads: DbLead[];
+  remainingClaims: number;
+  maxClaims: number;
+  myActiveCount: number;
+  isAdmin: boolean;
+  onClaim: (lead: DbLead) => Promise<void>;
+  onOpenLead: (lead: DbLead) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const visible = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return poolLeads.filter(l =>
+      !q ||
+      l.name.toLowerCase().includes(q) ||
+      (l.company || "").toLowerCase().includes(q) ||
+      (l.phone || "").includes(q) ||
+      (l.email || "").toLowerCase().includes(q)
+    );
+  }, [poolLeads, search]);
+
+  return (
+    <Card className="border-violet-200 shadow-md">
+      <CardHeader className="pb-3 bg-gradient-to-r from-violet-50 to-white">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Layers className="h-5 w-5" style={{ color: "#7c3aed" }} />
+              Shared Leads Pool
+              <Badge className="ml-2 bg-violet-600 text-white">
+                {poolLeads.length} in Pool
+              </Badge>
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAdmin
+                ? "Select leads in the table, then click Add to Pool. Only those leads appear here. Employees can add 1 lead at a time to themselves."
+                : `Use Add to me on one lead at a time. Maximum ${maxClaims} assigned leads per employee (any stage).`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {!isAdmin && (
+              <Badge variant="outline" className="text-sm">
+                Assigned: {myActiveCount}/{maxClaims} · {remainingClaims} left
+              </Badge>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
+              {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+        {!collapsed && (
+          <div className="relative mt-3 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search pool by name, company, phone..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+        )}
+      </CardHeader>
+      {!collapsed && (
+        <CardContent className="max-h-[420px] overflow-y-auto">
+          {visible.length === 0 ? (
+            <div className="text-center py-8">
+              <Layers className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">
+                {poolLeads.length === 0 ? "Shared pool is empty." : "No pool leads match this search."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {visible.map(lead => (
+                <div
+                  key={lead.id}
+                  className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border hover:bg-muted/30 transition-colors"
+                >
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5"
+                      style={{ background: avatarColor(lead.name) }}
+                    >
+                      {getInitials(lead.name)}
+                    </div>
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenLead(lead)}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold truncate">{lead.name}</p>
+                        <StagePill stage={lead.stage} subStage={lead.sub_stage} />
+                        <TemperatureBadge temperature={lead.temperature} />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
+                        <p className="truncate"><span className="font-medium text-foreground/70">Company:</span> {lead.company || "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Phone:</span> {lead.phone || "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Email:</span> {lead.email || "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Budget:</span> {lead.budget || "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Lead type:</span> {lead.lead_type || "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Source:</span> {lead.source || "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Value:</span> {lead.value != null ? formatCurrency(Number(lead.value) || 0) : "—"}</p>
+                        <p className="truncate"><span className="font-medium text-foreground/70">Created:</span> {lead.created_at ? format(new Date(lead.created_at), "dd MMM yyyy") : "—"}</p>
+                      </div>
+                      {lead.remark && (
+                        <p className="text-xs text-muted-foreground mt-1 truncate">
+                          <span className="font-medium text-foreground/70">Remark:</span> {lead.remark}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 sm:flex-col sm:items-stretch">
+                    {lead.phone && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                        <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}>
+                          <Phone className="h-3.5 w-3.5" />
+                        </a>
+                      </Button>
+                    )}
+                    {!isAdmin && (
+                      <Button
+                        size="sm"
+                        disabled={remainingClaims <= 0 || claimingId !== null}
+                        className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
+                        title={claimingId !== null ? "Wait — only one lead can be added at a time" : remainingClaims <= 0 ? "Limit reached" : "Assign this lead to yourself"}
+                        onClick={async () => {
+                          if (claimingId !== null) return;
+                          setClaimingId(lead.id);
+                          try {
+                            await onClaim(lead);
+                          } finally {
+                            setClaimingId(null);
+                          }
+                        }}
+                      >
+                        {claimingId === lead.id ? (
+                          <><Loader2 className="h-4 w-4 animate-spin mr-1" />Adding…</>
+                        ) : (
+                          "Add to me"
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!isAdmin && remainingClaims <= 0 && (
+            <p className="text-xs text-red-600 mt-3">
+              Limit reached ({maxClaims} leads assigned). Unassign or delete some before adding more from the pool.
+            </p>
+          )}
+          {!isAdmin && remainingClaims > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              You can add only one lead at a time. Click Add to me on a single lead.
+            </p>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 // ── Follow-up Section ──────────────────────────────────────────────────────
 function FollowUpSection({
   leads,
@@ -329,7 +507,6 @@ function FollowUpSection({
       .filter(l => l.stage !== "converted" && l.stage !== "lost")
       .filter(l => {
         const bucket = getFollowupBucket(l.next_call_date);
-        // more than 1 day past → bucket is null → leave Follow-ups entirely
         if (!bucket) return false;
         if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
         if (fuDateFrom && new Date(l.next_call_date as string) < new Date(fuDateFrom)) return false;
@@ -340,7 +517,6 @@ function FollowUpSection({
   }, [leads, bucketFilter, fuDateFrom, fuDateTo]);
 
   const counts = useMemo(() => {
-    // only count leads that still belong to a follow-up bucket (null = >1 day past → excluded)
     const base = leads.filter(l => {
       if (!l.next_call_date || l.stage === "converted" || l.stage === "lost") return false;
       return !!getFollowupBucket(l.next_call_date);
@@ -659,11 +835,10 @@ export default function Leads() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
-  const [showAllLeads, setShowAllLeads] = useState(true); // default: full list (PG/VMS/DP included)
+  const [showAllLeads, setShowAllLeads] = useState(true);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkStageDialogOpen, setBulkStageDialogOpen] = useState(false);
 
-  // ── Debounced search ──
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
 
@@ -674,8 +849,6 @@ export default function Leads() {
     return () => clearTimeout(timeoutId);
   }, [searchInput]);
 
-  // ── Fetch leads — PAGINATED (Supabase default max = 1000 rows per request) ──
-  // Without pagination admin only got ~1000 newest leads → PG/VMS looked "missing"
   const fetchLeads = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -691,11 +864,10 @@ export default function Leads() {
         console.error("❌ Profile fetch error:", profileError);
       }
       
-      // admin OR canAssign → full access (role string miss hone par bhi)
       const isAdmin = profile?.role === "admin" || !!canAssign;
       console.log("👑 Is Admin:", isAdmin, "| role:", profile?.role, "| canAssign:", canAssign);
       
-      const PAGE_SIZE = 1000; // Supabase API default max rows
+      const PAGE_SIZE = 1000;
       let allRows: DbLead[] = [];
       let from = 0;
       let hasMore = true;
@@ -707,8 +879,11 @@ export default function Leads() {
           .order("created_at", { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
 
+        // Employees: own leads + shared pool (in_shared_pool + unassigned)
         if (!isAdmin && user?.id) {
-          query = query.eq("assigned_to", user.id);
+          query = query.or(
+            `assigned_to.eq.${user.id},and(assigned_to.is.null,in_shared_pool.eq.true)`
+          );
         }
 
         const { data, error } = await query;
@@ -729,7 +904,6 @@ export default function Leads() {
         }
       }
 
-      // Normalize stage "New" → "new" + DEDUPE by id (pagination/realtime can cause duplicates)
       const seen = new Set<string>();
       allRows = allRows
         .map(l => ({
@@ -754,7 +928,6 @@ export default function Leads() {
     }
   }, [user?.id, canAssign]);
 
-  // ── Initial fetch ──
   useEffect(() => {
     if (isInitialFetch) {
       fetchLeads();
@@ -762,7 +935,6 @@ export default function Leads() {
     }
   }, [fetchLeads, isInitialFetch]);
 
-  // ── Real-time subscription with proper cleanup ──
   useEffect(() => {
     let isMounted = true;
     let subscription: any = null;
@@ -793,7 +965,8 @@ export default function Leads() {
               
               if (!isAdmin && user?.id) {
                 const lead = (payload.new || payload.old) as DbLead;
-                if (lead && lead.assigned_to !== user.id) {
+                // employees only care about their leads + unassigned pool
+                if (lead && lead.assigned_to && lead.assigned_to !== user.id) {
                   console.log("⏭️ Ignoring update for other employee's lead");
                   return;
                 }
@@ -810,7 +983,14 @@ export default function Leads() {
                   case 'UPDATE': {
                     const row = payload.new as DbLead;
                     const normalized = { ...row, stage: row.stage === "New" ? "new" : row.stage };
-                    return prev.map(l => l.id === normalized.id ? normalized : l);
+                    // if someone else claimed a pool lead, drop it from this employee's view
+                    if (!isAdmin && normalized.assigned_to && normalized.assigned_to !== user.id) {
+                      return prev.filter(l => l.id !== normalized.id);
+                    }
+                    if (prev.some(l => l.id === normalized.id)) {
+                      return prev.map(l => l.id === normalized.id ? normalized : l);
+                    }
+                    return [normalized, ...prev];
                   }
                   case 'DELETE':
                     return prev.filter(l => l.id !== payload.old.id);
@@ -864,18 +1044,11 @@ export default function Leads() {
   const [agreementData, setAgreementData] = useState<Record<string, any>>({});
 
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
-
-  // ── Export by stage ──
   const [exportStage, setExportStage] = useState("all");
-
-  // ── Import summary ──
   const [importSummary, setImportSummary] = useState<{ imported: number } | null>(null);
-
-  // ── Live total-count ──
   const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
   const [liveCountPulsing, setLiveCountPulsing] = useState(false);
 
-  // ── Clickable stats filter ──
   type StatsFilter = "all" | "today" | "followup" | "hot" | "warm" | "cold" | "converted";
   const [statsFilter, setStatsFilter] = useState<StatsFilter>("all");
 
@@ -900,7 +1073,9 @@ export default function Leads() {
 
       let query = supabase.from("leads").select("*", { count: "exact", head: true });
       if (!isAdmin && user?.id) {
-        query = query.eq("assigned_to", user.id);
+        query = query.or(
+          `assigned_to.eq.${user.id},and(assigned_to.is.null,in_shared_pool.eq.true)`
+        );
       }
       const { count, error } = await query;
       if (error) throw error;
@@ -1082,7 +1257,6 @@ export default function Leads() {
     }
   }, [detailLead?.id, fetchAgreementStatus]);
 
-  // ── Mark Lead as Lost ──
   const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
     const lostDate = new Date().toISOString();
     const patch = {
@@ -1115,7 +1289,6 @@ export default function Leads() {
     }
   }, [detailLead, logActivity, fetchLeads]);
 
-  // ── Assign Lead ──
   const assignLead = useMutation({
     mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
@@ -1154,13 +1327,12 @@ export default function Leads() {
       display_name: string | null;
       email?: string | null;
     }[]).find((p) => p.user_id === userId);
-    if (!p) return "Unknown"; // profile not in list (often RLS blocking select)
+    if (!p) return "Unknown";
     if (p.display_name?.trim()) return p.display_name.trim();
     if (p.email?.trim()) return p.email.trim();
     return "Unnamed User";
   }, [profiles]);
 
-  // ── UPDATE STAGE ──
   const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
     const updateData: any = { 
       stage, 
@@ -1206,7 +1378,6 @@ export default function Leads() {
     logActivity(lead.id, "viewed", `Opened ${lead.name}`);
   }, [logActivity]);
 
-  // ── ADD LEAD ──
   const handleAddLead = useCallback(async () => {
     if (!form.name || !form.email) { 
       toast.error("Name and Email are required"); 
@@ -1214,7 +1385,6 @@ export default function Leads() {
     }
     
     try {
-      // Auto-assign to the logged-in user who is creating the lead
       const assign_date = user?.id ? new Date().toISOString() : null;
 
       const { error } = await supabase
@@ -1251,7 +1421,6 @@ export default function Leads() {
     }
   }, [form, fetchLeads, emptyForm, user?.id]);
 
-  // ── Bulk Delete Leads ──
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
@@ -1286,7 +1455,6 @@ export default function Leads() {
     }
   }, [selectedIds, leads, fetchLiveTotalCount, logActivity, fetchLeads]);
 
-  // ── Bulk Stage Change ──
   const handleBulkStageChange = useCallback(async (stage: string, subStage: string) => {
     if (selectedIds.size === 0 || !stage) return;
     const ids = Array.from(selectedIds);
@@ -1343,7 +1511,111 @@ export default function Leads() {
     }
   }, [selectedIds, logActivity, fetchLeads]);
 
-  // ── Filter preset options with useMemo ──
+  const myActiveCount = useMemo(
+    () => countActiveAssigned(leads, user?.id),
+    [leads, user?.id]
+  );
+  const remainingClaims = Math.max(0, MAX_POOL_CLAIMS_PER_EMPLOYEE - myActiveCount);
+
+  // Only leads admin explicitly put in pool (in_shared_pool=true) and still unassigned
+  const poolLeads = useMemo(
+    () =>
+      leads
+        .filter(
+          l =>
+            !!l.in_shared_pool &&
+            !l.assigned_to &&
+            l.stage !== "converted" &&
+            l.stage !== "lost"
+        )
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [leads]
+  );
+
+  const claimFromPool = useCallback(async (lead: DbLead) => {
+    if (!user?.id) {
+      toast.error("You must be logged in");
+      return;
+    }
+    if (lead.assigned_to) {
+      toast.error("This lead was already taken");
+      return;
+    }
+    if (myActiveCount >= MAX_POOL_CLAIMS_PER_EMPLOYEE) {
+      toast.error(`You already have ${MAX_POOL_CLAIMS_PER_EMPLOYEE} leads assigned. Unassign or delete some before claiming more.`);
+      return;
+    }
+
+    const assign_date = new Date().toISOString();
+
+    setLeads(prev =>
+      prev.map(l =>
+        l.id === lead.id
+          ? { ...l, assigned_to: user.id!, assign_date, in_shared_pool: false }
+          : l
+      )
+    );
+
+    try {
+      const { data, error } = await supabase
+        .from("leads")
+        .update({
+          assigned_to: user.id,
+          assign_date,
+          in_shared_pool: false,
+        })
+        .eq("id", lead.id)
+        .is("assigned_to", null)
+        .eq("in_shared_pool", true)
+        .select("id")
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        toast.error("Someone else already added this lead");
+        await fetchLeads();
+        return;
+      }
+
+      logActivity(lead.id, "updated", "Added to me from shared pool");
+      toast.success(`${lead.name} is now assigned to you`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to add lead to you");
+      await fetchLeads();
+    }
+  }, [user?.id, myActiveCount, fetchLeads, logActivity]);
+
+  const addSelectedToPool = useCallback(async () => {
+    if (!canAssign || selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+
+    setLeads(prev =>
+      prev.map(l =>
+        ids.includes(l.id)
+          ? { ...l, assigned_to: null, assign_date: null, in_shared_pool: true }
+          : l
+      )
+    );
+    setSelectedIds(new Set());
+
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          assigned_to: null,
+          assign_date: null,
+          in_shared_pool: true,
+        })
+        .in("id", ids);
+      if (error) throw error;
+      toast.success(`${ids.length} lead(s) added to shared pool`);
+      ids.forEach(id => logActivity(id, "updated", "Moved to shared pool"));
+    } catch (e: any) {
+      toast.error(e.message || "Failed to add to pool. Did you run the in_shared_pool migration?");
+      await fetchLeads();
+    }
+  }, [canAssign, selectedIds, fetchLeads, logActivity]);
+
   const filterPresetOptions = useMemo(() => ({
     all: () => true,
     today: (l: DbLead) => isToday(new Date(l.created_at)),
@@ -1354,7 +1626,6 @@ export default function Leads() {
       l.next_call_date && new Date(l.next_call_date) <= new Date()
   }), []);
 
-  // ── FILTERED LEADS ──
   const filtered = useMemo(() => {
     const presetFn = filterPresetOptions[filterPreset as keyof typeof filterPresetOptions] || (() => true);
     
@@ -1388,8 +1659,6 @@ export default function Leads() {
       filterLeadType, filterBudget, filterTemperature, dateFrom, dateTo, 
       filterPreset, employeeFilter, user, filterPresetOptions]);
 
-  // ── Dashboard focus ──
-  // showAllLeads=false → only Today + Follow-ups (any active stage incl. PG/VMS/DP/ringing)
   const dashboardLeads = useMemo(() => {
     let base: DbLead[];
     switch (statsFilter) {
@@ -1417,6 +1686,11 @@ export default function Leads() {
         break;
     }
 
+    // Employees: table shows only their assigned leads (pool is a separate section)
+    if (!canAssign && user?.id) {
+      base = base.filter(l => l.assigned_to === user.id);
+    }
+
     if (!showAllLeads && statsFilter === "all") {
       return base.filter(l => {
         const isTodayLead = isToday(new Date(l.created_at));
@@ -1427,9 +1701,8 @@ export default function Leads() {
       });
     }
     return base;
-  }, [filtered, statsFilter, showAllLeads]);
+  }, [filtered, statsFilter, showAllLeads, canAssign, user?.id]);
 
-  // ── Pagination ──
   const totalPages = Math.ceil(dashboardLeads.length / itemsPerPage);
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -1449,7 +1722,6 @@ export default function Leads() {
     });
   }, []);
 
-  // ── Bulk Assign ──
   const handleBulkAssign = useCallback(async () => {
     if (selectedIds.size === 0 || !bulkAssignTo) return;
     const assign_date = new Date().toISOString();
@@ -1511,7 +1783,6 @@ export default function Leads() {
     reader.readAsBinaryString(file);
   }, []);
 
-  // ── Bulk Import ──
   const handleBulkImport = useCallback(async () => {
     if (uploadPreview.length === 0) return;
     setUploading(true);
@@ -1538,6 +1809,9 @@ export default function Leads() {
             sub_stage: "",
             remark: lead.remark,
             temperature: lead.temperature || "warm",
+            assigned_to: null,
+            assign_date: null,
+            in_shared_pool: true,
           });
 
         if (error) {
@@ -1559,11 +1833,10 @@ export default function Leads() {
 
     setImportSummary({ imported: success });
 
-    toast.success(`${success} leads imported successfully into "New" stage!`);
+    toast.success(`${success} leads imported into Shared Pool (unassigned / New stage)!`);
     setUploadOpen(false);
   }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
 
-  // ── UPDATE LEAD ──
   const handleUpdate = useCallback(async () => {
     if (!editLead) return;
     
@@ -1587,6 +1860,7 @@ export default function Leads() {
           sub_stage: editLead.sub_stage,
           remark: editLead.remark, 
           temperature: editLead.temperature,
+          next_call_date: editLead.next_call_date,
         })
         .eq("id", editLead.id);
       
@@ -1602,7 +1876,6 @@ export default function Leads() {
     }
   }, [editLead, logActivity]);
 
-  // ── DELETE LEAD ──
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
     try {
@@ -1622,7 +1895,6 @@ export default function Leads() {
     }
   }, [fetchLiveTotalCount]);
 
-  // ── Shared row mapper with proper dependencies ──
   const buildExportRows = useCallback((rows: DbLead[]) => {
     return rows.map(l => ({
       Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
@@ -1641,7 +1913,6 @@ export default function Leads() {
     }));
   }, [getProfileName]);
 
-  // ── Export ALL leads ──
   const handleExport = useCallback(() => {
     const exportData = buildExportRows(leads);
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -1651,7 +1922,6 @@ export default function Leads() {
     toast.success("Leads exported!");
   }, [leads, buildExportRows]);
 
-  // ── Export by stage ──
   const handleExportByStage = useCallback((stage: string) => {
     const source = stage === "all" ? leads : leads.filter(l => l.stage === stage);
     if (source.length === 0) {
@@ -1677,7 +1947,6 @@ export default function Leads() {
     setCurrentPage(1);
   }, []);
 
-  // ── Temperature update ──
   const handleTemperatureUpdate = useCallback(async (leadId: string, temperature: string) => {
     setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, temperature } : l)));
     if (detailLead && detailLead.id === leadId) {
@@ -1700,28 +1969,28 @@ export default function Leads() {
     }
   }, [detailLead, logActivity, fetchLeads]);
 
-  // ── Stats ──
   const stats = useMemo(() => {
-    const totalLeads = leads.length;
-    const totalValue = leads.reduce((s, l) => s + (l.value || 0), 0);
-    const convertedCount = leads.filter(l => l.status === "converted" || l.stage === "converted").length;
-    const lostCount = leads.filter(l => l.stage === "lost").length;
-    const hotCount = leads.filter(l => l.temperature === "hot").length;
-    const warmCount = leads.filter(l => l.temperature === "warm").length;
-    const coldCount = leads.filter(l => l.temperature === "cold").length;
-    const todayCount = leads.filter(l => isToday(new Date(l.created_at))).length;
-    const followupCount = leads.filter(l => {
+    const visible = canAssign ? leads : leads.filter(l => l.assigned_to === user?.id);
+    const totalLeads = visible.length;
+    const totalValue = visible.reduce((s, l) => s + (l.value || 0), 0);
+    const convertedCount = visible.filter(l => l.status === "converted" || l.stage === "converted").length;
+    const lostCount = visible.filter(l => l.stage === "lost").length;
+    const hotCount = visible.filter(l => l.temperature === "hot").length;
+    const warmCount = visible.filter(l => l.temperature === "warm").length;
+    const coldCount = visible.filter(l => l.temperature === "cold").length;
+    const todayCount = visible.filter(l => isToday(new Date(l.created_at))).length;
+    const followupCount = visible.filter(l => {
       const b = getFollowupBucket(l.next_call_date);
       return (b === "overdue" || b === "today") && l.stage !== "converted" && l.stage !== "lost";
     }).length;
     return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount, todayCount, followupCount };
-  }, [leads]);
+  }, [leads, canAssign, user?.id]);
 
-  // ── Debug ──
   useEffect(() => {
     console.log("📊 Leads in state:", leads.length);
     console.log("📊 Filtered leads:", filtered.length);
-  }, [leads, filtered]);
+    console.log("📊 Pool leads:", poolLeads.length);
+  }, [leads, filtered, poolLeads]);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -1769,7 +2038,6 @@ export default function Leads() {
           <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {/* Export by stage */}
           <div className="flex items-center gap-1.5">
             <Select value={exportStage} onValueChange={setExportStage}>
               <SelectTrigger className="w-36 h-9"><SelectValue placeholder="Export Stage" /></SelectTrigger>
@@ -1807,9 +2075,9 @@ export default function Leads() {
                   <p className="text-xs text-muted-foreground mb-3">
                     Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Remark, Temperature
                   </p>
-                  <p className="text-xs text-blue-600 mb-2 flex items-center justify-center gap-1">
+                  <p className="text-xs text-violet-600 mb-2 flex items-center justify-center gap-1">
                     <ShieldCheck className="h-3 w-3" />
-                    All imported leads start in the "New" stage — move them forward manually after import
+                    Imported leads go to the Shared Pool as unassigned (New stage)
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
@@ -1848,7 +2116,7 @@ export default function Leads() {
                 {importSummary && (
                   <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
-                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported successfully into "New" stage
+                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported into Shared Pool
                     </span>
                   </div>
                 )}
@@ -1856,7 +2124,7 @@ export default function Leads() {
               <DialogFooter>
                 {uploadPreview.length > 0 && (
                   <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
+                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} to Pool`}
                   </Button>
                 )}
                 {uploadPreview.length === 0 && importSummary && (
@@ -1963,7 +2231,7 @@ export default function Leads() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <button
           type="button"
-          onClick={() => setStatsFilter(statsFilter === "all" ? "all" : "all")}
+          onClick={() => setStatsFilter("all")}
           className={`text-left col-span-2 sm:col-span-1 lg:col-span-1 rounded-xl border-2 transition-all ${statsFilter === "all" ? "border-primary ring-2 ring-primary/20" : "border-primary/20 hover:border-primary/40"}`}
         >
           <div className="p-4">
@@ -2109,10 +2377,8 @@ export default function Leads() {
         </div>
       )}
 
-      {/* ── Charts Section ── */}
       <LeadCharts leads={leads} />
 
-      {/* ── Employee Filter Section ── */}
       {canAssign && typedProfiles.length > 0 && (
         <Card className="mb-4 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
           <CardHeader className="pb-2">
@@ -2138,7 +2404,6 @@ export default function Leads() {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Quick Employee Buttons - Show top employees with most leads */}
                 <div className="flex items-center gap-1">
                   {typedProfiles
                     .sort((a, b) => {
@@ -2168,7 +2433,6 @@ export default function Leads() {
                     })}
                 </div>
                 
-                {/* Unassigned Quick Button */}
                 {leads.filter(l => !l.assigned_to).length > 0 && (
                   <Button
                     variant={employeeFilter === "unassigned" ? "default" : "outline"}
@@ -2183,7 +2447,6 @@ export default function Leads() {
                   </Button>
                 )}
                 
-                {/* Employee Dropdown - Full list */}
                 <Select 
                   value={employeeFilter || "all"} 
                   onValueChange={(v) => setEmployeeFilter(v === "all" ? null : v)}
@@ -2221,13 +2484,12 @@ export default function Leads() {
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            {/* Mini Stats Row */}
             <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1 border-t">
               <span className="flex items-center gap-1">
                 <span className="font-medium text-foreground">{leads.filter(l => l.assigned_to).length}</span> Assigned
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> Unassigned
+                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> In Pool
               </span>
               <span className="flex items-center gap-1">
                 <span className="font-medium text-foreground">{leads.filter(l => l.stage === "converted").length}</span> Converted
@@ -2257,7 +2519,6 @@ export default function Leads() {
         </Card>
       )}
 
-      {/* ── Stage Filter ── */}
       <Card>
         <CardContent className="p-4">
           <p className="font-semibold text-sm mb-3 text-foreground">Stages</p>
@@ -2287,10 +2548,18 @@ export default function Leads() {
         </CardContent>
       </Card>
 
-      {/* ── Follow-up Section - AFTER STAGE FILTER ── */}
-      <FollowUpSection leads={leads} onOpenLead={openLeadDetail} />
+      <SharedLeadsPool
+        poolLeads={poolLeads}
+        remainingClaims={remainingClaims}
+        maxClaims={MAX_POOL_CLAIMS_PER_EMPLOYEE}
+        myActiveCount={myActiveCount}
+        isAdmin={!!canAssign}
+        onClaim={claimFromPool}
+        onOpenLead={openLeadDetail}
+      />
 
-      {/* ── Main Table ── */}
+      <FollowUpSection leads={canAssign ? leads : leads.filter(l => l.assigned_to === user?.id)} onOpenLead={openLeadDetail} />
+
       <Card className="shadow-md">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap gap-2">
@@ -2368,6 +2637,11 @@ export default function Leads() {
               <Button size="sm" onClick={handleBulkAssign}>
                 <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
               </Button>
+              {canAssign && (
+                <Button size="sm" variant="outline" onClick={addSelectedToPool}>
+                  <Layers className="mr-1 h-4 w-4" />Add {selectedIds.size} to Pool
+                </Button>
+              )}
               <Button 
                 size="sm" 
                 variant="default"
@@ -2401,6 +2675,9 @@ export default function Leads() {
                 )}
                 {dashboardLeads.length !== leads.length && showAllLeads && <span className="text-muted-foreground font-normal"> (filtered from {leads.length})</span>}
               </p>
+              {!canAssign && (
+                <Badge variant="outline">Your assigned: {myActiveCount}/{MAX_POOL_CLAIMS_PER_EMPLOYEE}</Badge>
+              )}
               <Button
                 variant={showAllLeads ? "outline" : "default"}
                 size="sm"
@@ -2423,7 +2700,7 @@ export default function Leads() {
             <div className="text-center py-12">
               <p className="text-sm text-muted-foreground">No leads found.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {showAllLeads ? "Try adjusting your filters or add a new lead." : "No leads created today or due for follow-up. Click \"Show All Leads\" to see everything."}
+                {showAllLeads ? "Try adjusting your filters or claim a lead from the Shared Pool." : "No leads created today or due for follow-up. Click \"Show All Leads\" to see everything."}
               </p>
             </div>
           ) : (
@@ -2468,6 +2745,7 @@ export default function Leads() {
                                 onValueChange={(v) => {
                                   assignLead.mutate({ id: lead.id, assigned_to: v });
                                 }}
+                                disabled={!canAssign}
                               >
                                 <SelectTrigger className="w-[120px] h-7 text-xs">
                                   <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
@@ -2504,7 +2782,6 @@ export default function Leads() {
                 </Table>
               </div>
               
-              {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex flex-wrap items-center justify-between mt-4 gap-2">
                   <p className="text-sm text-muted-foreground">
@@ -2540,7 +2817,6 @@ export default function Leads() {
 
       <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterAssignment("all"); }} />
 
-      {/* ── Lead Detail Dialog ── */}
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -2625,7 +2901,6 @@ export default function Leads() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Edit Dialog ── */}
       <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
@@ -2653,7 +2928,6 @@ export default function Leads() {
   );
 }
 
-// ── Leegality Sign Dialog ──
 function LeegalitySignDialog({ lead, open, onClose, onSignInitiated }: {
   lead: DbLead | null;
   open: boolean;
@@ -2730,7 +3004,6 @@ function LeegalitySignDialog({ lead, open, onClose, onSignInitiated }: {
   );
 }
 
-// ── Lost Lead Dialog ──
 function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   lead: DbLead | null;
   open: boolean;
@@ -2787,7 +3060,6 @@ function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   );
 }
 
-// ── Employee Lead Count Modal ──
 function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmployee }: {
   leads: DbLead[];
   profiles: { user_id: string; display_name: string | null }[];
@@ -2818,8 +3090,8 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
         <div className="space-y-3 py-2">
           <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
             <div>
-              <p className="font-medium text-muted-foreground">Unassigned</p>
-              <p className="text-xs text-muted-foreground">Not assigned to anyone</p>
+              <p className="font-medium text-muted-foreground">Shared Pool (Unassigned)</p>
+              <p className="text-xs text-muted-foreground">Available for employees to claim</p>
             </div>
             <Badge variant="outline" className="text-base px-3 py-1">{unassigned}</Badge>
           </div>
@@ -2865,7 +3137,6 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
   );
 }
 
-// ── Template Download ──
 function downloadExcelTemplate() {
   const template = [
     {
