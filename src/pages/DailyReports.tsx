@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHasRole } from "@/hooks/useAdmin";
@@ -721,8 +721,16 @@ export default function DailyTaskAssignment() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
-  // Load Tasks
-  const loadTasks = async () => {
+  // Prevent overlapping fetches (stops request storms / ERR_INSUFFICIENT_RESOURCES)
+  const tasksLoadingRef = useRef(false);
+  const employeesLoadedRef = useRef(false);
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load Tasks — stable callback, no infinite loop
+  const loadTasks = useCallback(async () => {
+    if (!user?.id) return;
+    if (tasksLoadingRef.current) return;
+    tasksLoadingRef.current = true;
     setLoading(true);
     try {
       let query = supabase
@@ -734,10 +742,9 @@ export default function DailyTaskAssignment() {
         `);
 
       if (!isAdmin) {
-        query = query.eq("assigned_to", user?.id);
+        query = query.eq("assigned_to", user.id);
       }
 
-      // Department filter
       if (departmentFilter !== "all") {
         query = query.eq("department", departmentFilter);
       }
@@ -749,14 +756,15 @@ export default function DailyTaskAssignment() {
       if (error) throw error;
       setTasks(data || []);
 
-      // Build profiles map
       const profileMap: Record<string, string> = {};
       data?.forEach((task: any) => {
         if (task.assigned_to_profile) {
-          profileMap[task.assigned_to] = task.assigned_to_profile.display_name || task.assigned_to_profile.email;
+          profileMap[task.assigned_to] =
+            task.assigned_to_profile.display_name || task.assigned_to_profile.email;
         }
         if (task.assigned_by_profile) {
-          profileMap[task.assigned_by] = task.assigned_by_profile.display_name || task.assigned_by_profile.email;
+          profileMap[task.assigned_by] =
+            task.assigned_by_profile.display_name || task.assigned_by_profile.email;
         }
       });
       setProfiles(profileMap);
@@ -764,48 +772,76 @@ export default function DailyTaskAssignment() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
+      tasksLoadingRef.current = false;
     }
-  };
+  }, [user?.id, isAdmin, departmentFilter, toast]);
 
-  // Load Employees with Department Info
-  const loadEmployees = async () => {
+  // Load employees once (not on every isAdmin flicker)
+  const loadEmployees = useCallback(async () => {
     if (!isAdmin) return;
+    if (employeesLoadedRef.current) return;
     try {
-      // Get all users with employee roles
-      const { data: roleData } = await supabase
+      const { data: roleData, error: roleError } = await supabase
         .from("user_roles")
         .select("user_id")
         .in("role", ["employee", "tl"]);
 
-      if (roleData) {
+      if (roleError) {
+        console.error("Error loading user_roles:", roleError.message);
+        return;
+      }
+
+      if (roleData?.length) {
         const userIds = roleData.map((r: any) => r.user_id);
-        const { data: profileData } = await supabase
+        const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("user_id, display_name, email, department")
           .in("user_id", userIds);
-        
+
+        if (profileError) {
+          console.error("Error loading profiles:", profileError.message);
+          return;
+        }
         setEmployees(profileData || []);
+        employeesLoadedRef.current = true;
       }
     } catch (error) {
       console.error("Error loading employees:", error);
     }
-  };
+  }, [isAdmin]);
 
+  // Tasks + realtime (debounced so one DB event ≠ request storm)
   useEffect(() => {
-    loadTasks();
-    if (isAdmin) loadEmployees();
+    if (!user?.id) return;
 
-    // Real-time subscription
+    loadTasks();
+
     const channel = supabase
-      .channel('daily-tasks-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'daily_tasks' },
-        () => loadTasks()
+      .channel(`daily-tasks-changes-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "daily_tasks" },
+        () => {
+          if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+          realtimeTimerRef.current = setTimeout(() => {
+            loadTasks();
+          }, 800);
+        }
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [user?.id, isAdmin, departmentFilter]);
+    return () => {
+      if (realtimeTimerRef.current) clearTimeout(realtimeTimerRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, isAdmin, departmentFilter, loadTasks]);
+
+  // Employees only when admin is confirmed — once
+  useEffect(() => {
+    if (isAdmin) {
+      loadEmployees();
+    }
+  }, [isAdmin, loadEmployees]);
 
   // Create/Update Task
   const handleSaveTask = async (taskData: any) => {
