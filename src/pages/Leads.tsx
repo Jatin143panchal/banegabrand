@@ -336,7 +336,6 @@ function SharedLeadsPool({
 }) {
   const [search, setSearch] = useState("");
   const [claimingId, setClaimingId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const visible = useMemo(() => {
@@ -350,35 +349,7 @@ function SharedLeadsPool({
     );
   }, [poolLeads, search]);
 
-  // Clear selection if selected lead left the pool
-  useEffect(() => {
-    if (selectedId && !poolLeads.some(l => l.id === selectedId)) {
-      setSelectedId(null);
-    }
-  }, [poolLeads, selectedId]);
-
-  const selectedLead = useMemo(
-    () => (selectedId ? poolLeads.find(l => l.id === selectedId) || null : null),
-    [poolLeads, selectedId]
-  );
-
   const isBusy = claimingId !== null;
-  const canAdd =
-    !isAdmin &&
-    !!selectedLead &&
-    remainingClaims > 0 &&
-    !isBusy;
-
-  const handleAddToMe = async () => {
-    if (!selectedLead || isBusy || remainingClaims <= 0) return;
-    setClaimingId(selectedLead.id);
-    try {
-      await onClaim(selectedLead);
-      setSelectedId(null);
-    } finally {
-      setClaimingId(null);
-    }
-  };
 
   return (
     <Card className="border-violet-200 shadow-md">
@@ -395,7 +366,7 @@ function SharedLeadsPool({
             <p className="text-sm text-muted-foreground mt-1">
               {isAdmin
                 ? "Select leads in the main table, then click Add to Pool. Only those leads appear here for employees."
-                : "Select one lead from the list, then click Assign to me. You can assign only one lead at a time."}
+                : "Use Assign to me on one lead at a time (next to Call). Maximum limit applies to all your assigned leads."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -410,38 +381,14 @@ function SharedLeadsPool({
           </div>
         </div>
         {!collapsed && (
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <div className="relative flex-1 min-w-[180px] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Search pool by name, company, phone..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            {!isAdmin && (
-              <Button
-                size="sm"
-                disabled={!canAdd}
-                className="bg-violet-600 hover:bg-violet-700"
-                onClick={handleAddToMe}
-              >
-                {isBusy ? (
-                  <><Loader2 className="h-4 w-4 animate-spin mr-1" />Assigning…</>
-                ) : (
-                  "Assign to me"
-                )}
-              </Button>
-            )}
-            {!isAdmin && selectedLead && (
-              <span className="text-xs text-muted-foreground">
-                Selected: <strong className="text-foreground">{selectedLead.name}</strong>
-              </span>
-            )}
-            {!isAdmin && !selectedLead && remainingClaims > 0 && (
-              <span className="text-xs text-amber-600">Select one lead first</span>
-            )}
+          <div className="relative mt-3 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search pool by name, company, phone..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </div>
         )}
       </CardHeader>
@@ -457,41 +404,63 @@ function SharedLeadsPool({
           ) : (
             <div className="space-y-2">
               {visible.map(lead => {
-                const isSelected = selectedId === lead.id;
+                const isThisBusy = claimingId === lead.id;
+                const rowLocked = isBusy && !isThisBusy;
                 return (
                   <div
                     key={lead.id}
-                    role={!isAdmin ? "button" : undefined}
-                    tabIndex={!isAdmin ? 0 : undefined}
-                    onClick={() => {
-                      if (isAdmin || isBusy) return;
-                      setSelectedId(prev => (prev === lead.id ? null : lead.id));
-                    }}
-                    onKeyDown={e => {
-                      if (isAdmin || isBusy) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedId(prev => (prev === lead.id ? null : lead.id));
-                      }
-                    }}
-                    className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border transition-colors ${
-                      isSelected
-                        ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
-                        : "hover:bg-muted/30"
-                    } ${!isAdmin && !isBusy ? "cursor-pointer" : ""} ${isBusy && !isSelected ? "opacity-50 pointer-events-none" : ""}`}
+                    className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border hover:bg-muted/30 transition-colors ${
+                      rowLocked ? "opacity-50" : ""
+                    }`}
                   >
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                    {/* Left: Assign to me + Call */}
+                    <div className="flex items-center gap-2 flex-shrink-0 order-2 sm:order-1">
                       {!isAdmin && (
-                        <div className="pt-2 flex-shrink-0">
-                          <div
-                            className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                              isSelected ? "border-violet-600 bg-violet-600" : "border-muted-foreground/40"
-                            }`}
-                          >
-                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-                          </div>
-                        </div>
+                        <Button
+                          size="sm"
+                          disabled={remainingClaims <= 0 || isBusy}
+                          className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
+                          title={
+                            remainingClaims <= 0
+                              ? "Limit reached"
+                              : isBusy
+                              ? "Only one lead can be assigned at a time"
+                              : "Assign this lead to yourself"
+                          }
+                          onClick={async e => {
+                            e.stopPropagation();
+                            if (isBusy || remainingClaims <= 0) return;
+                            setClaimingId(lead.id);
+                            try {
+                              await onClaim(lead);
+                            } finally {
+                              setClaimingId(null);
+                            }
+                          }}
+                        >
+                          {isThisBusy ? (
+                            <><Loader2 className="h-4 w-4 animate-spin mr-1" />Assigning…</>
+                          ) : (
+                            "Assign to me"
+                          )}
+                        </Button>
                       )}
+                      {lead.phone ? (
+                        <Button variant="outline" size="sm" className="whitespace-nowrap" asChild>
+                          <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}>
+                            <Phone className="h-3.5 w-3.5 mr-1" />
+                            Call
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" disabled className="whitespace-nowrap">
+                          <Phone className="h-3.5 w-3.5 mr-1" />
+                          Call
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="flex items-start gap-3 flex-1 min-w-0 order-1 sm:order-2">
                       <div
                         className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5"
                         style={{ background: avatarColor(lead.name) }}
@@ -503,9 +472,6 @@ function SharedLeadsPool({
                           <p className="text-sm font-semibold truncate">{lead.name}</p>
                           <StagePill stage={lead.stage} subStage={lead.sub_stage} />
                           <TemperatureBadge temperature={lead.temperature} />
-                          {isSelected && (
-                            <Badge className="bg-violet-600 text-white text-[10px]">Selected</Badge>
-                          )}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
                           <p className="truncate"><span className="font-medium text-foreground/70">Company:</span> {lead.company || "—"}</p>
@@ -524,14 +490,8 @@ function SharedLeadsPool({
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {lead.phone && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8" asChild onClick={e => e.stopPropagation()}>
-                          <a href={`tel:${lead.phone}`}>
-                            <Phone className="h-3.5 w-3.5" />
-                          </a>
-                        </Button>
-                      )}
+
+                    <div className="flex items-center gap-2 flex-shrink-0 order-3">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -557,7 +517,7 @@ function SharedLeadsPool({
           )}
           {!isAdmin && remainingClaims > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              You can assign only one shared-pool lead at a time. Select a lead, then click Assign to me.
+              You can assign only one shared-pool lead at a time. Use Assign to me next to Call on that lead.
             </p>
           )}
         </CardContent>
