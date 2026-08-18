@@ -336,6 +336,7 @@ function SharedLeadsPool({
 }) {
   const [search, setSearch] = useState("");
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const visible = useMemo(() => {
@@ -348,6 +349,36 @@ function SharedLeadsPool({
       (l.email || "").toLowerCase().includes(q)
     );
   }, [poolLeads, search]);
+
+  // Clear selection if selected lead left the pool
+  useEffect(() => {
+    if (selectedId && !poolLeads.some(l => l.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [poolLeads, selectedId]);
+
+  const selectedLead = useMemo(
+    () => (selectedId ? poolLeads.find(l => l.id === selectedId) || null : null),
+    [poolLeads, selectedId]
+  );
+
+  const isBusy = claimingId !== null;
+  const canAdd =
+    !isAdmin &&
+    !!selectedLead &&
+    remainingClaims > 0 &&
+    !isBusy;
+
+  const handleAddToMe = async () => {
+    if (!selectedLead || isBusy || remainingClaims <= 0) return;
+    setClaimingId(selectedLead.id);
+    try {
+      await onClaim(selectedLead);
+      setSelectedId(null);
+    } finally {
+      setClaimingId(null);
+    }
+  };
 
   return (
     <Card className="border-violet-200 shadow-md">
@@ -363,14 +394,14 @@ function SharedLeadsPool({
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {isAdmin
-                ? "Select leads in the table, then click Add to Pool. Only those leads appear here. Employees can add 1 lead at a time to themselves."
-                : `Use Add to me on one lead at a time. Maximum ${maxClaims} assigned leads per employee (any stage).`}
+                ? "Select leads in the main table, then click Add to Pool. Only those leads appear here for employees."
+                : "Select one lead from the list, then click Assign to me. You can assign only one lead at a time."}
             </p>
           </div>
           <div className="flex items-center gap-2">
             {!isAdmin && (
               <Badge variant="outline" className="text-sm">
-                Assigned: {myActiveCount}/{maxClaims} · {remainingClaims} left
+                Your leads: {myActiveCount}/{maxClaims} · {remainingClaims} remaining
               </Badge>
             )}
             <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
@@ -379,14 +410,38 @@ function SharedLeadsPool({
           </div>
         </div>
         {!collapsed && (
-          <div className="relative mt-3 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Search pool by name, company, phone..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <div className="relative flex-1 min-w-[180px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Search pool by name, company, phone..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            {!isAdmin && (
+              <Button
+                size="sm"
+                disabled={!canAdd}
+                className="bg-violet-600 hover:bg-violet-700"
+                onClick={handleAddToMe}
+              >
+                {isBusy ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-1" />Assigning…</>
+                ) : (
+                  "Assign to me"
+                )}
+              </Button>
+            )}
+            {!isAdmin && selectedLead && (
+              <span className="text-xs text-muted-foreground">
+                Selected: <strong className="text-foreground">{selectedLead.name}</strong>
+              </span>
+            )}
+            {!isAdmin && !selectedLead && remainingClaims > 0 && (
+              <span className="text-xs text-amber-600">Select one lead first</span>
+            )}
           </div>
         )}
       </CardHeader>
@@ -401,85 +456,108 @@ function SharedLeadsPool({
             </div>
           ) : (
             <div className="space-y-2">
-              {visible.map(lead => (
-                <div
-                  key={lead.id}
-                  className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border hover:bg-muted/30 transition-colors"
-                >
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5"
-                      style={{ background: avatarColor(lead.name) }}
-                    >
-                      {getInitials(lead.name)}
-                    </div>
-                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenLead(lead)}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold truncate">{lead.name}</p>
-                        <StagePill stage={lead.stage} subStage={lead.sub_stage} />
-                        <TemperatureBadge temperature={lead.temperature} />
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
-                        <p className="truncate"><span className="font-medium text-foreground/70">Company:</span> {lead.company || "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Phone:</span> {lead.phone || "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Email:</span> {lead.email || "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Budget:</span> {lead.budget || "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Lead type:</span> {lead.lead_type || "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Source:</span> {lead.source || "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Value:</span> {lead.value != null ? formatCurrency(Number(lead.value) || 0) : "—"}</p>
-                        <p className="truncate"><span className="font-medium text-foreground/70">Created:</span> {lead.created_at ? format(new Date(lead.created_at), "dd MMM yyyy") : "—"}</p>
-                      </div>
-                      {lead.remark && (
-                        <p className="text-xs text-muted-foreground mt-1 truncate">
-                          <span className="font-medium text-foreground/70">Remark:</span> {lead.remark}
-                        </p>
+              {visible.map(lead => {
+                const isSelected = selectedId === lead.id;
+                return (
+                  <div
+                    key={lead.id}
+                    role={!isAdmin ? "button" : undefined}
+                    tabIndex={!isAdmin ? 0 : undefined}
+                    onClick={() => {
+                      if (isAdmin || isBusy) return;
+                      setSelectedId(prev => (prev === lead.id ? null : lead.id));
+                    }}
+                    onKeyDown={e => {
+                      if (isAdmin || isBusy) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedId(prev => (prev === lead.id ? null : lead.id));
+                      }
+                    }}
+                    className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border transition-colors ${
+                      isSelected
+                        ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
+                        : "hover:bg-muted/30"
+                    } ${!isAdmin && !isBusy ? "cursor-pointer" : ""} ${isBusy && !isSelected ? "opacity-50 pointer-events-none" : ""}`}
+                  >
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      {!isAdmin && (
+                        <div className="pt-2 flex-shrink-0">
+                          <div
+                            className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                              isSelected ? "border-violet-600 bg-violet-600" : "border-muted-foreground/40"
+                            }`}
+                          >
+                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                          </div>
+                        </div>
                       )}
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5"
+                        style={{ background: avatarColor(lead.name) }}
+                      >
+                        {getInitials(lead.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold truncate">{lead.name}</p>
+                          <StagePill stage={lead.stage} subStage={lead.sub_stage} />
+                          <TemperatureBadge temperature={lead.temperature} />
+                          {isSelected && (
+                            <Badge className="bg-violet-600 text-white text-[10px]">Selected</Badge>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
+                          <p className="truncate"><span className="font-medium text-foreground/70">Company:</span> {lead.company || "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Phone:</span> {lead.phone || "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Email:</span> {lead.email || "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Budget:</span> {lead.budget || "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Lead type:</span> {lead.lead_type || "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Source:</span> {lead.source || "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Value:</span> {lead.value != null ? formatCurrency(Number(lead.value) || 0) : "—"}</p>
+                          <p className="truncate"><span className="font-medium text-foreground/70">Created:</span> {lead.created_at ? format(new Date(lead.created_at), "dd MMM yyyy") : "—"}</p>
+                        </div>
+                        {lead.remark && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">
+                            <span className="font-medium text-foreground/70">Remark:</span> {lead.remark}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {lead.phone && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" asChild onClick={e => e.stopPropagation()}>
+                          <a href={`tel:${lead.phone}`}>
+                            <Phone className="h-3.5 w-3.5" />
+                          </a>
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={e => {
+                          e.stopPropagation();
+                          onOpenLead(lead);
+                        }}
+                        title="View details"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0 sm:flex-col sm:items-stretch">
-                    {lead.phone && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                        <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}>
-                          <Phone className="h-3.5 w-3.5" />
-                        </a>
-                      </Button>
-                    )}
-                    {!isAdmin && (
-                      <Button
-                        size="sm"
-                        disabled={remainingClaims <= 0 || claimingId !== null}
-                        className="bg-violet-600 hover:bg-violet-700 whitespace-nowrap"
-                        title={claimingId !== null ? "Wait — only one lead can be added at a time" : remainingClaims <= 0 ? "Limit reached" : "Assign this lead to yourself"}
-                        onClick={async () => {
-                          if (claimingId !== null) return;
-                          setClaimingId(lead.id);
-                          try {
-                            await onClaim(lead);
-                          } finally {
-                            setClaimingId(null);
-                          }
-                        }}
-                      >
-                        {claimingId === lead.id ? (
-                          <><Loader2 className="h-4 w-4 animate-spin mr-1" />Adding…</>
-                        ) : (
-                          "Add to me"
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {!isAdmin && remainingClaims <= 0 && (
             <p className="text-xs text-red-600 mt-3">
-              Limit reached ({maxClaims} leads assigned). Unassign or delete some before adding more from the pool.
+              Limit reached ({maxClaims} leads). Remove or reassign some of your leads before taking more from the pool.
             </p>
           )}
           {!isAdmin && remainingClaims > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              You can add only one lead at a time. Click Add to me on a single lead.
+              You can assign only one shared-pool lead at a time. Select a lead, then click Assign to me.
             </p>
           )}
         </CardContent>
@@ -1542,9 +1620,10 @@ export default function Leads() {
       return;
     }
     if (myActiveCount >= MAX_POOL_CLAIMS_PER_EMPLOYEE) {
-      toast.error(`You already have ${MAX_POOL_CLAIMS_PER_EMPLOYEE} leads assigned. Unassign or delete some before claiming more.`);
+      toast.error(`You already have ${MAX_POOL_CLAIMS_PER_EMPLOYEE} leads. Remove some before assigning more from the pool.`);
       return;
     }
+
 
     const assign_date = new Date().toISOString();
 
@@ -1572,15 +1651,15 @@ export default function Leads() {
 
       if (error) throw error;
       if (!data) {
-        toast.error("Someone else already added this lead");
+        toast.error("This lead was already taken by someone else");
         await fetchLeads();
         return;
       }
 
-      logActivity(lead.id, "updated", "Added to me from shared pool");
-      toast.success(`${lead.name} is now assigned to you`);
+      logActivity(lead.id, "updated", "Assigned from shared pool");
+      toast.success(`${lead.name} has been assigned to you`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to add lead to you");
+      toast.error(e.message || "Failed to assign lead");
       await fetchLeads();
     }
   }, [user?.id, myActiveCount, fetchLeads, logActivity]);
