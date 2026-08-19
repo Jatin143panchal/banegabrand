@@ -39,9 +39,7 @@ import {
   Calendar as CalendarIcon, Check, AlertCircle, Info,
   Star, StarOff, ThumbsUp, ThumbsDown, MessageCircle,
   BriefcaseBusiness, Grid, ListTodo, CalendarRange, Users as UsersIcon,
-  UserCog2, Target as TargetIcon, Timer as TimerIcon,
-  // ⬇️ YE ADD KARO
-  ShoppingCart, Scale, Factory
+  UserCog2, Target as TargetIcon, Timer as TimerIcon,ShoppingCart, Scale, Factory
 } from "lucide-react";
 
 // ============================================================
