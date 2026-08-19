@@ -4500,25 +4500,75 @@ export default function Projects() {
   const { data: lastAssigneeByProject = {} } = useQuery({
     queryKey: ["project_last_assignees"],
     queryFn: async () => {
+      // Latest activity per project (updated_at / assigned_at / created_at).
+      // In-progress tasks surface over older completed ones when touched more recently.
       const { data, error } = await supabase
         .from("project_tasks")
         .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at, status")
-        .not("assigned_to_email", "is", null)
-        .order("assigned_at", { ascending: false, nullsFirst: false });
+        .not("assigned_to_email", "is", null);
       if (error) throw error;
-      const map: Record<string, { name: string | null; email: string | null; taskName: string | null; assignedAt: string | null; status: string | null }> = {};
+
+      const activityTs = (t: {
+        updated_at?: string | null;
+        assigned_at?: string | null;
+        created_at?: string | null;
+      }) => {
+        const candidates = [t.updated_at, t.assigned_at, t.created_at]
+          .filter(Boolean)
+          .map((d) => new Date(d as string).getTime())
+          .filter((n) => !Number.isNaN(n));
+        return candidates.length ? Math.max(...candidates) : 0;
+      };
+
+      const map: Record<
+        string,
+        {
+          name: string | null;
+          email: string | null;
+          taskName: string | null;
+          assignedAt: string | null;
+          status: string | null;
+          _ts: number;
+        }
+      > = {};
+
       for (const t of data || []) {
-        if (!t.project_id || map[t.project_id]) continue;
-        const at = t.assigned_at || t.updated_at || t.created_at || null;
-        map[t.project_id] = {
-          name: t.assigned_to_name || null,
-          email: t.assigned_to_email || null,
-          taskName: t.task_name || null,
-          assignedAt: at,
-          status: t.status || null,
-        };
+        if (!t.project_id) continue;
+        const ts = activityTs(t);
+        const existing = map[t.project_id];
+        const isCompleted = (t.status || "") === "completed";
+        // Prefer higher activity time; on tie prefer non-completed (in progress)
+        if (
+          !existing ||
+          ts > existing._ts ||
+          (ts === existing._ts && existing.status === "completed" && !isCompleted)
+        ) {
+          map[t.project_id] = {
+            name: t.assigned_to_name || null,
+            email: t.assigned_to_email || null,
+            taskName: t.task_name || null,
+            assignedAt: t.assigned_at || t.updated_at || t.created_at || null,
+            status: t.status || null,
+            _ts: ts,
+          };
+        }
       }
-      return map;
+
+      const result: Record<
+        string,
+        {
+          name: string | null;
+          email: string | null;
+          taskName: string | null;
+          assignedAt: string | null;
+          status: string | null;
+        }
+      > = {};
+      for (const [pid, row] of Object.entries(map)) {
+        const { _ts, ...rest } = row;
+        result[pid] = rest;
+      }
+      return result;
     },
   });
 
