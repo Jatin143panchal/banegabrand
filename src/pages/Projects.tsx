@@ -42,6 +42,7 @@ import {
   UserCog2, Target as TargetIcon, Timer as TimerIcon,
   ShoppingCart, Scale, Factory
 } from "lucide-react";
+
 // ============================================================
 // CONSTANTS (Same as before)
 // ============================================================
