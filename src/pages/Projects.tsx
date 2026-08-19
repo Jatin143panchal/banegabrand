@@ -40,10 +40,8 @@ import {
   Star, StarOff, ThumbsUp, ThumbsDown, MessageCircle,
   BriefcaseBusiness, Grid, ListTodo, CalendarRange, Users as UsersIcon,
   UserCog2, Target as TargetIcon, Timer as TimerIcon,
-  // ⬇️ YE ADD KARO
   ShoppingCart, Scale, Factory
 } from "lucide-react";
-
 // ============================================================
 // CONSTANTS (Same as before)
 // ============================================================
