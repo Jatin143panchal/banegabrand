@@ -9025,7 +9025,7 @@ export default function Projects() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground text-sm">
-            {isAdmin ? "Manage all client projects from one dashboard" : "Aapko jin projects mein task assign hue hain, wahi yahan dikhte hain"}
+            {isAdmin ? "Manage all client projects from one dashboard" : "Assign Tasks"}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
