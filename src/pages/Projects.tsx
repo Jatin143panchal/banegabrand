@@ -4538,58 +4538,45 @@ export default function Projects() {
 
   // Latest note per project (for project list cards)
   const { data: lastNotesByProject = {} } = useQuery({
-    queryKey: ["project_last_notes"],
+    queryKey: ["project_last_notes", allProjects.map((p) => p.id).join(",")],
+    enabled: allProjects.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("project_notes")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      const map: Record<string, ProjectNote> = {};
-      for (const note of (data || []) as ProjectNote[]) {
-        // Skip pure documentation placeholder if you want only real notes — still show all types
-        if (!map[note.project_id]) {
-          // Prefer non-documentation when picking "last" note content for card
-          map[note.project_id] = note;
-        } else if (
-          map[note.project_id].note_type === "documentation" &&
-          note.note_type !== "documentation"
-        ) {
-          map[note.project_id] = note;
-        } else {
-          const existing = map[note.project_id];
-          const tExisting = new Date(existing.updated_at || existing.created_at).getTime();
-          const tNote = new Date(note.updated_at || note.created_at).getTime();
-          if (tNote > tExisting) map[note.project_id] = note;
+      const projectIds = allProjects.map((p) => p.id);
+      if (projectIds.length === 0) return {};
+
+      // Fetch notes per project chunks so Supabase row limit doesn't drop older projects
+      let allNotes: ProjectNote[] = [];
+      for (let i = 0; i < projectIds.length; i += 50) {
+        const chunk = projectIds.slice(i, i + 50);
+        const { data, error } = await supabase
+          .from("project_notes")
+          .select("*")
+          .in("project_id", chunk);
+        if (error) throw error;
+        allNotes = allNotes.concat((data || []) as ProjectNote[]);
+      }
+
+      const result: Record<string, ProjectNote> = {};
+
+      for (const note of allNotes) {
+        // System calendar note — don't show on project cards
+        if (note.note_type === "content_calendar") continue;
+
+        const existing = result[note.project_id];
+        if (!existing) {
+          result[note.project_id] = note;
+          continue;
+        }
+
+        // True last note by updated_at, fallback created_at
+        const tExisting = new Date(existing.updated_at || existing.created_at).getTime();
+        const tNote = new Date(note.updated_at || note.created_at).getTime();
+        if (tNote > tExisting) {
+          result[note.project_id] = note;
         }
       }
-      // Second pass: ensure we pick truly latest by updated_at/created_at
-      const byProject: Record<string, ProjectNote[]> = {};
-      for (const note of (data || []) as ProjectNote[]) {
-        if (!byProject[note.project_id]) byProject[note.project_id] = [];
-        byProject[note.project_id].push(note);
-      }
-      const result: Record<string, ProjectNote> = {};
-      for (const [pid, list] of Object.entries(byProject)) {
-        const sorted = [...list].sort((a, b) => {
-          const ta = new Date(a.updated_at || a.created_at).getTime();
-          const tb = new Date(b.updated_at || b.created_at).getTime();
-          return tb - ta;
-        });
-        // Prefer latest non-documentation if exists, else latest any
-        // Last Note = only real project notes (exclude documentation + content_calendar)
-        result[pid] =
-          sorted.find((n) =>
-            n.note_type !== "documentation" &&
-            n.note_type !== "content_calendar"
-          ) || null as any;
-      }
-      // Remove null entries
-      const cleaned: Record<string, ProjectNote> = {};
-      for (const [pid, note] of Object.entries(result)) {
-        if (note) cleaned[pid] = note as ProjectNote;
-      }
-      return cleaned;
+
+      return result;
     },
   });
 
