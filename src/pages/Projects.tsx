@@ -125,7 +125,7 @@ const MANUFACTURING_STAGES = [
 ];
 
 const DOCUMENT_FOLDERS = [
-  "Brand File",
+  "Brand Identity",
   "PAN Card",
   "Aadhaar Card",
   "Company Registration",
@@ -139,6 +139,7 @@ const DOCUMENT_FOLDERS = [
   "Videos",
   "Manufacturing Documents",
   "Certificates",
+  "Barcode",
   "Others"
 ];
 
@@ -1175,6 +1176,85 @@ const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduc
   (acc, f) => ({ ...acc, [f.key]: "" }),
   {} as Record<string, string>
 );
+
+
+// ── Social Media 25-Day Content Calendar ──
+interface ContentDay {
+  day: number;
+  title: string;
+  caption: string;
+  platform: string;
+  status: "pending" | "completed";
+  note: string;
+  scheduled_date?: string;
+}
+
+const CONTENT_PLATFORMS = [
+  "Instagram",
+  "Facebook",
+  "YouTube",
+  "WhatsApp Status",
+  "LinkedIn",
+  "Twitter / X",
+  "Reels",
+  "Stories",
+  "Other",
+];
+
+const EMPTY_CONTENT_DAY = (day: number): ContentDay => ({
+  day,
+  title: "",
+  caption: "",
+  platform: "Instagram",
+  status: "pending",
+  note: "",
+  scheduled_date: "",
+});
+
+function createEmptyContentCalendar(startDate?: string): ContentDay[] {
+  const days: ContentDay[] = [];
+  const base = startDate ? startOfDay(new Date(startDate)) : null;
+  for (let i = 1; i <= 25; i++) {
+    const d = EMPTY_CONTENT_DAY(i);
+    if (base) {
+      d.scheduled_date = format(addDays(base, i - 1), "yyyy-MM-dd");
+    }
+    days.push(d);
+  }
+  return days;
+}
+
+function serializeContentCalendar(days: ContentDay[], startDate: string | null) {
+  return JSON.stringify({
+    __type: "content_calendar",
+    start_date: startDate || null,
+    days,
+  });
+}
+
+function parseContentCalendar(content: string): { days: ContentDay[]; startDate: string | null } | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && parsed.__type === "content_calendar") {
+      const days = Array.isArray(parsed.days)
+        ? parsed.days.map((d: any, idx: number) => ({
+            day: d.day ?? idx + 1,
+            title: d.title || "",
+            caption: d.caption || "",
+            platform: d.platform || "Instagram",
+            status: d.status === "completed" ? "completed" : "pending",
+            note: d.note || "",
+            scheduled_date: d.scheduled_date || "",
+          }))
+        : createEmptyContentCalendar(parsed.start_date);
+      while (days.length < 25) days.push(EMPTY_CONTENT_DAY(days.length + 1));
+      return { days: days.slice(0, 25), startDate: parsed.start_date || null };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // Also need to add TaskCard component that's used in the detail view
 // ── Task Card ──────────────────────────────────────────────────
@@ -3464,6 +3544,14 @@ export default function Projects() {
   const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+
+  // ── 25-Day Social Content Calendar ──
+  const [contentCalendarDays, setContentCalendarDays] = useState<ContentDay[]>(createEmptyContentCalendar());
+  const [contentCalendarStartDate, setContentCalendarStartDate] = useState<string>("");
+  const [contentCalendarNoteId, setContentCalendarNoteId] = useState<string | null>(null);
+  const [contentCalendarSaving, setContentCalendarSaving] = useState(false);
+  const [contentCalendarFilter, setContentCalendarFilter] = useState<"all" | "pending" | "completed">("all");
+
   // ── Image upload state ──
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
 
@@ -4489,10 +4577,19 @@ export default function Projects() {
           return tb - ta;
         });
         // Prefer latest non-documentation if exists, else latest any
+        // Last Note = only real project notes (exclude documentation + content_calendar)
         result[pid] =
-          sorted.find((n) => n.note_type !== "documentation") || sorted[0];
+          sorted.find((n) =>
+            n.note_type !== "documentation" &&
+            n.note_type !== "content_calendar"
+          ) || null as any;
       }
-      return result;
+      // Remove null entries
+      const cleaned: Record<string, ProjectNote> = {};
+      for (const [pid, note] of Object.entries(result)) {
+        if (note) cleaned[pid] = note as ProjectNote;
+      }
+      return cleaned;
     },
   });
 
@@ -4617,8 +4714,15 @@ export default function Projects() {
   });
 
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
+  // Last Note & Notes tab: only real project notes (never content_calendar / documentation)
   const generalNotes = notes
-    .filter(n => n.note_type === "general" || n.note_type === "brand_kit" || n.note_type === "client_tracker" || n.note_type === "team_update" || !n.note_type)
+    .filter(n =>
+      n.note_type === "general" ||
+      n.note_type === "brand_kit" ||
+      n.note_type === "client_tracker" ||
+      n.note_type === "team_update" ||
+      !n.note_type
+    )
     .sort((a, b) => {
       const ta = new Date(a.updated_at || a.created_at).getTime();
       const tb = new Date(b.updated_at || b.created_at).getTime();
@@ -4704,6 +4808,23 @@ export default function Projects() {
         setNotes(notesFallback || []);
         const docNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "documentation");
         setDocNoteContent(docNote?.content || "");
+        const calNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "content_calendar");
+        if (calNote) {
+          const parsed = parseContentCalendar(calNote.content);
+          if (parsed) {
+            setContentCalendarDays(parsed.days);
+            setContentCalendarStartDate(parsed.startDate || "");
+            setContentCalendarNoteId(calNote.id);
+          } else {
+            setContentCalendarDays(createEmptyContentCalendar());
+            setContentCalendarStartDate("");
+            setContentCalendarNoteId(calNote.id);
+          }
+        } else {
+          setContentCalendarDays(createEmptyContentCalendar());
+          setContentCalendarStartDate("");
+          setContentCalendarNoteId(null);
+        }
       } else if (notesData) {
         // Client-side sort: prefer updated_at, else created_at
         const sorted = [...notesData].sort((a, b) => {
@@ -4714,9 +4835,30 @@ export default function Projects() {
         setNotes(sorted);
         const docNote = sorted.find((n: ProjectNote) => n.note_type === "documentation");
         setDocNoteContent(docNote?.content || "");
+        // Load 25-day content calendar
+        const calNote = sorted.find((n: ProjectNote) => n.note_type === "content_calendar");
+        if (calNote) {
+          const parsed = parseContentCalendar(calNote.content);
+          if (parsed) {
+            setContentCalendarDays(parsed.days);
+            setContentCalendarStartDate(parsed.startDate || "");
+            setContentCalendarNoteId(calNote.id);
+          } else {
+            setContentCalendarDays(createEmptyContentCalendar());
+            setContentCalendarStartDate("");
+            setContentCalendarNoteId(calNote.id);
+          }
+        } else {
+          setContentCalendarDays(createEmptyContentCalendar());
+          setContentCalendarStartDate("");
+          setContentCalendarNoteId(null);
+        }
       } else {
         setNotes([]);
         setDocNoteContent("");
+        setContentCalendarDays(createEmptyContentCalendar());
+        setContentCalendarStartDate("");
+        setContentCalendarNoteId(null);
       }
 
     } catch (error) {
@@ -6032,6 +6174,76 @@ export default function Projects() {
     }
   };
 
+  // ── Save 25-Day Content Calendar ──
+  const saveContentCalendar = async () => {
+    if (!selectedProject) return;
+    setContentCalendarSaving(true);
+    try {
+      const payload = serializeContentCalendar(contentCalendarDays, contentCalendarStartDate || null);
+      if (contentCalendarNoteId) {
+        const { error } = await supabase
+          .from("project_notes")
+          .update({
+            content: payload,
+            title: "25-Day Social Media Content Calendar",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", contentCalendarNoteId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from("project_notes")
+          .insert({
+            project_id: selectedProject.id,
+            note_type: "content_calendar",
+            title: "25-Day Social Media Content Calendar",
+            content: payload,
+            updated_at: new Date().toISOString(),
+            created_by: user?.email || null,
+            created_by_email: user?.email || null,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        if (data) setContentCalendarNoteId(data.id);
+      }
+      toast.success("Content calendar saved!");
+      fetchProjectDetails(selectedProject.id);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to save content calendar");
+    } finally {
+      setContentCalendarSaving(false);
+    }
+  };
+
+  const updateContentDay = (dayIndex: number, patch: Partial<ContentDay>) => {
+    setContentCalendarDays((prev) =>
+      prev.map((d, i) => (i === dayIndex ? { ...d, ...patch } : d))
+    );
+  };
+
+  const toggleContentDayStatus = (dayIndex: number) => {
+    setContentCalendarDays((prev) =>
+      prev.map((d, i) =>
+        i === dayIndex
+          ? { ...d, status: d.status === "completed" ? "pending" : "completed" }
+          : d
+      )
+    );
+  };
+
+  const applyStartDateToCalendar = (start: string) => {
+    setContentCalendarStartDate(start);
+    if (!start) return;
+    const base = startOfDay(new Date(start));
+    setContentCalendarDays((prev) =>
+      prev.map((d, i) => ({
+        ...d,
+        scheduled_date: format(addDays(base, i), "yyyy-MM-dd"),
+      }))
+    );
+  };
+
   const deleteProject = async (id: string) => {
     if (!confirm("Delete this project? All data will be lost.")) return;
 
@@ -7219,7 +7431,7 @@ export default function Projects() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-2">
+          <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
             <TabsTrigger value="stages">Stages</TabsTrigger>
@@ -7229,196 +7441,212 @@ export default function Projects() {
             <TabsTrigger value="documents">Documents</TabsTrigger>
             <TabsTrigger value="communication">Communication</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
+            <TabsTrigger value="content_calendar">Content Calendar</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4 mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-sm text-muted-foreground">Status</p>
-                  <Select
-                    value={normalizeProjectStatus(selectedProject.status) || selectedProject.status || "active"}
-                    onValueChange={async (v) => {
-                      try {
-                        const { error } = await supabase
-                          .from("projects")
-                          .update({ status: v, updated_at: new Date().toISOString() })
-                          .eq("id", selectedProject.id);
-                        if (error) throw error;
-                        setSelectedProject({ ...selectedProject, status: v });
-                        toast.success(`Status → ${getStatusLabel(v)}`);
-                        refetch();
-                      } catch (e: any) {
-                        toast.error(e.message || "Failed to update status");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_STATUSES.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-sm text-muted-foreground">Current Stage</p>
-                  <Select
-                    value={selectedProject.current_stage || "brand_identity"}
-                    onValueChange={async (v) => {
-                      try {
-                        const { error } = await supabase
-                          .from("projects")
-                          .update({ current_stage: v, updated_at: new Date().toISOString() })
-                          .eq("id", selectedProject.id);
-                        if (error) throw error;
-                        setSelectedProject({ ...selectedProject, current_stage: v });
-                        const meta = PROJECT_STAGES.find((s) => s.value === v);
-                        if (meta) {
-                          const order = PROJECT_STAGES.findIndex((s) => s.value === v) + 1;
-                          await upsertProjectStageStatus(meta.label, order, "in_progress", meta.value);
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Left: Status / Stage / Value / Tasks */}
+              <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="p-4 space-y-2">
+                    <p className="text-sm text-muted-foreground">Status</p>
+                    <Select
+                      value={normalizeProjectStatus(selectedProject.status) || selectedProject.status || "active"}
+                      onValueChange={async (v) => {
+                        try {
+                          const { error } = await supabase
+                            .from("projects")
+                            .update({ status: v, updated_at: new Date().toISOString() })
+                            .eq("id", selectedProject.id);
+                          if (error) throw error;
+                          setSelectedProject({ ...selectedProject, status: v });
+                          toast.success(`Status → ${getStatusLabel(v)}`);
+                          refetch();
+                        } catch (e: any) {
+                          toast.error(e.message || "Failed to update status");
                         }
-                        toast.success(`Stage → ${getStageLabel(v)}`);
-                        refetch();
-                      } catch (e: any) {
-                        toast.error(e.message || "Failed to update stage");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_STAGES.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
-              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Project Value</p><p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Tasks</p><p className="text-xl font-bold">{projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}</p></CardContent></Card>
-            </div>
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PROJECT_STATUSES.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 space-y-2">
+                    <p className="text-sm text-muted-foreground">Current Stage</p>
+                    <Select
+                      value={selectedProject.current_stage || "brand_identity"}
+                      onValueChange={async (v) => {
+                        try {
+                          const { error } = await supabase
+                            .from("projects")
+                            .update({ current_stage: v, updated_at: new Date().toISOString() })
+                            .eq("id", selectedProject.id);
+                          if (error) throw error;
+                          setSelectedProject({ ...selectedProject, current_stage: v });
+                          const meta = PROJECT_STAGES.find((s) => s.value === v);
+                          if (meta) {
+                            const order = PROJECT_STAGES.findIndex((s) => s.value === v) + 1;
+                            await upsertProjectStageStatus(meta.label, order, "in_progress", meta.value);
+                          }
+                          toast.success(`Stage → ${getStageLabel(v)}`);
+                          refetch();
+                        } catch (e: any) {
+                          toast.error(e.message || "Failed to update stage");
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PROJECT_STAGES.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Project Value</p>
+                    <p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Tasks</p>
+                    <p className="text-xl font-bold">{projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}</p>
+                  </CardContent>
+                </Card>
+              </div>
 
-            {/* Product category & products to launch */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-sm text-muted-foreground">Product Category</p>
-                  <Select
-                    value={selectedProject.product_category || ""}
-                    onValueChange={async (v) => {
-                      try {
-                        const { error } = await supabase
-                          .from("projects")
-                          .update({ product_category: v, updated_at: new Date().toISOString() })
-                          .eq("id", selectedProject.id);
-                        if (error) throw error;
-                        setSelectedProject({ ...selectedProject, product_category: v });
-                        toast.success(`Product category → ${PRODUCT_CATEGORIES.find(c => c.value === v)?.label || v}`);
-                        refetch();
-                      } catch (e: any) {
-                        toast.error(e.message || "Failed to update product category");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Select product category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PRODUCT_CATEGORIES.map((c) => (
-                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-sm text-muted-foreground">How Many Products to Launch</p>
-                  <Select
-                    value={selectedProject.products_to_launch != null ? String(selectedProject.products_to_launch) : ""}
-                    onValueChange={async (v) => {
-                      try {
-                        const num = Number(v);
-                        const { error } = await supabase
-                          .from("projects")
-                          .update({ products_to_launch: num, updated_at: new Date().toISOString() })
-                          .eq("id", selectedProject.id);
-                        if (error) throw error;
-                        setSelectedProject({ ...selectedProject, products_to_launch: num });
-                        toast.success(`Products to launch → ${num}`);
-                        refetch();
-                      } catch (e: any) {
-                        toast.error(e.message || "Failed to update products to launch");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Select 1 to 10" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PRODUCTS_TO_LAUNCH_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
-            </div>
+              {/* Right: Product Options */}
+              <Card className="border-primary/20 bg-primary/5 h-fit">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Package className="h-4 w-4 text-primary" />
+                    Product Options
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground font-medium">Product Category</p>
+                    <Select
+                      value={selectedProject.product_category || ""}
+                      onValueChange={async (v) => {
+                        try {
+                          const { error } = await supabase
+                            .from("projects")
+                            .update({ product_category: v, updated_at: new Date().toISOString() })
+                            .eq("id", selectedProject.id);
+                          if (error) throw error;
+                          setSelectedProject({ ...selectedProject, product_category: v });
+                          toast.success(`Product category → ${PRODUCT_CATEGORIES.find(c => c.value === v)?.label || v}`);
+                          refetch();
+                        } catch (e: any) {
+                          toast.error(e.message || "Failed to update product category");
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-9 w-full">
+                        <SelectValue placeholder="Select product category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRODUCT_CATEGORIES.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-            {/* Product category note (fragrance, custom Other note, etc.) */}
-            <Card>
-              <CardContent className="p-4 space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Product note
-                  <span className="text-xs text-muted-foreground/80 ml-1">
-                    (e.g. fragrance of perfume, or your own note when category is Other)
-                  </span>
-                </p>
-                <Textarea
-                  value={selectedProject.product_category_note || ""}
-                  placeholder={
-                    selectedProject.product_category === "other"
-                      ? "Write your own note for Other category..."
-                      : selectedProject.product_category === "perfume"
-                      ? "e.g. Fragrance: woody, floral, citrus..."
-                      : "Add product details or notes..."
-                  }
-                  className="min-h-[80px] text-sm"
-                  onChange={(e) =>
-                    setSelectedProject({
-                      ...selectedProject,
-                      product_category_note: e.target.value,
-                    })
-                  }
-                  onBlur={async (e) => {
-                    const note = e.target.value || null;
-                    try {
-                      const { error } = await supabase
-                        .from("projects")
-                        .update({
-                          product_category_note: note,
-                          updated_at: new Date().toISOString(),
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground font-medium">How Many Products to Launch</p>
+                    <Select
+                      value={selectedProject.products_to_launch != null ? String(selectedProject.products_to_launch) : ""}
+                      onValueChange={async (v) => {
+                        try {
+                          const num = Number(v);
+                          const { error } = await supabase
+                            .from("projects")
+                            .update({ products_to_launch: num, updated_at: new Date().toISOString() })
+                            .eq("id", selectedProject.id);
+                          if (error) throw error;
+                          setSelectedProject({ ...selectedProject, products_to_launch: num });
+                          toast.success(`Products to launch → ${num}`);
+                          refetch();
+                        } catch (e: any) {
+                          toast.error(e.message || "Failed to update products to launch");
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-9 w-full">
+                        <SelectValue placeholder="Select 1 to 10" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRODUCTS_TO_LAUNCH_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground font-medium">
+                      Product note
+                      <span className="block text-[10px] opacity-80 mt-0.5">
+                        (e.g. fragrance of perfume, or your own note when category is Other)
+                      </span>
+                    </p>
+                    <Textarea
+                      value={selectedProject.product_category_note || ""}
+                      placeholder={
+                        selectedProject.product_category === "other"
+                          ? "Write your own note for Other category..."
+                          : selectedProject.product_category === "perfume"
+                          ? "e.g. Fragrance: woody, floral, citrus..."
+                          : "Add product details or notes..."
+                      }
+                      className="min-h-[70px] text-sm"
+                      onChange={(e) =>
+                        setSelectedProject({
+                          ...selectedProject,
+                          product_category_note: e.target.value,
                         })
-                        .eq("id", selectedProject.id);
-                      if (error) throw error;
-                      setSelectedProject((prev) =>
-                        prev ? { ...prev, product_category_note: note } : prev
-                      );
-                      toast.success("Product note saved");
-                      refetch();
-                    } catch (err: any) {
-                      toast.error(err.message || "Failed to save product note");
-                    }
-                  }}
-                />
-              </CardContent>
-            </Card>
+                      }
+                      onBlur={async (e) => {
+                        const note = e.target.value || null;
+                        try {
+                          const { error } = await supabase
+                            .from("projects")
+                            .update({
+                              product_category_note: note,
+                              updated_at: new Date().toISOString(),
+                            })
+                            .eq("id", selectedProject.id);
+                          if (error) throw error;
+                          setSelectedProject((prev) =>
+                            prev ? { ...prev, product_category_note: note } : prev
+                          );
+                          toast.success("Product note saved");
+                          refetch();
+                        } catch (err: any) {
+                          toast.error(err.message || "Failed to save product note");
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
             {/* Last note */}
             <Card className="border-amber-200 bg-amber-50/40">
@@ -8317,6 +8545,209 @@ export default function Projects() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ── 25-Day Social Media Content Calendar ── */}
+          <TabsContent value="content_calendar" className="mt-4 space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <CalendarDays className="h-5 w-5 text-fuchsia-500" />
+                      25-Day Social Media Content Calendar
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Plan daily posts, mark completed, and add notes for each day
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      onClick={saveContentCalendar}
+                      disabled={contentCalendarSaving}
+                    >
+                      {contentCalendarSaving ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Save Calendar
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Controls */}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Start Date (Day 1)</Label>
+                    <Input
+                      type="date"
+                      value={contentCalendarStartDate}
+                      onChange={(e) => applyStartDateToCalendar(e.target.value)}
+                      className="w-44 h-9"
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Filter</Label>
+                    <Select
+                      value={contentCalendarFilter}
+                      onValueChange={(v: "all" | "pending" | "completed") => setContentCalendarFilter(v)}
+                    >
+                      <SelectTrigger className="w-36 h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Days</SelectItem>
+                        <SelectItem value="pending">Pending only</SelectItem>
+                        <SelectItem value="completed">Completed only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-4 ml-auto text-sm">
+                    <span className="text-muted-foreground">
+                      Completed:{" "}
+                      <strong className="text-green-600">
+                        {contentCalendarDays.filter((d) => d.status === "completed").length}/25
+                      </strong>
+                    </span>
+                    <Progress
+                      value={
+                        (contentCalendarDays.filter((d) => d.status === "completed").length / 25) * 100
+                      }
+                      className="w-24 h-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Days list */}
+                <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+                  {contentCalendarDays
+                    .filter((d) => {
+                      if (contentCalendarFilter === "pending") return d.status === "pending";
+                      if (contentCalendarFilter === "completed") return d.status === "completed";
+                      return true;
+                    })
+                    .map((day) => {
+                      const realIndex = contentCalendarDays.findIndex((x) => x.day === day.day);
+                      return (
+                        <div
+                          key={day.day}
+                          className={`border rounded-lg p-3 transition-colors ${
+                            day.status === "completed"
+                              ? "bg-green-50/50 border-green-200"
+                              : "hover:bg-muted/30"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex flex-col items-center gap-1 shrink-0 pt-1">
+                              <input
+                                type="checkbox"
+                                checked={day.status === "completed"}
+                                onChange={() => toggleContentDayStatus(realIndex)}
+                                className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                                title="Mark as completed"
+                              />
+                              <span className="text-[10px] font-bold text-muted-foreground">
+                                D{day.day}
+                              </span>
+                            </div>
+
+                            <div className="flex-1 min-w-0 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-sm">Day {day.day}</span>
+                                {day.scheduled_date && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {format(new Date(day.scheduled_date), "dd MMM yyyy")}
+                                  </Badge>
+                                )}
+                                {day.status === "completed" && (
+                                  <Badge className="text-xs bg-green-100 text-green-700 border-green-200">
+                                    <CheckCircle className="h-3 w-3 mr-1" /> Completed
+                                  </Badge>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                <div className="grid gap-1">
+                                  <Label className="text-[10px] text-muted-foreground">Post Title</Label>
+                                  <Input
+                                    value={day.title}
+                                    onChange={(e) =>
+                                      updateContentDay(realIndex, { title: e.target.value })
+                                    }
+                                    placeholder="e.g. Product Reveal"
+                                    className="h-8 text-sm"
+                                  />
+                                </div>
+                                <div className="grid gap-1">
+                                  <Label className="text-[10px] text-muted-foreground">Platform</Label>
+                                  <Select
+                                    value={day.platform}
+                                    onValueChange={(v) =>
+                                      updateContentDay(realIndex, { platform: v })
+                                    }
+                                  >
+                                    <SelectTrigger className="h-8 text-sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {CONTENT_PLATFORMS.map((p) => (
+                                        <SelectItem key={p} value={p}>
+                                          {p}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="grid gap-1 sm:col-span-2">
+                                  <Label className="text-[10px] text-muted-foreground">
+                                    Caption / Content
+                                  </Label>
+                                  <Input
+                                    value={day.caption}
+                                    onChange={(e) =>
+                                      updateContentDay(realIndex, { caption: e.target.value })
+                                    }
+                                    placeholder="Write caption or post idea..."
+                                    className="h-8 text-sm"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid gap-1">
+                                <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                  <StickyNote className="h-3 w-3" /> Note / Checklist remark
+                                </Label>
+                                <Textarea
+                                  value={day.note}
+                                  onChange={(e) =>
+                                    updateContentDay(realIndex, { note: e.target.value })
+                                  }
+                                  placeholder="Add note, checklist, or status update for this day..."
+                                  rows={2}
+                                  className="text-sm resize-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {contentCalendarDays.filter((d) => {
+                  if (contentCalendarFilter === "pending") return d.status === "pending";
+                  if (contentCalendarFilter === "completed") return d.status === "completed";
+                  return true;
+                }).length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">
+                    No days match the current filter
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
         {/* ── Folder "View All" documents dialog ── */}
@@ -9025,7 +9456,7 @@ export default function Projects() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground text-sm">
-            {isAdmin ? "Manage all client projects from one dashboard" : "Assign Tasks"}
+            {isAdmin ? "Manage all client projects from one dashboard" : "Aapko jin projects mein task assign hue hain, wahi yahan dikhte hain"}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
