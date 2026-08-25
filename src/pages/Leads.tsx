@@ -159,10 +159,33 @@ function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" |
   const d = startOfDay(new Date(nextCallDate));
   const today = startOfDay(new Date());
   const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  // upcoming = future, today = due today, overdue = 1 or 2 days past only
   if (diffDays < 0) return "upcoming";
   if (diffDays === 0) return "today";
-  if (diffDays === 1) return "overdue";
-  return null;
+  if (diffDays >= 1 && diffDays <= 2) return "overdue";
+  return null; // 3+ days past → follow-up list se hata do
+}
+
+/** Safe merge: never keep two rows with same id */
+function dedupeLeads(rows: DbLead[]): DbLead[] {
+  const seen = new Set<string>();
+  const out: DbLead[] = [];
+  for (const l of rows) {
+    if (!l?.id || seen.has(l.id)) continue;
+    seen.add(l.id);
+    out.push({
+      ...l,
+      stage: l.stage === "New" ? "new" : l.stage,
+    });
+  }
+  return out;
+}
+
+/** Employee ko sirf apni + shared pool leads dikhne chahiye */
+function isLeadVisibleToEmployee(lead: DbLead, userId: string): boolean {
+  if (lead.assigned_to === userId) return true;
+  if (!lead.assigned_to && lead.in_shared_pool === true) return true;
+  return false;
 }
 
 function getFollowupBucketConfig(bucket: string | null) {
@@ -947,17 +970,7 @@ export default function Leads() {
         }
       }
 
-      const seen = new Set<string>();
-      allRows = allRows
-        .map(l => ({
-          ...l,
-          stage: l.stage === "New" ? "new" : l.stage,
-        }))
-        .filter(l => {
-          if (!l.id || seen.has(l.id)) return false;
-          seen.add(l.id);
-          return true;
-        });
+      allRows = dedupeLeads(allRows);
       
       console.log("✅ Fetched leads TOTAL (deduped):", allRows.length);
       setLeads(allRows);
@@ -993,50 +1006,53 @@ export default function Leads() {
           .single();
         
         const isAdmin = profile?.role === "admin" || !!canAssign;
+        const channelName = `leads-changes-${user.id}`;
         
         subscription = supabase
-          .channel('leads-changes')
+          .channel(channelName)
           .on(
-            'postgres_changes',
+            "postgres_changes",
             {
-              event: '*',
-              schema: 'public',
-              table: 'leads'
+              event: "*",
+              schema: "public",
+              table: "leads"
             },
             (payload) => {
               if (!isMounted) return;
               
-              if (!isAdmin && user?.id) {
-                const lead = (payload.new || payload.old) as DbLead;
-                // employees only care about their leads + unassigned pool
-                if (lead && lead.assigned_to && lead.assigned_to !== user.id) {
-                  console.log("⏭️ Ignoring update for other employee's lead");
-                  return;
-                }
-              }
-              
               setLeads(prev => {
                 switch (payload.eventType) {
-                  case 'INSERT': {
+                  case "INSERT": {
                     const row = payload.new as DbLead;
+                    if (!row?.id) return prev;
                     if (prev.some(l => l.id === row.id)) return prev;
-                    const normalized = { ...row, stage: row.stage === "New" ? "new" : row.stage };
-                    return [normalized, ...prev];
+                    if (!isAdmin && !isLeadVisibleToEmployee(row, user.id)) {
+                      return prev;
+                    }
+                    return dedupeLeads([
+                      { ...row, stage: row.stage === "New" ? "new" : row.stage },
+                      ...prev,
+                    ]);
                   }
-                  case 'UPDATE': {
+                  case "UPDATE": {
                     const row = payload.new as DbLead;
-                    const normalized = { ...row, stage: row.stage === "New" ? "new" : row.stage };
-                    // if someone else claimed a pool lead, drop it from this employee's view
-                    if (!isAdmin && normalized.assigned_to && normalized.assigned_to !== user.id) {
+                    if (!row?.id) return prev;
+                    const normalized = {
+                      ...row,
+                      stage: row.stage === "New" ? "new" : row.stage,
+                    };
+                    if (!isAdmin && !isLeadVisibleToEmployee(normalized, user.id)) {
                       return prev.filter(l => l.id !== normalized.id);
                     }
                     if (prev.some(l => l.id === normalized.id)) {
-                      return prev.map(l => l.id === normalized.id ? normalized : l);
+                      return prev.map(l =>
+                        l.id === normalized.id ? normalized : l
+                      );
                     }
-                    return [normalized, ...prev];
+                    return dedupeLeads([normalized, ...prev]);
                   }
-                  case 'DELETE':
-                    return prev.filter(l => l.id !== payload.old.id);
+                  case "DELETE":
+                    return prev.filter(l => l.id !== (payload.old as any)?.id);
                   default:
                     return prev;
                 }
@@ -1337,17 +1353,21 @@ export default function Leads() {
       const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
       const assign_date = finalAssignedTo ? new Date().toISOString() : null;
 
-      setLeads(prev => prev.map(l => (l.id === id ? { ...l, assigned_to: finalAssignedTo, assign_date } : l)));
+      const patch: Partial<DbLead> = {
+        assigned_to: finalAssignedTo,
+        assign_date,
+        in_shared_pool: finalAssignedTo ? false : true,
+        claimed_from_pool: false,
+      };
+
+      setLeads(prev => prev.map(l => (l.id === id ? { ...l, ...patch } : l)));
       if (detailLead && detailLead.id === id) {
-        setDetailLead(prev => (prev ? { ...prev, assigned_to: finalAssignedTo, assign_date } : prev));
+        setDetailLead(prev => (prev ? { ...prev, ...patch } : prev));
       }
 
       const { error } = await supabase
         .from("leads")
-        .update({ 
-          assigned_to: finalAssignedTo, 
-          assign_date: assign_date 
-        })
+        .update(patch)
         .eq("id", id);
         
       if (error) throw error;
@@ -1641,10 +1661,17 @@ export default function Leads() {
     if (!canAssign || selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
 
+    const patch = {
+      assigned_to: null as string | null,
+      assign_date: null as string | null,
+      in_shared_pool: true,
+      claimed_from_pool: false,
+    };
+
     setLeads(prev =>
       prev.map(l =>
         ids.includes(l.id)
-          ? { ...l, assigned_to: null, assign_date: null, in_shared_pool: true }
+          ? { ...l, ...patch }
           : l
       )
     );
@@ -1653,11 +1680,7 @@ export default function Leads() {
     try {
       const { error } = await supabase
         .from("leads")
-        .update({
-          assigned_to: null,
-          assign_date: null,
-          in_shared_pool: true,
-        })
+        .update(patch)
         .in("id", ids);
       if (error) throw error;
       toast.success(`${ids.length} lead(s) added to shared pool`);
@@ -1779,12 +1802,19 @@ export default function Leads() {
     const assign_date = new Date().toISOString();
     const ids = Array.from(selectedIds);
 
-    setLeads(prev => prev.map(l => (ids.includes(l.id) ? { ...l, assigned_to: bulkAssignTo, assign_date } : l)));
+    const patch = {
+      assigned_to: bulkAssignTo,
+      assign_date,
+      in_shared_pool: false,
+      claimed_from_pool: false,
+    };
+
+    setLeads(prev => prev.map(l => (ids.includes(l.id) ? { ...l, ...patch } : l)));
 
     try {
       const { error } = await supabase
         .from("leads")
-        .update({ assigned_to: bulkAssignTo, assign_date })
+        .update(patch)
         .in("id", ids);
       
       if (error) throw error;
@@ -1839,40 +1869,134 @@ export default function Leads() {
     if (uploadPreview.length === 0) return;
     setUploading(true);
     let success = 0;
+    let skipped = 0;
 
-    for (let i = 0; i < uploadPreview.length; i++) {
-      const lead = uploadPreview[i];
-      try {
-        const { error } = await supabase
-          .from("leads")
-          .insert({
-            name: lead.name,
-            email: lead.email,
-            phone: lead.phone,
-            company: lead.company,
-            source: lead.source,
-            value: lead.value || 0,
-            status: "new",
-            lead_type: lead.lead_type,
-            address: lead.address,
-            cx_comment: lead.cx_comment,
-            budget: lead.budget,
-            stage: "new",
-            sub_stage: "",
-            remark: lead.remark,
-            temperature: lead.temperature || "warm",
-            assigned_to: null,
-            assign_date: null,
-            in_shared_pool: true,
+    const normEmail = (e: string | null | undefined) =>
+      (e || "").toLowerCase().trim();
+    const normPhone = (p: string | null | undefined) =>
+      String(p || "").replace(/\D/g, "");
+    const isFakeEmail = (e: string) =>
+      !e ||
+      ["no mail", "nomail", "n/a", "na", "none", "-", "null"].includes(e);
+
+    const emailsInFile = [
+      ...new Set(
+        uploadPreview
+          .map((l: any) => normEmail(l.email))
+          .filter((e: string) => e && !isFakeEmail(e))
+      ),
+    ];
+    const phonesInFile = [
+      ...new Set(
+        uploadPreview
+          .map((l: any) => normPhone(l.phone))
+          .filter((p: string) => p.length >= 8)
+      ),
+    ];
+
+    const existingEmails = new Set<string>();
+    const existingPhones = new Set<string>();
+
+    try {
+      if (emailsInFile.length > 0) {
+        for (let i = 0; i < emailsInFile.length; i += 100) {
+          const chunk = emailsInFile.slice(i, i + 100);
+          const { data } = await supabase
+            .from("leads")
+            .select("email")
+            .in("email", chunk);
+          (data || []).forEach((r: any) => {
+            const e = normEmail(r.email);
+            if (e && !isFakeEmail(e)) existingEmails.add(e);
           });
+        }
+      }
+      if (phonesInFile.length > 0) {
+        for (let i = 0; i < phonesInFile.length; i += 100) {
+          const chunk = phonesInFile.slice(i, i + 100);
+          const { data } = await supabase
+            .from("leads")
+            .select("phone")
+            .in("phone", chunk);
+          (data || []).forEach((r: any) => {
+            const p = normPhone(r.phone);
+            if (p.length >= 8) existingPhones.add(p);
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Duplicate pre-check failed:", err);
+    }
+
+    const seenInFile = new Set<string>();
+
+    for (const lead of uploadPreview) {
+      if (!lead.name?.trim()) {
+        skipped++;
+        continue;
+      }
+
+      const emailKey = normEmail(lead.email);
+      const phoneKey = normPhone(lead.phone);
+      const hasRealEmail = !!(emailKey && !isFakeEmail(emailKey));
+      const hasRealPhone = phoneKey.length >= 8;
+
+      const fileKey = hasRealEmail
+        ? `e:${emailKey}`
+        : hasRealPhone
+        ? `p:${phoneKey}`
+        : `n:${lead.name.trim().toLowerCase()}`;
+
+      if (seenInFile.has(fileKey)) {
+        skipped++;
+        continue;
+      }
+      seenInFile.add(fileKey);
+
+      if (hasRealEmail && existingEmails.has(emailKey)) {
+        skipped++;
+        continue;
+      }
+      if (hasRealPhone && existingPhones.has(phoneKey)) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const { error } = await supabase.from("leads").insert({
+          name: lead.name.trim(),
+          email: hasRealEmail ? String(lead.email).trim() : null,
+          phone: lead.phone || null,
+          company: lead.company || null,
+          source: lead.source || "Excel Import",
+          value: Number(lead.value) || 0,
+          status: "new",
+          lead_type: lead.lead_type || null,
+          address: lead.address || null,
+          cx_comment: lead.cx_comment || null,
+          budget: lead.budget || null,
+          stage: "new",
+          sub_stage: "",
+          remark: lead.remark || null,
+          temperature: lead.temperature || "warm",
+          assigned_to: null,
+          assign_date: null,
+          in_shared_pool: true,
+          claimed_from_pool: false,
+        });
 
         if (error) {
-          console.error("Insert error for lead:", lead.name, error);
+          console.error("Insert error:", lead.name, error.message);
+          skipped++;
           continue;
         }
+
+        if (hasRealEmail) existingEmails.add(emailKey);
+        if (hasRealPhone) existingPhones.add(phoneKey);
         success++;
-      } catch (error) {
-        console.error("Error importing lead:", lead.name, error);
+      } catch (err) {
+        console.error("Import error:", lead.name, err);
+        skipped++;
       }
     }
 
@@ -1885,7 +2009,13 @@ export default function Leads() {
 
     setImportSummary({ imported: success });
 
-    toast.success(`${success} leads imported into Shared Pool (unassigned / New stage)!`);
+    if (skipped > 0) {
+      toast.success(
+        `${success} leads imported · ${skipped} duplicates skipped`
+      );
+    } else {
+      toast.success(`${success} leads imported into Shared Pool!`);
+    }
     setUploadOpen(false);
   }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
 
