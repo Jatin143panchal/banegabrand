@@ -764,7 +764,7 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, las
                     </div>
                   </div>
                 )}
-                {lastAssignee && (lastAssignee.name || lastAssignee.email) && (
+                {lastAssignee && lastAssignee.status !== "completed" && (lastAssignee.name || lastAssignee.email) && (
                   <div className={`flex items-start gap-1.5 text-xs rounded-md px-2 py-1.5 border ${
                     lastAssignee.status === "completed"
                       ? "text-green-700 bg-green-50 border-green-200"
@@ -7764,16 +7764,20 @@ export default function Projects() {
                   <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin" /></div>
                 ) : (
                   <div className="space-y-2">
-                    {projectTasks.slice(0, 5).map(task => (
+                    {projectTasks.filter(t => t.status !== 'completed').slice(0, 5).map(task => (
                       <div key={task.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                        <div className={`w-2 h-2 rounded-full ${task.status === 'completed' ? 'bg-green-500' : task.status === 'in_progress' ? 'bg-blue-500' : task.status === 'blocked' ? 'bg-red-500' : 'bg-gray-300'}`} />
-                        <span className={`flex-1 ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>{task.task_name}</span>
+                        <div className={`w-2 h-2 rounded-full ${task.status === 'in_progress' ? 'bg-blue-500' : task.status === 'blocked' ? 'bg-red-500' : task.status === 'review' ? 'bg-yellow-500' : 'bg-gray-300'}`} />
+                        <span className="flex-1">{task.task_name}</span>
                         {task.assigned_to_name && <span className="text-xs text-indigo-600">👤 {task.assigned_to_name}</span>}
                         <span className="text-xs text-muted-foreground">{task.due_date ? format(new Date(task.due_date), "dd MMM") : "No due"}</span>
                         <Badge variant="outline" className="text-xs">{task.status}</Badge>
                       </div>
                     ))}
-                    {projectTasks.length === 0 && <p className="text-center text-muted-foreground py-4">No tasks yet</p>}
+                    {projectTasks.filter(t => t.status !== 'completed').length === 0 && (
+                      <p className="text-center text-muted-foreground py-4">
+                        {projectTasks.length === 0 ? "No tasks yet" : "No open tasks — completed tasks yahan se hat chuke hain"}
+                      </p>
+                    )}
                   </div>
                 )}
               </CardContent>
