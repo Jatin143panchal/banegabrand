@@ -480,6 +480,20 @@ function getDueBucket(dueDate: string | null) {
   return "later";
 }
 
+
+function computeStageCompletionPercent(stages: { stage_name?: string | null; status?: string | null }[]): number {
+  const total = PROJECT_STAGES.length;
+  if (!total) return 0;
+  const done = PROJECT_STAGES.filter((ps) => {
+    const item = stages.find((st) => {
+      const name = (st.stage_name || "").toLowerCase();
+      return name === ps.label.toLowerCase() || name === ps.value.toLowerCase();
+    });
+    return item?.status === "completed";
+  }).length;
+  return Math.round((done / total) * 100);
+}
+
 function serializeBrandKit(fields: Record<string, string>, imageUrl: string | null) {
   return JSON.stringify({ __type: "brand_kit", image_url: imageUrl || null, fields });
 }
@@ -5252,6 +5266,27 @@ export default function Projects() {
         }
       }
 
+      const mergedStages = existing
+        ? projectStages.map((st) => (st.id === existing.id ? { ...st, status, stage_name: stageLabel } : st))
+        : [
+            ...projectStages,
+            {
+              id: "temp",
+              project_id: selectedProject.id,
+              stage_name: stageLabel,
+              stage_order: stageOrder,
+              status,
+              start_date: null,
+              completion_date: null,
+            },
+          ];
+      const stagePercent = computeStageCompletionPercent(mergedStages);
+      await supabase
+        .from("projects")
+        .update({ completion_percentage: stagePercent, updated_at: new Date().toISOString() })
+        .eq("id", selectedProject.id);
+      setSelectedProject((prev) => prev ? { ...prev, completion_percentage: stagePercent } : prev);
+
       toast.success("Stage updated successfully");
       fetchProjectDetails(selectedProject.id);
       refetch();
@@ -5429,19 +5464,7 @@ export default function Projects() {
           .select("*")
           .eq("project_id", selectedProject.id);
 
-        if (!tasksError && tasksData && tasksData.length > 0) {
-          const completedCount = tasksData.filter((t: any) => t.status === "completed").length;
-          const newPercentage = Math.round((completedCount / tasksData.length) * 100);
-
-          const { error: projectUpdateError } = await supabase
-            .from("projects")
-            .update({ completion_percentage: newPercentage })
-            .eq("id", selectedProject.id);
-
-          if (!projectUpdateError) {
-            setSelectedProject((prev) => prev ? { ...prev, completion_percentage: newPercentage } : prev);
-          }
-        }
+        // Project progress bar stages se chalti hai, tasks se nahi.
 
         await fetchProjectDetails(selectedProject.id);
         refetch();
@@ -7445,9 +7468,9 @@ export default function Projects() {
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>Project Progress</span>
-            <span className="font-semibold">{selectedProject.completion_percentage || 0}%</span>
+            <span className="font-semibold">{computeStageCompletionPercent(projectStages) || selectedProject.completion_percentage || 0}%</span>
           </div>
-          <Progress value={selectedProject.completion_percentage || 0} className="h-3" />
+          <Progress value={computeStageCompletionPercent(projectStages) || selectedProject.completion_percentage || 0} className="h-3" />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
             <span>Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
