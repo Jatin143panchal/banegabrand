@@ -391,7 +391,7 @@ const TEAM_GROUP_MEMBER: ITTeamMember = {
   id: "__team_group__",
   name: "Team Group Chat",
   email: TEAM_GROUP_EMAIL,
-  role: "Sab members — group chat",
+  role: " members — group chat",
   active: true,
 };
 
@@ -7272,7 +7272,7 @@ export default function Projects() {
                     <div className="px-4 py-3 border-b">
                       <p className="font-medium text-sm">{activeChatMember.name}</p>
                       {activeChatMember.email === TEAM_GROUP_EMAIL && (
-                        <p className="text-xs text-muted-foreground">Poori team yahan chat kar sakti hai. Messages save rehte hain.</p>
+                        <p className="text-xs text-muted-foreground">Group Chat</p>
                       )}
                     </div>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -7303,7 +7303,7 @@ export default function Projects() {
                       )}
                       {!chatMessagesLoading && chatMessages.length === 0 && (
                         <p className="text-center text-xs text-muted-foreground py-8">
-                          Pehla message bhejein — ye save ho jayega
+                          text here
                         </p>
                       )}
                     </div>
