@@ -644,15 +644,16 @@ function SubtaskTagBadge({ tag }: { tag: string | null }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────
-function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee }: { 
+function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee, stageProgress }: { 
   project: Project; 
   onClick: () => void;
   onImageUpload?: (projectId: string, file: File) => Promise<void>;
   uploading?: boolean;
   lastNote?: ProjectNote | null;
   lastAssignee?: { name: string | null; email: string | null; taskName?: string | null; assignedAt?: string | null; status?: string | null } | null;
+  stageProgress?: number;
 }) {
-  const progress = project.completion_percentage || 0;
+  const progress = typeof stageProgress === "number" ? stageProgress : (project.completion_percentage || 0);
   const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "";
   const [isHovering, setIsHovering] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -4696,6 +4697,34 @@ export default function Projects() {
     },
   });
 
+  const { data: stageProgressByProject = {} } = useQuery({
+    queryKey: ["project_stage_progress", allProjects.map((p) => p.id).join(",")],
+    enabled: allProjects.length > 0,
+    queryFn: async () => {
+      const projectIds = allProjects.map((p) => p.id);
+      let allStages: { project_id: string; stage_name: string | null; status: string | null }[] = [];
+      for (let i = 0; i < projectIds.length; i += 50) {
+        const chunk = projectIds.slice(i, i + 50);
+        const { data, error } = await supabase
+          .from("project_stages")
+          .select("project_id, stage_name, status")
+          .in("project_id", chunk);
+        if (error) throw error;
+        allStages = allStages.concat(data || []);
+      }
+      const byProject: Record<string, { stage_name: string | null; status: string | null }[]> = {};
+      for (const row of allStages) {
+        if (!row.project_id) continue;
+        (byProject[row.project_id] ||= []).push(row);
+      }
+      const result: Record<string, number> = {};
+      for (const project of allProjects) {
+        result[project.id] = computeStageCompletionPercent(byProject[project.id] || []);
+      }
+      return result;
+    },
+  });
+
   const projects = isAdmin
     ? allProjects
     : allProjects.filter((p: Project) => assignedProjectIds.has(p.id));
@@ -5288,6 +5317,7 @@ export default function Projects() {
       setSelectedProject((prev) => prev ? { ...prev, completion_percentage: stagePercent } : prev);
 
       toast.success("Stage updated successfully");
+      queryClient.invalidateQueries({ queryKey: ["project_stage_progress"] });
       fetchProjectDetails(selectedProject.id);
       refetch();
     } catch (error: any) {
@@ -9712,6 +9742,7 @@ export default function Projects() {
                   uploading={uploadingImage === project.id}
                   lastNote={lastNotesByProject[project.id] || null}
                   lastAssignee={lastAssigneeByProject[project.id] || null}
+                  stageProgress={stageProgressByProject[project.id]}
                 />
               ))
             )}
