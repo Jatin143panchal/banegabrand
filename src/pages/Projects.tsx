@@ -398,6 +398,18 @@ const TEAM_GROUP_MEMBER: ITTeamMember = {
 // ============================================================
 // HELPER FUNCTIONS (Same as before)
 // ============================================================
+
+const ADMIN_EMAIL = "banegabrand.admin@gmail.com";
+const ADMIN_DISPLAY_NAME = "Mayank Sir";
+
+function displayPersonName(name?: string | null, email?: string | null) {
+  const em = (email || "").trim().toLowerCase();
+  if (em === ADMIN_EMAIL) return ADMIN_DISPLAY_NAME;
+  const n = (name || "").trim();
+  if (/banega\s*brand\s*admin/i.test(n) || /^banegabrand\s*admin$/i.test(n)) return ADMIN_DISPLAY_NAME;
+  return n || email || "";
+}
+
 function getStageLabel(value: string) {
   const stage = PROJECT_STAGES.find(s => s.value === value);
   return stage?.label || value;
@@ -2455,6 +2467,8 @@ function TaskAssignmentPage({
   const filteredTasks = allTasks
     .filter(task => {
       if (selectedMember && task.assigned_to_email !== selectedMember) return false;
+      // Employee-complete tasks hide from assignment list unless user explicitly filters Completed
+      if (statusFilter === "all" && task.status === "completed") return false;
       if (statusFilter !== "all" && task.status !== statusFilter) return false;
       if (priorityFilter !== "all" && task.priority !== priorityFilter) return false;
       if (projectFilter !== "all" && task.projects?.name !== projectFilter) return false;
@@ -3591,7 +3605,10 @@ export default function Projects() {
         .order("name");
       
       if (error) throw error;
-      return data as ITTeamMember[];
+      return ((data || []) as ITTeamMember[]).map((m) => ({
+        ...m,
+        name: displayPersonName(m.name, m.email) || m.name,
+      }));
     },
     staleTime: 0,
     refetchOnMount: true,
@@ -3804,7 +3821,7 @@ export default function Projects() {
         task_id: taskId,
         remark: text,
         created_by_email: user?.email || null,
-        created_by_name: (user as any)?.name || currentTeamMember?.name || (isAdmin ? BRAND_ADMIN_NAME : user?.email) || null,
+        created_by_name: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email) || null,
       });
       if (insertError) throw insertError;
 
@@ -4210,7 +4227,7 @@ export default function Projects() {
         task_id: taskId,
         remark,
         created_by_email: user?.email || null,
-        created_by_name: (user as any)?.name || currentTeamMember?.name || (isAdmin ? BRAND_ADMIN_NAME : user?.email) || null,
+        created_by_name: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email) || null,
       });
       if (insertError) throw insertError;
       
@@ -6602,7 +6619,7 @@ export default function Projects() {
         )}
       </Button>
       {isAdmin && (
-        <Badge variant="outline" className="ml-auto text-[10px]">👑 {BRAND_ADMIN_NAME} — Admin View</Badge>
+        <Badge variant="outline" className="ml-auto text-[10px]">👑 {ADMIN_DISPLAY_NAME} — Admin View</Badge>
       )}
     </div>
   );
@@ -7341,7 +7358,7 @@ export default function Projects() {
                       ) : (
                         chatMessages.map((m) => {
                           const mine = m.sender_email === myEmail;
-                          const senderLabel = itTeam.find((t) => t.email === m.sender_email)?.name || m.sender_email;
+                          const senderLabel = displayPersonName(itTeam.find((t) => t.email === m.sender_email)?.name, m.sender_email);
                           return (
                             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                               <div
