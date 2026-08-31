@@ -57,6 +57,7 @@ const PROJECT_STAGES = [
   { value: "mockups", label: "Mockups", icon: "", color: "#f59e0b" },
   { value: "product_name", label: "Product Name", icon: "", color: "#f97316" },
   { value: "social_media_activation", label: "Social Media Activation", icon: "", color: "#06b6d4" },
+  { value: "pr", label: "PR", icon: "", color: "#db2777" },
   // Development
   { value: "ui_ux", label: "UI / UX", icon: "", color: "#6366f1" },
   { value: "shopify_theme", label: "Shopify Theme (Paid / Free)", icon: "", color: "#96bf48" },
@@ -384,6 +385,15 @@ interface InternalMessage {
   is_read: boolean;
   created_at: string;
 }
+
+const TEAM_GROUP_EMAIL = "__team_group__";
+const TEAM_GROUP_MEMBER: ITTeamMember = {
+  id: "__team_group__",
+  name: "Team Group Chat",
+  email: TEAM_GROUP_EMAIL,
+  role: "Sab members — group chat",
+  active: true,
+};
 
 // ============================================================
 // HELPER FUNCTIONS (Same as before)
@@ -4316,22 +4326,26 @@ export default function Projects() {
   const loadChatConversation = async (otherEmail: string) => {
     setChatMessagesLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("internal_messages")
-        .select("*")
-        .or(
-          `and(sender_email.eq.${myEmail},receiver_email.eq.${otherEmail}),and(sender_email.eq.${otherEmail},receiver_email.eq.${myEmail})`
-        )
-        .order("created_at", { ascending: true });
+      const isGroup = otherEmail === TEAM_GROUP_EMAIL;
+      const query = supabase.from("internal_messages").select("*");
+      const { data, error } = isGroup
+        ? await query.eq("receiver_email", TEAM_GROUP_EMAIL).order("created_at", { ascending: true })
+        : await query
+            .or(
+              `and(sender_email.eq.${myEmail},receiver_email.eq.${otherEmail}),and(sender_email.eq.${otherEmail},receiver_email.eq.${myEmail})`
+            )
+            .order("created_at", { ascending: true });
       if (error) throw error;
       setChatMessages(data as InternalMessage[]);
 
-      await supabase
-        .from("internal_messages")
-        .update({ is_read: true })
-        .eq("sender_email", otherEmail)
-        .eq("receiver_email", myEmail)
-        .eq("is_read", false);
+      if (!isGroup) {
+        await supabase
+          .from("internal_messages")
+          .update({ is_read: true })
+          .eq("sender_email", otherEmail)
+          .eq("receiver_email", myEmail)
+          .eq("is_read", false);
+      }
 
       queryClient.invalidateQueries({ queryKey: ["internal_unread", myEmail] });
     } catch (error: any) {
@@ -4355,12 +4369,18 @@ export default function Projects() {
         { event: "INSERT", schema: "public", table: "internal_messages" },
         (payload) => {
           const msg = payload.new as InternalMessage;
-          const involvesMe = msg.sender_email === myEmail || msg.receiver_email === myEmail;
+          const isGroupMsg = msg.receiver_email === TEAM_GROUP_EMAIL;
+          const involvesMe = msg.sender_email === myEmail || msg.receiver_email === myEmail || isGroupMsg;
           if (!involvesMe) return;
 
           if (
             activeChatMember &&
-            (msg.sender_email === activeChatMember.email || msg.receiver_email === activeChatMember.email)
+            (
+              (activeChatMember.email === TEAM_GROUP_EMAIL && isGroupMsg) ||
+              (activeChatMember.email !== TEAM_GROUP_EMAIL &&
+                (msg.sender_email === activeChatMember.email || msg.receiver_email === activeChatMember.email) &&
+                !isGroupMsg)
+            )
           ) {
             setChatMessages((prev) => [...prev, msg]);
             if (msg.receiver_email === myEmail) {
@@ -7205,7 +7225,7 @@ export default function Projects() {
         {TopNav}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Team Chat</h1>
-          <p className="text-muted-foreground text-sm">IT Team Internal Chat</p>
+          <p className="text-muted-foreground text-sm">IT Team Chat — 1-to-1 + Group</p>
         </div>
 
         <Card>
@@ -7215,7 +7235,7 @@ export default function Projects() {
                 {itLoading ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
                 ) : (
-                  chatTeamList.map((member) => (
+                  [TEAM_GROUP_MEMBER, ...chatTeamList].map((member) => (
                     <button
                       key={member.id}
                       onClick={() => selectChatMember(member)}
@@ -7224,7 +7244,10 @@ export default function Projects() {
                       }`}
                     >
                       <div>
-                        <p className="font-medium text-sm">{member.name}</p>
+                        <p className="font-medium text-sm flex items-center gap-1.5">
+                          {member.email === TEAM_GROUP_EMAIL ? <Users2 className="h-3.5 w-3.5 text-fuchsia-600" /> : null}
+                          {member.name}
+                        </p>
                         <p className="text-xs text-muted-foreground">{member.role || member.email}</p>
                       </div>
                       {chatUnread.includes(member.email) && (
@@ -7241,13 +7264,16 @@ export default function Projects() {
               <div className="md:col-span-2 flex flex-col">
                 {!activeChatMember ? (
                   <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm gap-2">
-                    <MessageSquare className="h-5 w-5" /> 
-                    Text here
+                    <MessageSquare className="h-5 w-5" />
+                    Group chat ya member select karein
                   </div>
                 ) : (
                   <>
                     <div className="px-4 py-3 border-b">
                       <p className="font-medium text-sm">{activeChatMember.name}</p>
+                      {activeChatMember.email === TEAM_GROUP_EMAIL && (
+                        <p className="text-xs text-muted-foreground">Poori team yahan chat kar sakti hai. Messages save rehte hain.</p>
+                      )}
                     </div>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                       {chatMessagesLoading ? (
@@ -7255,6 +7281,7 @@ export default function Projects() {
                       ) : (
                         chatMessages.map((m) => {
                           const mine = m.sender_email === myEmail;
+                          const senderLabel = itTeam.find((t) => t.email === m.sender_email)?.name || m.sender_email;
                           return (
                             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                               <div
@@ -7262,6 +7289,9 @@ export default function Projects() {
                                   mine ? "bg-primary text-primary-foreground" : "bg-muted"
                                 }`}
                               >
+                                {!mine && activeChatMember?.email === TEAM_GROUP_EMAIL && (
+                                  <p className="text-[10px] font-semibold mb-0.5 opacity-80">{senderLabel}</p>
+                                )}
                                 <p className="whitespace-pre-wrap">{m.message}</p>
                                 <p className={`text-[10px] mt-1 ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                                   {format(new Date(m.created_at), "hh:mm a")}
@@ -7273,7 +7303,7 @@ export default function Projects() {
                       )}
                       {!chatMessagesLoading && chatMessages.length === 0 && (
                         <p className="text-center text-xs text-muted-foreground py-8">
-                          write here
+                          Pehla message bhejein — ye save ho jayega
                         </p>
                       )}
                     </div>
@@ -7954,7 +7984,7 @@ export default function Projects() {
                       <p className="text-sm font-semibold text-purple-700 flex items-center gap-2">
                         Social Media
                       </p>
-                      {PROJECT_STAGES.slice(0, 8).map((ps, index) => {
+                      {PROJECT_STAGES.slice(0, 9).map((ps, index) => {
                         const item = projectStages.find(
                           (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                         );
@@ -8017,7 +8047,7 @@ export default function Projects() {
                       <p className="text-sm font-semibold text-indigo-700 flex items-center gap-2">
                         Development
                       </p>
-                      {PROJECT_STAGES.slice(8, 16).map((ps, index) => {
+                      {PROJECT_STAGES.slice(9, 17).map((ps, index) => {
                         const item = projectStages.find(
                           (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                         );
@@ -8046,7 +8076,7 @@ export default function Projects() {
                                 </Badge>
                                 <Select
                                   value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 9, v, ps.value)}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 10, v, ps.value)}
                                 >
                                   <SelectTrigger className="w-36 h-8 text-xs">
                                     <SelectValue />
@@ -8080,7 +8110,7 @@ export default function Projects() {
                       <p className="text-sm font-semibold text-orange-700 flex items-center gap-2">
                         Ecommerce
                       </p>
-                      {PROJECT_STAGES.slice(16).map((ps, index) => {
+                      {PROJECT_STAGES.slice(17).map((ps, index) => {
                         const item = projectStages.find(
                           (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                         );
@@ -8109,7 +8139,7 @@ export default function Projects() {
                                 </Badge>
                                 <Select
                                   value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 17, v, ps.value)}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 18, v, ps.value)}
                                 >
                                   <SelectTrigger className="w-36 h-8 text-xs">
                                     <SelectValue />
