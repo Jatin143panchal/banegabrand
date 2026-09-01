@@ -992,87 +992,81 @@ export default function Leads() {
   }, [fetchLeads, isInitialFetch]);
 
   useEffect(() => {
-    let isMounted = true;
-    let subscription: any = null;
-    
-    const setupSubscription = async () => {
-      if (!user?.id) return;
-      
-      try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("user_id", user.id)
-          .single();
-        
-        const isAdmin = profile?.role === "admin" || !!canAssign;
-        const channelName = `leads-changes-${user.id}`;
-        
-        subscription = supabase
-          .channel(channelName)
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "leads"
-            },
-            (payload) => {
-              if (!isMounted) return;
-              
-              setLeads(prev => {
-                switch (payload.eventType) {
-                  case "INSERT": {
-                    const row = payload.new as DbLead;
-                    if (!row?.id) return prev;
-                    if (prev.some(l => l.id === row.id)) return prev;
-                    if (!isAdmin && !isLeadVisibleToEmployee(row, user.id)) {
-                      return prev;
-                    }
-                    return dedupeLeads([
-                      { ...row, stage: row.stage === "New" ? "new" : row.stage },
-                      ...prev,
-                    ]);
-                  }
-                  case "UPDATE": {
-                    const row = payload.new as DbLead;
-                    if (!row?.id) return prev;
-                    const normalized = {
-                      ...row,
-                      stage: row.stage === "New" ? "new" : row.stage,
-                    };
-                    if (!isAdmin && !isLeadVisibleToEmployee(normalized, user.id)) {
-                      return prev.filter(l => l.id !== normalized.id);
-                    }
-                    if (prev.some(l => l.id === normalized.id)) {
-                      return prev.map(l =>
-                        l.id === normalized.id ? normalized : l
-                      );
-                    }
-                    return dedupeLeads([normalized, ...prev]);
-                  }
-                  case "DELETE":
-                    return prev.filter(l => l.id !== (payload.old as any)?.id);
-                  default:
-                    return prev;
+    if (!user?.id) return;
+
+    const channelName = `leads-changes-${user.id}`;
+    let cancelled = false;
+
+    // Remove leftover channels with this topic (React Strict Mode / canAssign flip)
+    supabase
+      .getChannels()
+      .filter((c) => c.topic === `realtime:${channelName}`)
+      .forEach((c) => {
+        supabase.removeChannel(c);
+      });
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "leads",
+        },
+        (payload) => {
+          if (cancelled) return;
+
+          const isAdmin = !!canAssign;
+
+          setLeads((prev) => {
+            switch (payload.eventType) {
+              case "INSERT": {
+                const row = payload.new as DbLead;
+                if (!row?.id) return prev;
+                if (prev.some((l) => l.id === row.id)) return prev;
+                if (!isAdmin && !isLeadVisibleToEmployee(row, user.id)) {
+                  return prev;
                 }
-              });
+                return dedupeLeads([
+                  { ...row, stage: row.stage === "New" ? "new" : row.stage },
+                  ...prev,
+                ]);
+              }
+              case "UPDATE": {
+                const row = payload.new as DbLead;
+                if (!row?.id) return prev;
+                const normalized = {
+                  ...row,
+                  stage: row.stage === "New" ? "new" : row.stage,
+                };
+                if (!isAdmin && !isLeadVisibleToEmployee(normalized, user.id)) {
+                  return prev.filter((l) => l.id !== normalized.id);
+                }
+                if (prev.some((l) => l.id === normalized.id)) {
+                  return prev.map((l) =>
+                    l.id === normalized.id ? normalized : l
+                  );
+                }
+                return dedupeLeads([normalized, ...prev]);
+              }
+              case "DELETE":
+                return prev.filter((l) => l.id !== (payload.old as any)?.id);
+              default:
+                return prev;
             }
-          )
-          .subscribe();
-        
-      } catch (error) {
-        console.error("Error setting up subscription:", error);
-      }
-    };
-    
-    setupSubscription();
+          });
+        }
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("Leads realtime status:", status);
+        }
+      });
 
     return () => {
-      isMounted = false;
-      if (subscription) {
-        supabase.removeChannel(subscription);
-      }
+      cancelled = true;
+      supabase.removeChannel(channel);
     };
   }, [user?.id, canAssign]);
 
