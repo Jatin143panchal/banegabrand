@@ -364,7 +364,7 @@ function SharedLeadsPool({
   const [collapsed, setCollapsed] = useState(false);
 
   const visible = useMemo(() => {
-    const q = search.toLowerCase().trim();
+    const q = String(search ?? "").toLowerCase().trim();
     return poolLeads.filter(l =>
       !q ||
       l.name.toLowerCase().includes(q) ||
@@ -1385,8 +1385,10 @@ export default function Leads() {
       email?: string | null;
     }[]).find((p) => p.user_id === userId);
     if (!p) return "Unknown";
-    if (p.display_name?.trim()) return p.display_name.trim();
-    if (p.email?.trim()) return p.email.trim();
+    const displayName = p.display_name != null ? String(p.display_name).trim() : "";
+    if (displayName) return displayName;
+    const email = p.email != null ? String(p.email).trim() : "";
+    if (email) return email;
     return "Unnamed User";
   }, [profiles]);
 
@@ -1866,9 +1868,9 @@ export default function Leads() {
     let skipped = 0;
 
     const normEmail = (e: string | null | undefined) =>
-      (e || "").toLowerCase().trim();
+      String(e ?? "").toLowerCase().trim();
     const normPhone = (p: string | null | undefined) =>
-      String(p || "").replace(/\D/g, "");
+      String(p ?? "").replace(/\D/g, "");
     const isFakeEmail = (e: string) =>
       !e ||
       ["no mail", "nomail", "n/a", "na", "none", "-", "null"].includes(e);
@@ -1925,7 +1927,8 @@ export default function Leads() {
     const seenInFile = new Set<string>();
 
     for (const lead of uploadPreview) {
-      if (!lead.name?.trim()) {
+      const leadName = String(lead.name ?? "").trim();
+      if (!leadName) {
         skipped++;
         continue;
       }
@@ -1939,7 +1942,7 @@ export default function Leads() {
         ? `e:${emailKey}`
         : hasRealPhone
         ? `p:${phoneKey}`
-        : `n:${lead.name.trim().toLowerCase()}`;
+        : `n:${leadName.toLowerCase()}`;
 
       if (seenInFile.has(fileKey)) {
         skipped++;
@@ -1958,8 +1961,8 @@ export default function Leads() {
 
       try {
         const { error } = await supabase.from("leads").insert({
-          name: lead.name.trim(),
-          email: hasRealEmail ? String(lead.email).trim() : null,
+          name: leadName,
+          email: hasRealEmail ? String(lead.email ?? "").trim() : null,
           phone: lead.phone || null,
           company: lead.company || null,
           source: lead.source || "Excel Import",
