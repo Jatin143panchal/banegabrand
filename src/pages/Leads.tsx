@@ -36,7 +36,6 @@ import {
 
 // ── Stages config ─────────────────────────────────────────────────────────────
 const DEFAULT_LEAD_STAGE = "new";
-const MAX_POOL_CLAIMS_PER_EMPLOYEE = 10;
 
 const LEAD_STAGES = [
   { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },
@@ -141,11 +140,8 @@ interface DbLead {
   claimed_from_pool?: boolean | null;
 }
 
-/** Only leads claimed from Shared Pool count toward the max-10 limit. Admin-assigned leads do not. */
-function countPoolClaims(leads: DbLead[], userId: string | undefined) {
-  if (!userId) return 0;
-  return leads.filter(l => l.assigned_to === userId && l.claimed_from_pool === true).length;
-}
+
+
 
 // ── Follow-up urgency config ──
 const FOLLOWUP_BUCKETS = [
@@ -181,11 +177,9 @@ function dedupeLeads(rows: DbLead[]): DbLead[] {
   return out;
 }
 
-/** Employee ko sirf apni + shared pool leads dikhne chahiye */
+/** Employee ko sirf apni assigned leads dikhne chahiye */
 function isLeadVisibleToEmployee(lead: DbLead, userId: string): boolean {
-  if (lead.assigned_to === userId) return true;
-  if (!lead.assigned_to && lead.in_shared_pool === true) return true;
-  return false;
+  return lead.assigned_to === userId;
 }
 
 function getFollowupBucketConfig(bucket: string | null) {
@@ -338,219 +332,6 @@ function LeadCharts({ leads }: { leads: DbLead[] }) {
     <div className="grid grid-cols-1 gap-4 mb-6">
    
     </div>
-  );
-}
-
-// ── Shared Leads Pool ──────────────────────────────────────────────────────
-function SharedLeadsPool({
-  poolLeads,
-  remainingClaims,
-  maxClaims,
-  myActiveCount,
-  isAdmin,
-  onClaim,
-  onOpenLead,
-}: {
-  poolLeads: DbLead[];
-  remainingClaims: number;
-  maxClaims: number;
-  myActiveCount: number;
-  isAdmin: boolean;
-  onClaim: (lead: DbLead) => Promise<void>;
-  onOpenLead: (lead: DbLead) => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [claimingId, setClaimingId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
-
-  const visible = useMemo(() => {
-    const q = String(search ?? "").toLowerCase().trim();
-    return poolLeads.filter(l =>
-      !q ||
-      l.name.toLowerCase().includes(q) ||
-      (l.company || "").toLowerCase().includes(q) ||
-      (l.phone || "").includes(q) ||
-      (l.email || "").toLowerCase().includes(q)
-    );
-  }, [poolLeads, search]);
-
-  const isBusy = claimingId !== null;
-
-  return (
-    <Card className="border-violet-200 shadow-md">
-      <CardHeader className="pb-3 bg-gradient-to-r from-violet-50 to-white">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Layers className="h-5 w-5" style={{ color: "#7c3aed" }} />
-              Shared Leads Pool
-              <Badge className="ml-2 bg-violet-600 text-white">
-                {poolLeads.length} in Pool
-              </Badge>
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {isAdmin
-                ? "Select leads in the main table, then click Add to Pool. Employees click Assign to me on a pool lead."
-                : "Click Assign to me next to Call. First person to claim a lead gets it. One lead at a time."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-sm">
-              From pool: {myActiveCount}/{maxClaims} · {remainingClaims} remaining
-            </Badge>
-            <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
-              {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-        {!collapsed && (
-          <div className="relative mt-3 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Search pool by name, company, phone..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-        )}
-      </CardHeader>
-      {!collapsed && (
-        <CardContent className="max-h-[420px] overflow-y-auto">
-          {visible.length === 0 ? (
-            <div className="text-center py-8">
-              <Layers className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">
-                {poolLeads.length === 0 ? "Shared pool is empty." : "No pool leads match this search."}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {visible.map(lead => {
-                const isThisBusy = claimingId === lead.id;
-                const rowLocked = isBusy && !isThisBusy;
-                return (
-                  <div
-                    key={lead.id}
-                    className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border hover:bg-muted/30 transition-colors ${
-                      rowLocked ? "opacity-50" : ""
-                    }`}
-                  >
-                    {/* Left: Call + Assign to me */}
-                    <div className="flex flex-col gap-1 flex-shrink-0 order-2 sm:order-1">
-                      <div className="flex items-center gap-2">
-                        {lead.phone ? (
-                          <Button variant="outline" size="sm" className="whitespace-nowrap" asChild>
-                            <a href={`tel:${lead.phone}`} onClick={e => e.stopPropagation()}>
-                              <Phone className="h-3.5 w-3.5 mr-1" />
-                              Call
-                            </a>
-                          </Button>
-                        ) : (
-                          <Button variant="outline" size="sm" disabled className="whitespace-nowrap">
-                            <Phone className="h-3.5 w-3.5 mr-1" />
-                            Call
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={remainingClaims <= 0 || isBusy}
-                          className="bg-violet-600 hover:bg-violet-700 text-white whitespace-nowrap"
-                          title={
-                            remainingClaims <= 0
-                              ? "Limit reached"
-                              : isBusy
-                              ? "Only one lead can be assigned at a time"
-                              : "Assign this lead to yourself"
-                          }
-                          onClick={async e => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (isBusy || remainingClaims <= 0) return;
-                            setClaimingId(lead.id);
-                            try {
-                              await onClaim(lead);
-                            } finally {
-                              setClaimingId(null);
-                            }
-                          }}
-                        >
-                          {isThisBusy ? (
-                            <><Loader2 className="h-4 w-4 animate-spin mr-1" />Assigning…</>
-                          ) : (
-                            "Assign to me"
-                          )}
-                        </Button>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground max-w-[220px]">
-                        First person to click Assign to me gets this lead.
-                      </p>
-                    </div>
-
-                    <div className="flex items-start gap-3 flex-1 min-w-0 order-1 sm:order-2">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 mt-0.5"
-                        style={{ background: avatarColor(lead.name) }}
-                      >
-                        {getInitials(lead.name)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold truncate">{lead.name}</p>
-                          <StagePill stage={lead.stage} subStage={lead.sub_stage} />
-                          <TemperatureBadge temperature={lead.temperature} />
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
-                          <p className="truncate"><span className="font-medium text-foreground/70">Company:</span> {lead.company || "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Phone:</span> {lead.phone || "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Email:</span> {lead.email || "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Budget:</span> {lead.budget || "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Lead type:</span> {lead.lead_type || "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Source:</span> {lead.source || "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Value:</span> {lead.value != null ? formatCurrency(Number(lead.value) || 0) : "—"}</p>
-                          <p className="truncate"><span className="font-medium text-foreground/70">Created:</span> {lead.created_at ? format(new Date(lead.created_at), "dd MMM yyyy") : "—"}</p>
-                        </div>
-                        {lead.remark && (
-                          <p className="text-xs text-muted-foreground mt-1 truncate">
-                            <span className="font-medium text-foreground/70">Remark:</span> {lead.remark}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-shrink-0 order-3">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={e => {
-                          e.stopPropagation();
-                          onOpenLead(lead);
-                        }}
-                        title="View details"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {remainingClaims <= 0 && (
-            <p className="text-xs text-red-600 mt-3">
-              Shared pool limit reached ({maxClaims} leads claimed from pool). You cannot claim more from the pool until some are unassigned.
-            </p>
-          )}
-          {remainingClaims > 0 && (
-            <p className="text-xs text-muted-foreground mt-3">
-              One lead at a time. Click Assign to me next to Call. Only leads taken from this pool count toward the {maxClaims} limit.
-            </p>
-          )}
-        </CardContent>
-      )}
-    </Card>
   );
 }
 
@@ -945,11 +726,9 @@ export default function Leads() {
           .order("created_at", { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
 
-        // Employees: own leads + shared pool (in_shared_pool + unassigned)
+        // Employees: only their assigned leads
         if (!isAdmin && user?.id) {
-          query = query.or(
-            `assigned_to.eq.${user.id},and(assigned_to.is.null,in_shared_pool.eq.true)`
-          );
+          query = query.eq("assigned_to", user.id);
         }
 
         const { data, error } = await query;
@@ -1126,9 +905,7 @@ export default function Leads() {
 
       let query = supabase.from("leads").select("*", { count: "exact", head: true });
       if (!isAdmin && user?.id) {
-        query = query.or(
-          `assigned_to.eq.${user.id},and(assigned_to.is.null,in_shared_pool.eq.true)`
-        );
+        query = query.eq("assigned_to", user.id);
       }
       const { count, error } = await query;
       if (error) throw error;
@@ -1350,7 +1127,7 @@ export default function Leads() {
       const patch: Partial<DbLead> = {
         assigned_to: finalAssignedTo,
         assign_date,
-        in_shared_pool: finalAssignedTo ? false : true,
+        in_shared_pool: false,
         claimed_from_pool: false,
       };
 
@@ -1569,123 +1346,6 @@ export default function Leads() {
       await fetchLeads();
     }
   }, [selectedIds, logActivity, fetchLeads]);
-
-  const myActiveCount = useMemo(
-    () => countPoolClaims(leads, user?.id),
-    [leads, user?.id]
-  );
-  const remainingClaims = Math.max(0, MAX_POOL_CLAIMS_PER_EMPLOYEE - myActiveCount);
-
-  // Only leads admin explicitly put in pool (in_shared_pool=true) and still unassigned
-  const poolLeads = useMemo(
-    () =>
-      leads
-        .filter(
-          l =>
-            !!l.in_shared_pool &&
-            !l.assigned_to &&
-            l.stage !== "converted" &&
-            l.stage !== "lost"
-        )
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
-    [leads]
-  );
-
-  const claimFromPool = useCallback(async (lead: DbLead) => {
-    if (!user?.id) {
-      toast.error("You must be logged in");
-      return;
-    }
-    if (lead.assigned_to) {
-      toast.error("This lead was already taken");
-      return;
-    }
-    if (myActiveCount >= MAX_POOL_CLAIMS_PER_EMPLOYEE) {
-      toast.error(
-        `You already claimed ${MAX_POOL_CLAIMS_PER_EMPLOYEE} leads from the shared pool. Limit reached.`
-      );
-      return;
-    }
-
-    const assign_date = new Date().toISOString();
-
-    setLeads(prev =>
-      prev.map(l =>
-        l.id === lead.id
-          ? {
-              ...l,
-              assigned_to: user.id!,
-              assign_date,
-              in_shared_pool: false,
-              claimed_from_pool: true,
-            }
-          : l
-      )
-    );
-
-    try {
-      const { data, error } = await supabase
-        .from("leads")
-        .update({
-          assigned_to: user.id,
-          assign_date,
-          in_shared_pool: false,
-          claimed_from_pool: true,
-        })
-        .eq("id", lead.id)
-        .is("assigned_to", null)
-        .eq("in_shared_pool", true)
-        .select("id")
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) {
-        toast.error("This lead was already taken by someone else");
-        await fetchLeads();
-        return;
-      }
-
-      logActivity(lead.id, "updated", "Assigned from shared pool");
-      toast.success(`${lead.name} has been assigned to you`);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to assign lead");
-      await fetchLeads();
-    }
-  }, [user?.id, myActiveCount, fetchLeads, logActivity]);
-
-  const addSelectedToPool = useCallback(async () => {
-    if (!canAssign || selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
-
-    const patch = {
-      assigned_to: null as string | null,
-      assign_date: null as string | null,
-      in_shared_pool: true,
-      claimed_from_pool: false,
-    };
-
-    setLeads(prev =>
-      prev.map(l =>
-        ids.includes(l.id)
-          ? { ...l, ...patch }
-          : l
-      )
-    );
-    setSelectedIds(new Set());
-
-    try {
-      const { error } = await supabase
-        .from("leads")
-        .update(patch)
-        .in("id", ids);
-      if (error) throw error;
-      toast.success(`${ids.length} lead(s) added to shared pool`);
-      ids.forEach(id => logActivity(id, "updated", "Moved to shared pool"));
-    } catch (e: any) {
-      toast.error(e.message || "Failed to add to pool. Did you run the in_shared_pool migration?");
-      await fetchLeads();
-    }
-  }, [canAssign, selectedIds, fetchLeads, logActivity]);
 
   const filterPresetOptions = useMemo(() => ({
     all: () => true,
@@ -1978,7 +1638,7 @@ export default function Leads() {
           temperature: lead.temperature || "warm",
           assigned_to: null,
           assign_date: null,
-          in_shared_pool: true,
+          in_shared_pool: false,
           claimed_from_pool: false,
         });
 
@@ -2011,7 +1671,7 @@ export default function Leads() {
         `${success} leads imported · ${skipped} duplicates skipped`
       );
     } else {
-      toast.success(`${success} leads imported into Shared Pool!`);
+      toast.success(`${success} leads imported`);
     }
     setUploadOpen(false);
   }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
@@ -2168,8 +1828,7 @@ export default function Leads() {
   useEffect(() => {
     console.log("📊 Leads in state:", leads.length);
     console.log("📊 Filtered leads:", filtered.length);
-    console.log("📊 Pool leads:", poolLeads.length);
-  }, [leads, filtered, poolLeads]);
+  }, [leads, filtered]);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -2256,7 +1915,7 @@ export default function Leads() {
                   </p>
                   <p className="text-xs text-violet-600 mb-2 flex items-center justify-center gap-1">
                     <ShieldCheck className="h-3 w-3" />
-                    Imported leads go to the Shared Pool as unassigned (New stage)
+                    Imported leads are added as unassigned New leads
                   </p>
                   <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
                 </div>
@@ -2295,7 +1954,7 @@ export default function Leads() {
                 {importSummary && (
                   <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
-                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported into Shared Pool
+                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported
                     </span>
                   </div>
                 )}
@@ -2303,7 +1962,7 @@ export default function Leads() {
               <DialogFooter>
                 {uploadPreview.length > 0 && (
                   <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
-                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} to Pool`}
+                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
                   </Button>
                 )}
                 {uploadPreview.length === 0 && importSummary && (
@@ -2668,7 +2327,7 @@ export default function Leads() {
                 <span className="font-medium text-foreground">{leads.filter(l => l.assigned_to).length}</span> Assigned
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> In Pool
+                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> Unassigned
               </span>
               <span className="flex items-center gap-1">
                 <span className="font-medium text-foreground">{leads.filter(l => l.stage === "converted").length}</span> Converted
@@ -2726,16 +2385,6 @@ export default function Leads() {
           </div>
         </CardContent>
       </Card>
-
-      <SharedLeadsPool
-        poolLeads={poolLeads}
-        remainingClaims={remainingClaims}
-        maxClaims={MAX_POOL_CLAIMS_PER_EMPLOYEE}
-        myActiveCount={myActiveCount}
-        isAdmin={!!canAssign}
-        onClaim={claimFromPool}
-        onOpenLead={openLeadDetail}
-      />
 
       <FollowUpSection leads={canAssign ? leads : leads.filter(l => l.assigned_to === user?.id)} onOpenLead={openLeadDetail} />
 
@@ -2816,11 +2465,6 @@ export default function Leads() {
               <Button size="sm" onClick={handleBulkAssign}>
                 <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
               </Button>
-              {canAssign && (
-                <Button size="sm" variant="outline" onClick={addSelectedToPool}>
-                  <Layers className="mr-1 h-4 w-4" />Add {selectedIds.size} to Pool
-                </Button>
-              )}
               <Button 
                 size="sm" 
                 variant="default"
@@ -2854,9 +2498,6 @@ export default function Leads() {
                 )}
                 {dashboardLeads.length !== leads.length && showAllLeads && <span className="text-muted-foreground font-normal"> (filtered from {leads.length})</span>}
               </p>
-              {!canAssign && (
-                <Badge variant="outline">Your assigned: {myActiveCount}/{MAX_POOL_CLAIMS_PER_EMPLOYEE}</Badge>
-              )}
               <Button
                 variant={showAllLeads ? "outline" : "default"}
                 size="sm"
@@ -2879,7 +2520,7 @@ export default function Leads() {
             <div className="text-center py-12">
               <p className="text-sm text-muted-foreground">No leads found.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {showAllLeads ? "Try adjusting your filters or claim a lead from the Shared Pool." : "No leads created today or due for follow-up. Click \"Show All Leads\" to see everything."}
+                {showAllLeads ? "Try adjusting your filters." : "No leads created today or due for follow-up. Click \"Show All Leads\" to see everything."}
               </p>
             </div>
           ) : (
@@ -3269,8 +2910,8 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
         <div className="space-y-3 py-2">
           <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
             <div>
-              <p className="font-medium text-muted-foreground">Shared Pool (Unassigned)</p>
-              <p className="text-xs text-muted-foreground">Available for employees to claim</p>
+              <p className="font-medium text-muted-foreground">Unassigned</p>
+              <p className="text-xs text-muted-foreground">Not assigned to any employee</p>
             </div>
             <Badge variant="outline" className="text-base px-3 py-1">{unassigned}</Badge>
           </div>
