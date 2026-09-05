@@ -1293,6 +1293,70 @@ function parseContentCalendar(content: string): { days: ContentDay[]; startDate:
   }
 }
 
+
+const LINK_CATEGORIES = [
+  "Google Drive",
+  "Instagram",
+  "Facebook",
+  "YouTube",
+  "WhatsApp",
+  "Amazon",
+  "Flipkart",
+  "Website / Admin",
+  "Email",
+  "Domain / Hosting",
+  "Payment Gateway",
+  "Other",
+];
+
+interface ProjectLinkItem {
+  id: string;
+  category: string;
+  title: string;
+  url: string;
+  username: string;
+  password: string;
+  note: string;
+}
+
+function serializeProjectLinks(items: ProjectLinkItem[]) {
+  return JSON.stringify({ __type: "drive_links", items });
+}
+
+function parseProjectLinks(content: string): ProjectLinkItem[] {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && parsed.__type === "drive_links" && Array.isArray(parsed.items)) {
+      return parsed.items.map((it: any, i: number) => ({
+        id: it.id || `link_${i}_${Date.now()}`,
+        category: it.category || "Other",
+        title: it.title || "",
+        url: it.url || "",
+        username: it.username || "",
+        password: it.password || "",
+        note: it.note || "",
+      }));
+    }
+  } catch {}
+  return [];
+}
+
+function toClickableUrl(raw: string) {
+  const v = (raw || "").trim();
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^(www\.|drive\.google|docs\.google|instagram\.com|facebook\.com)/i.test(v)) {
+    return `https://${v}`;
+  }
+  return v.startsWith("/") ? v : `https://${v}`;
+}
+
+function isUrlLike(raw: string) {
+  const v = (raw || "").trim();
+  return /^(https?:\/\/|www\.|drive\.google|docs\.google)/i.test(v) || /\.[a-z]{2,}/i.test(v);
+}
+
+
 // Also need to add TaskCard component that's used in the detail view
 // ── Task Card ──────────────────────────────────────────────────
 function TaskCard({
@@ -3566,6 +3630,20 @@ export default function Projects() {
   const [docNoteEditing, setDocNoteEditing] = useState(false);
   const [folderViewOpen, setFolderViewOpen] = useState(false);
   const [activeFolderView, setActiveFolderView] = useState<string | null>(null);
+
+  // Drive / Social links & logins
+  const [projectLinks, setProjectLinks] = useState<ProjectLinkItem[]>([]);
+  const [projectLinksNoteId, setProjectLinksNoteId] = useState<string | null>(null);
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const [newLink, setNewLink] = useState<Omit<ProjectLinkItem, "id">>({
+    category: "Google Drive",
+    title: "",
+    url: "",
+    username: "",
+    password: "",
+    note: "",
+  });
   
   // Data states
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -4795,7 +4873,7 @@ export default function Projects() {
       n.note_type === "brand_kit" ||
       n.note_type === "client_tracker" ||
       n.note_type === "team_update" ||
-      !n.note_type
+      (!n.note_type && n.title !== "Drive Links")
     )
     .sort((a, b) => {
       const ta = new Date(a.updated_at || a.created_at).getTime();
@@ -4899,6 +4977,15 @@ export default function Projects() {
           setContentCalendarStartDate("");
           setContentCalendarNoteId(null);
         }
+
+        const linksNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
+        if (linksNote) {
+          setProjectLinksNoteId(linksNote.id);
+          setProjectLinks(parseProjectLinks(linksNote.content));
+        } else {
+          setProjectLinksNoteId(null);
+          setProjectLinks([]);
+        }
       } else if (notesData) {
         // Client-side sort: prefer updated_at, else created_at
         const sorted = [...notesData].sort((a, b) => {
@@ -4927,12 +5014,23 @@ export default function Projects() {
           setContentCalendarStartDate("");
           setContentCalendarNoteId(null);
         }
+
+        const linksNote = (sorted || []).find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
+        if (linksNote) {
+          setProjectLinksNoteId(linksNote.id);
+          setProjectLinks(parseProjectLinks(linksNote.content));
+        } else {
+          setProjectLinksNoteId(null);
+          setProjectLinks([]);
+        }
       } else {
         setNotes([]);
         setDocNoteContent("");
         setContentCalendarDays(createEmptyContentCalendar());
         setContentCalendarStartDate("");
         setContentCalendarNoteId(null);
+        setProjectLinks([]);
+        setProjectLinksNoteId(null);
       }
 
     } catch (error) {
@@ -6222,6 +6320,77 @@ export default function Projects() {
       queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
     } catch (error: any) {
       toast.error(error.message);
+    }
+  };
+
+
+  const saveProjectLinks = async (items: ProjectLinkItem[]) => {
+    if (!selectedProject) return;
+    setLinkSaving(true);
+    try {
+      const payload: any = {
+        project_id: selectedProject.id,
+        note_type: "drive_links",
+        title: "Drive Links",
+        content: serializeProjectLinks(items),
+        updated_at: new Date().toISOString(),
+      };
+      if (projectLinksNoteId) {
+        let { error } = await supabase.from("project_notes").update(payload).eq("id", projectLinksNoteId);
+        if (error && String(error.message || "").toLowerCase().includes("note_type")) {
+          const retry = await supabase.from("project_notes").update({ ...payload, note_type: "general" }).eq("id", projectLinksNoteId);
+          error = retry.error;
+        }
+        if (error) throw error;
+      } else {
+        let { data, error } = await supabase.from("project_notes").insert({
+          ...payload,
+          created_by: user?.email || null,
+          created_by_email: user?.email || null,
+        }).select("id").single();
+        if (error && String(error.message || "").toLowerCase().includes("note_type")) {
+          const retry = await supabase.from("project_notes").insert({
+            ...payload,
+            note_type: "general",
+            created_by: user?.email || null,
+            created_by_email: user?.email || null,
+          }).select("id").single();
+          data = retry.data;
+          error = retry.error;
+        }
+        if (error) throw error;
+        if (data?.id) setProjectLinksNoteId(data.id);
+      }
+      setProjectLinks(items);
+      toast.success("Links saved");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save links");
+    } finally {
+      setLinkSaving(false);
+    }
+  };
+
+  const addProjectLink = () => {
+    if (!newLink.url.trim() && !newLink.username.trim() && !newLink.title.trim()) {
+      toast.error("Title, URL ya ID mein se kuch daalo");
+      return;
+    }
+    const item: ProjectLinkItem = { ...newLink, id: `link_${Date.now()}` };
+    saveProjectLinks([item, ...projectLinks]);
+    setNewLink({ category: "Google Drive", title: "", url: "", username: "", password: "", note: "" });
+  };
+
+  const deleteProjectLink = (id: string) => {
+    saveProjectLinks(projectLinks.filter((x) => x.id !== id));
+  };
+
+  const copyText = async (text: string, label: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Copy failed");
     }
   };
 
@@ -8467,6 +8636,121 @@ export default function Projects() {
           </TabsContent>
 
           <TabsContent value="documents" className="mt-4">
+            <div className="space-y-4">
+            <Card className="border-blue-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Link2 className="h-5 w-5 text-blue-600" />
+                  Drive / Social Links & Logins
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Google Drive, Instagram, Amazon ID/password yahan. URL pe click karte hi naya tab khulega.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 border rounded-lg bg-muted/30">
+                  <div className="grid gap-1">
+                    <Label className="text-xs">Type</Label>
+                    <Select value={newLink.category} onValueChange={(v) => setNewLink({ ...newLink, category: v })}>
+                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LINK_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-1">
+                    <Label className="text-xs">Title</Label>
+                    <Input className="h-9" value={newLink.title} onChange={(e) => setNewLink({ ...newLink, title: e.target.value })} placeholder="e.g. Client Drive Folder" />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label className="text-xs">URL / Drive link</Label>
+                    <Input className="h-9" value={newLink.url} onChange={(e) => setNewLink({ ...newLink, url: e.target.value })} placeholder="https://drive.google.com/..." />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label className="text-xs">ID / Username / Email</Label>
+                    <Input className="h-9" value={newLink.username} onChange={(e) => setNewLink({ ...newLink, username: e.target.value })} placeholder="username or email" />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label className="text-xs">Password</Label>
+                    <Input className="h-9" type="text" value={newLink.password} onChange={(e) => setNewLink({ ...newLink, password: e.target.value })} placeholder="password" />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label className="text-xs">Note</Label>
+                    <Input className="h-9" value={newLink.note} onChange={(e) => setNewLink({ ...newLink, note: e.target.value })} placeholder="optional" />
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-3">
+                    <Button size="sm" onClick={addProjectLink} disabled={linkSaving}>
+                      {linkSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Add Link
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {projectLinks.map((item) => {
+                    const href = toClickableUrl(item.url);
+                    const clickable = isUrlLike(item.url);
+                    return (
+                      <div key={item.id} className="border rounded-lg p-3 hover:bg-muted/30">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="outline">{item.category}</Badge>
+                              <span className="font-medium text-sm">{item.title || item.category}</span>
+                            </div>
+                            {item.url && (
+                              clickable ? (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline break-all"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                  {item.url}
+                                </a>
+                              ) : (
+                                <p className="text-sm break-all">{item.url}</p>
+                              )
+                            )}
+                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                              {item.username && (
+                                <button type="button" className="hover:text-foreground" onClick={() => copyText(item.username, "ID")}>
+                                  ID: <span className="font-medium text-foreground">{item.username}</span>
+                                </button>
+                              )}
+                              {item.password && (
+                                <span className="inline-flex items-center gap-1">
+                                  Pass:
+                                  <span className="font-medium text-foreground">
+                                    {showPasswords[item.id] ? item.password : "••••••••"}
+                                  </span>
+                                  <button type="button" onClick={() => setShowPasswords((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}>
+                                    {showPasswords[item.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                                  </button>
+                                  <button type="button" onClick={() => copyText(item.password, "Password")}>
+                                    <Copy className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              )}
+                            </div>
+                            {item.note && <p className="text-xs text-muted-foreground">{item.note}</p>}
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteProjectLink(item.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {projectLinks.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Abhi koi Drive / social link nahi. Upar form se add karo.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -8553,6 +8837,7 @@ export default function Projects() {
                 </div>
               </CardContent>
             </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="communication" className="mt-4">
