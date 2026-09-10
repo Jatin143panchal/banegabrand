@@ -696,9 +696,9 @@ export default function Leads() {
     return () => clearTimeout(timeoutId);
   }, [searchInput]);
 
-  const fetchLeads = useCallback(async () => {
+  const fetchLeads = useCallback(async (silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       console.log("🔄 Fetching leads for user:", user?.id);
       
       const { data: profile, error: profileError } = await supabase
@@ -1073,7 +1073,7 @@ export default function Leads() {
     if (urlParams.get('agreement_signed') === 'true') {
       const leadId = urlParams.get('lead_id');
       toast.success("Agreement signed successfully!");
-      fetchLeads();
+      fetchLeads(true);
       if (leadId) {
         fetchAgreementStatus(leadId);
       }
@@ -1115,7 +1115,7 @@ export default function Leads() {
       toast.success("Lead marked as lost");
     } catch (error: any) {
       toast.error(error.message || "Failed to mark lead as lost");
-      await fetchLeads();
+      await fetchLeads(true);
     }
   }, [detailLead, logActivity, fetchLeads]);
 
@@ -1150,7 +1150,7 @@ export default function Leads() {
     },
     onError: (e: Error) => {
       toast.error(e.message || "Failed to assign lead");
-      fetchLeads();
+      fetchLeads(true);
     },
   });
 
@@ -1205,7 +1205,7 @@ export default function Leads() {
     } catch (error: any) {
       console.error("Stage update error:", error);
       toast.error(error.message || "Failed to update stage");
-      await fetchLeads();
+      await fetchLeads(true);
     }
   }, [leads, detailLead, logActivity, fetchLeads]);
 
@@ -1223,39 +1223,49 @@ export default function Leads() {
     try {
       const assign_date = user?.id ? new Date().toISOString() : null;
 
-      const { error } = await supabase
+      const payload = {
+        name: form.name, 
+        email: form.email, 
+        phone: form.phone || null, 
+        company: form.company || null,
+        source: form.source, 
+        value: Number(form.value) || 0, 
+        status: "new",
+        lead_type: form.lead_type, 
+        address: form.address || null, 
+        cx_comment: form.cx_comment || null,
+        budget: form.budget, 
+        stage: form.stage, 
+        sub_stage: form.sub_stage || null, 
+        remark: form.remark || null,
+        temperature: form.temperature,
+        assigned_to: user?.id || null,
+        assign_date,
+      };
+
+      const { data, error } = await supabase
         .from("leads")
-        .insert({
-          name: form.name, 
-          email: form.email, 
-          phone: form.phone, 
-          company: form.company,
-          source: form.source, 
-          value: Number(form.value) || 0, 
-          status: "new",
-          lead_type: form.lead_type, 
-          address: form.address, 
-          cx_comment: form.cx_comment,
-          budget: form.budget, 
-          stage: form.stage, 
-          sub_stage: form.sub_stage, 
-          remark: form.remark,
-          temperature: form.temperature,
-          assigned_to: user?.id || null,
-          assign_date,
-        });
+        .insert(payload)
+        .select("*")
+        .single();
       
       if (error) throw error;
+
+      // Instant UI update (no full reload)
+      if (data) {
+        setLeads(prev => dedupeLeads([{ ...data, stage: data.stage === "New" ? "new" : data.stage }, ...prev]));
+      }
       
       setForm(emptyForm);
       setDialogOpen(false);
       toast.success("Lead added & assigned to you");
-      await fetchLeads();
+      fetchLiveTotalCount();
     } catch (error: any) {
       console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
+      await fetchLeads(true);
     }
-  }, [form, fetchLeads, emptyForm, user?.id]);
+  }, [form, fetchLeads, emptyForm, user?.id, fetchLiveTotalCount]);
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -1287,7 +1297,7 @@ export default function Leads() {
       setLeads(previousLeads);
       console.error("Bulk delete error:", error);
       toast.error(error.message || "Failed to delete leads");
-      await fetchLeads();
+      await fetchLeads(true);
     }
   }, [selectedIds, leads, fetchLiveTotalCount, logActivity, fetchLeads]);
 
@@ -1343,7 +1353,7 @@ export default function Leads() {
     } catch (error: any) {
       console.error("Bulk stage change error:", error);
       toast.error(error.message || "Failed to update stages");
-      await fetchLeads();
+      await fetchLeads(true);
     }
   }, [selectedIds, logActivity, fetchLeads]);
 
@@ -1480,7 +1490,7 @@ export default function Leads() {
       setBulkAssignTo("");
     } catch (e: unknown) { 
       toast.error(e instanceof Error ? e.message : "Assign failed"); 
-      await fetchLeads();
+      await fetchLeads(true);
     }
   }, [selectedIds, bulkAssignTo, fetchLeads]);
 
@@ -1585,6 +1595,7 @@ export default function Leads() {
     }
 
     const seenInFile = new Set<string>();
+    const toInsert: any[] = [];
 
     for (const lead of uploadPreview) {
       const leadName = String(lead.name ?? "").trim();
@@ -1619,41 +1630,53 @@ export default function Leads() {
         continue;
       }
 
+      if (hasRealEmail) existingEmails.add(emailKey);
+      if (hasRealPhone) existingPhones.add(phoneKey);
+
+      toInsert.push({
+        name: leadName,
+        email: hasRealEmail ? String(lead.email ?? "").trim() : null,
+        phone: lead.phone || null,
+        company: lead.company || null,
+        source: lead.source || "Excel Import",
+        value: Number(lead.value) || 0,
+        status: "new",
+        lead_type: lead.lead_type || null,
+        address: lead.address || null,
+        cx_comment: lead.cx_comment || null,
+        budget: lead.budget || null,
+        stage: "new",
+        sub_stage: "",
+        remark: lead.remark || null,
+        temperature: lead.temperature || "warm",
+        assigned_to: null,
+        assign_date: null,
+        in_shared_pool: false,
+        claimed_from_pool: false,
+      });
+    }
+
+    // Batch insert in chunks of 50 (fast + avoids payload limits)
+    const CHUNK = 50;
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const chunk = toInsert.slice(i, i + CHUNK);
       try {
-        const { error } = await supabase.from("leads").insert({
-          name: leadName,
-          email: hasRealEmail ? String(lead.email ?? "").trim() : null,
-          phone: lead.phone || null,
-          company: lead.company || null,
-          source: lead.source || "Excel Import",
-          value: Number(lead.value) || 0,
-          status: "new",
-          lead_type: lead.lead_type || null,
-          address: lead.address || null,
-          cx_comment: lead.cx_comment || null,
-          budget: lead.budget || null,
-          stage: "new",
-          sub_stage: "",
-          remark: lead.remark || null,
-          temperature: lead.temperature || "warm",
-          assigned_to: null,
-          assign_date: null,
-          in_shared_pool: false,
-          claimed_from_pool: false,
-        });
-
+        const { error, data } = await supabase.from("leads").insert(chunk).select("id");
         if (error) {
-          console.error("Insert error:", lead.name, error.message);
-          skipped++;
-          continue;
+          console.error("Batch insert error:", error.message);
+          // fallback: try one-by-one for this chunk
+          for (const row of chunk) {
+            try {
+              const { error: e2 } = await supabase.from("leads").insert(row);
+              if (e2) { skipped++; } else { success++; }
+            } catch { skipped++; }
+          }
+        } else {
+          success += (data?.length ?? chunk.length);
         }
-
-        if (hasRealEmail) existingEmails.add(emailKey);
-        if (hasRealPhone) existingPhones.add(phoneKey);
-        success++;
       } catch (err) {
-        console.error("Import error:", lead.name, err);
-        skipped++;
+        console.error("Batch import error:", err);
+        skipped += chunk.length;
       }
     }
 
@@ -1661,7 +1684,7 @@ export default function Leads() {
     setUploadPreview([]);
     if (fileRef.current) fileRef.current.value = "";
 
-    await fetchLeads();
+    await fetchLeads(true);
     await fetchLiveTotalCount();
 
     setImportSummary({ imported: success });
@@ -1804,7 +1827,7 @@ export default function Leads() {
       toast.success(`Temperature updated to ${temperature.toUpperCase()}`);
     } catch (error: any) {
       toast.error(error.message || "Failed to update temperature");
-      await fetchLeads();
+      await fetchLeads(true);
     }
   }, [detailLead, logActivity, fetchLeads]);
 
