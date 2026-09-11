@@ -493,6 +493,36 @@ function getDueBucket(dueDate: string | null) {
 }
 
 
+
+const STAGE_COMPLETE_FROM_EMAIL = "team@banegabrand.com";
+const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
+
+async function sendStageCompletedEmail(project: Project, stageLabel: string) {
+  const to = (project.client_email || "").trim();
+  if (!to) {
+    toast.warning("Stage complete ho gaya, lekin client email nahi hai — mail nahi gayi.");
+    return;
+  }
+  try {
+    const { error } = await supabase.functions.invoke("send-stage-complete-email", {
+      body: {
+        to,
+        clientName: project.name,
+        brandName: project.brand_name,
+        projectId: project.project_id,
+        stageName: stageLabel,
+        fromEmail: STAGE_COMPLETE_FROM_EMAIL,
+        fromName: STAGE_COMPLETE_FROM_NAME,
+      },
+    });
+    if (error) throw error;
+    toast.success(`Client ko mail chali gayi: ${to}`);
+  } catch (err: any) {
+    console.error(err);
+    toast.error(err?.message || "Stage update ho gaya, lekin email fail ho gaya");
+  }
+}
+
 function computeStageCompletionPercent(stages: { stage_name?: string | null; status?: string | null }[]): number {
   const total = PROJECT_STAGES.length;
   if (!total) return 0;
@@ -5432,6 +5462,12 @@ export default function Projects() {
       setSelectedProject((prev) => prev ? { ...prev, completion_percentage: stagePercent } : prev);
 
       toast.success("Stage updated successfully");
+
+      // Instant client email when a stage is newly marked completed
+      if (status === "completed" && existing?.status !== "completed") {
+        await sendStageCompletedEmail(selectedProject, stageLabel);
+      }
+
       queryClient.invalidateQueries({ queryKey: ["project_stage_progress"] });
       fetchProjectDetails(selectedProject.id);
       refetch();
