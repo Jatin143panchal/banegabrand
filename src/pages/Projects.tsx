@@ -3718,10 +3718,10 @@ export default function Projects() {
         name: displayPersonName(m.name, m.email) || m.name,
       }));
     },
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    retry: 2,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   // ── Current user's role ──
@@ -3790,6 +3790,8 @@ export default function Projects() {
   const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
     queryKey: ["my_tasks", user?.email],
     enabled: !!user?.email,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_tasks")
@@ -3811,11 +3813,17 @@ export default function Projects() {
   // ── All Tasks for Calendar and Assignment ──
   const { data: allTasks = [] } = useQuery({
     queryKey: ["all_tasks_for_views"],
+    enabled: mainView === "task_calendar" || mainView === "task_assignment",
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_tasks")
         .select(`
-          *,
+          id, project_id, stage_id, department_id, task_name, description, department,
+          assigned_to, assigned_to_email, assigned_to_name, assigned_by,
+          priority, status, start_date, due_date, completion_date, employee_remarks,
+          created_at, assigned_at, updated_at,
           projects (
             name,
             project_id,
@@ -3828,7 +3836,9 @@ export default function Projects() {
             image_url
           )
         `)
-        .order("due_date", { ascending: true, nullsLast: true });
+        .neq("status", "completed")
+        .order("due_date", { ascending: true, nullsLast: true })
+        .limit(1500);
 
       if (error) throw error;
       return data as unknown as MyTaskRow[];
@@ -4692,10 +4702,12 @@ export default function Projects() {
 
   const { data: allProjects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("projects")
-        .select("*")
+        .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
         .order("created_at", { ascending: false });
       
       if (error) throw error;
@@ -4707,21 +4719,26 @@ export default function Projects() {
   const { data: lastNotesByProject = {} } = useQuery({
     queryKey: ["project_last_notes", allProjects.map((p) => p.id).join(",")],
     enabled: allProjects.length > 0,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const projectIds = allProjects.map((p) => p.id);
       if (projectIds.length === 0) return {};
 
       // Fetch notes per project chunks so Supabase row limit doesn't drop older projects
-      let allNotes: ProjectNote[] = [];
-      for (let i = 0; i < projectIds.length; i += 50) {
-        const chunk = projectIds.slice(i, i + 50);
+      const noteChunks: string[][] = [];
+      for (let i = 0; i < projectIds.length; i += 80) noteChunks.push(projectIds.slice(i, i + 80));
+      const noteResults = await Promise.all(noteChunks.map(async (chunk) => {
         const { data, error } = await supabase
           .from("project_notes")
-          .select("*")
-          .in("project_id", chunk);
+          .select("id, project_id, note_type, title, content, created_by, created_by_email, created_at, updated_at")
+          .in("project_id", chunk)
+          .order("updated_at", { ascending: false })
+          .limit(160);
         if (error) throw error;
-        allNotes = allNotes.concat((data || []) as ProjectNote[]);
-      }
+        return (data || []) as ProjectNote[];
+      }));
+      const allNotes: ProjectNote[] = noteResults.flat();
 
       const result: Record<string, ProjectNote> = {};
 
@@ -4749,13 +4766,18 @@ export default function Projects() {
 
   const { data: lastAssigneeByProject = {} } = useQuery({
     queryKey: ["project_last_assignees"],
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       // Latest activity per project (updated_at / assigned_at / created_at).
       // In-progress tasks surface over older completed ones when touched more recently.
       const { data, error } = await supabase
         .from("project_tasks")
         .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at, status")
-        .not("assigned_to_email", "is", null);
+        .not("assigned_to_email", "is", null)
+        .neq("status", "completed")
+        .order("updated_at", { ascending: false })
+        .limit(2000);
       if (error) throw error;
 
       const activityTs = (t: {
@@ -4825,18 +4847,21 @@ export default function Projects() {
   const { data: stageProgressByProject = {} } = useQuery({
     queryKey: ["project_stage_progress", allProjects.map((p) => p.id).join(",")],
     enabled: allProjects.length > 0,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const projectIds = allProjects.map((p) => p.id);
-      let allStages: { project_id: string; stage_name: string | null; status: string | null }[] = [];
-      for (let i = 0; i < projectIds.length; i += 50) {
-        const chunk = projectIds.slice(i, i + 50);
+      const stageChunks: string[][] = [];
+      for (let i = 0; i < projectIds.length; i += 80) stageChunks.push(projectIds.slice(i, i + 80));
+      const stageResults = await Promise.all(stageChunks.map(async (chunk) => {
         const { data, error } = await supabase
           .from("project_stages")
           .select("project_id, stage_name, status")
           .in("project_id", chunk);
         if (error) throw error;
-        allStages = allStages.concat(data || []);
-      }
+        return data || [];
+      }));
+      const allStages: { project_id: string; stage_name: string | null; status: string | null }[] = stageResults.flat();
       const byProject: Record<string, { stage_name: string | null; status: string | null }[]> = {};
       for (const row of allStages) {
         if (!row.project_id) continue;
