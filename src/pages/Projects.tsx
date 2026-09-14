@@ -493,6 +493,36 @@ function getDueBucket(dueDate: string | null) {
 }
 
 
+
+const STAGE_COMPLETE_FROM_EMAIL = "team@banegabrand.com";
+const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
+
+async function sendStageCompletedEmail(project: Project, stageLabel: string) {
+  const to = (project.client_email || "").trim();
+  if (!to) {
+    toast.warning("Stage complete ho gaya, lekin client email nahi hai — mail nahi gayi.");
+    return;
+  }
+  try {
+    const { error } = await supabase.functions.invoke("send-stage-complete-email", {
+      body: {
+        to,
+        clientName: project.name,
+        brandName: project.brand_name,
+        projectId: project.project_id,
+        stageName: stageLabel,
+        fromEmail: STAGE_COMPLETE_FROM_EMAIL,
+        fromName: STAGE_COMPLETE_FROM_NAME,
+      },
+    });
+    if (error) throw error;
+    toast.success(`Client ko mail chali gayi: ${to}`);
+  } catch (err: any) {
+    console.error(err);
+    toast.error(err?.message || "Stage update ho gaya, lekin email fail ho gaya");
+  }
+}
+
 function computeStageCompletionPercent(stages: { stage_name?: string | null; status?: string | null }[]): number {
   const total = PROJECT_STAGES.length;
   if (!total) return 0;
@@ -3688,10 +3718,10 @@ export default function Projects() {
         name: displayPersonName(m.name, m.email) || m.name,
       }));
     },
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    retry: 2,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   // ── Current user's role ──
@@ -3760,6 +3790,8 @@ export default function Projects() {
   const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
     queryKey: ["my_tasks", user?.email],
     enabled: !!user?.email,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_tasks")
@@ -3781,11 +3813,17 @@ export default function Projects() {
   // ── All Tasks for Calendar and Assignment ──
   const { data: allTasks = [] } = useQuery({
     queryKey: ["all_tasks_for_views"],
+    enabled: mainView === "task_calendar" || mainView === "task_assignment",
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_tasks")
         .select(`
-          *,
+          id, project_id, stage_id, department_id, task_name, description, department,
+          assigned_to, assigned_to_email, assigned_to_name, assigned_by,
+          priority, status, start_date, due_date, completion_date, employee_remarks,
+          created_at, assigned_at, updated_at,
           projects (
             name,
             project_id,
@@ -3798,7 +3836,9 @@ export default function Projects() {
             image_url
           )
         `)
-        .order("due_date", { ascending: true, nullsLast: true });
+        .neq("status", "completed")
+        .order("due_date", { ascending: true, nullsLast: true })
+        .limit(1500);
 
       if (error) throw error;
       return data as unknown as MyTaskRow[];
@@ -4662,10 +4702,12 @@ export default function Projects() {
 
   const { data: allProjects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("projects")
-        .select("*")
+        .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
         .order("created_at", { ascending: false });
       
       if (error) throw error;
@@ -4675,57 +4717,43 @@ export default function Projects() {
 
   // Latest note per project (for project list cards)
   const { data: lastNotesByProject = {} } = useQuery({
-    queryKey: ["project_last_notes", allProjects.map((p) => p.id).join(",")],
-    enabled: allProjects.length > 0,
+    queryKey: ["project_last_notes"],
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
-      const projectIds = allProjects.map((p) => p.id);
-      if (projectIds.length === 0) return {};
-
-      // Fetch notes per project chunks so Supabase row limit doesn't drop older projects
-      let allNotes: ProjectNote[] = [];
-      for (let i = 0; i < projectIds.length; i += 50) {
-        const chunk = projectIds.slice(i, i + 50);
-        const { data, error } = await supabase
-          .from("project_notes")
-          .select("*")
-          .in("project_id", chunk);
-        if (error) throw error;
-        allNotes = allNotes.concat((data || []) as ProjectNote[]);
-      }
-
+      const { data, error } = await supabase
+        .from("project_notes")
+        .select("id, project_id, note_type, title, content, created_by, created_by_email, created_at, updated_at")
+        .neq("note_type", "content_calendar")
+        .order("updated_at", { ascending: false })
+        .limit(3000);
+      
+      if (error) throw error;
+      
       const result: Record<string, ProjectNote> = {};
-
-      for (const note of allNotes) {
-        // System calendar note — don't show on project cards
-        if (note.note_type === "content_calendar") continue;
-
-        const existing = result[note.project_id];
-        if (!existing) {
-          result[note.project_id] = note;
-          continue;
-        }
-
-        // True last note by updated_at, fallback created_at
-        const tExisting = new Date(existing.updated_at || existing.created_at).getTime();
-        const tNote = new Date(note.updated_at || note.created_at).getTime();
-        if (tNote > tExisting) {
+      for (const note of (data || []) as ProjectNote[]) {
+        if (!result[note.project_id]) {
           result[note.project_id] = note;
         }
       }
-
       return result;
     },
   });
 
   const { data: lastAssigneeByProject = {} } = useQuery({
     queryKey: ["project_last_assignees"],
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       // Latest activity per project (updated_at / assigned_at / created_at).
       // In-progress tasks surface over older completed ones when touched more recently.
       const { data, error } = await supabase
         .from("project_tasks")
         .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at, status")
-        .not("assigned_to_email", "is", null);
+        .not("assigned_to_email", "is", null)
+        .neq("status", "completed")
+        .order("updated_at", { ascending: false })
+        .limit(2000);
       if (error) throw error;
 
       const activityTs = (t: {
@@ -4792,33 +4820,7 @@ export default function Projects() {
     },
   });
 
-  const { data: stageProgressByProject = {} } = useQuery({
-    queryKey: ["project_stage_progress", allProjects.map((p) => p.id).join(",")],
-    enabled: allProjects.length > 0,
-    queryFn: async () => {
-      const projectIds = allProjects.map((p) => p.id);
-      let allStages: { project_id: string; stage_name: string | null; status: string | null }[] = [];
-      for (let i = 0; i < projectIds.length; i += 50) {
-        const chunk = projectIds.slice(i, i + 50);
-        const { data, error } = await supabase
-          .from("project_stages")
-          .select("project_id, stage_name, status")
-          .in("project_id", chunk);
-        if (error) throw error;
-        allStages = allStages.concat(data || []);
-      }
-      const byProject: Record<string, { stage_name: string | null; status: string | null }[]> = {};
-      for (const row of allStages) {
-        if (!row.project_id) continue;
-        (byProject[row.project_id] ||= []).push(row);
-      }
-      const result: Record<string, number> = {};
-      for (const project of allProjects) {
-        result[project.id] = computeStageCompletionPercent(byProject[project.id] || []);
-      }
-      return result;
-    },
-  });
+
 
   const projects = isAdmin
     ? allProjects
@@ -5431,9 +5433,30 @@ export default function Projects() {
         .eq("id", selectedProject.id);
       setSelectedProject((prev) => prev ? { ...prev, completion_percentage: stagePercent } : prev);
 
+      // Optimistic update for the global projects list so it reflects instantly without a reload
+      queryClient.setQueryData(["projects"], (oldData: any) => {
+        if (!oldData) return oldData;
+        return oldData.map((p: any) =>
+          p.id === selectedProject.id
+            ? { 
+                ...p, 
+                completion_percentage: stagePercent,
+                current_stage: (status === "in_progress" || status === "completed") 
+                  ? (PROJECT_STAGES.find((s) => s.label === stageLabel)?.value || p.current_stage) 
+                  : p.current_stage
+              }
+            : p
+        );
+      });
+
       toast.success("Stage updated successfully");
-      queryClient.invalidateQueries({ queryKey: ["project_stage_progress"] });
+
+      if (status === "completed" && existing?.status !== "completed") {
+        await sendStageCompletedEmail(selectedProject, stageLabel);
+      }
+
       fetchProjectDetails(selectedProject.id);
+      // No need to wait for refetch() for UI to feel instant, but keep it for consistency
       refetch();
     } catch (error: any) {
       toast.error(error.message || "Failed to update stage");
@@ -10044,7 +10067,7 @@ export default function Projects() {
                   uploading={uploadingImage === project.id}
                   lastNote={lastNotesByProject[project.id] || null}
                   lastAssignee={lastAssigneeByProject[project.id] || null}
-                  stageProgress={stageProgressByProject[project.id]}
+                  stageProgress={project.completion_percentage}
                 />
               ))
             )}
