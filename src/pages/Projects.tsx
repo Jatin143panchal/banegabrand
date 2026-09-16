@@ -126,23 +126,17 @@ const MANUFACTURING_STAGES = [
 ];
 
 const DOCUMENT_FOLDERS = [
-  "Brand Identity",
-  "PAN Card",
-  "Aadhaar Card",
-  "Company Registration",
-  "GST",
-  "Trademark",
-  "Agreements",
-  "Invoices",
-  "Packaging Files",
+  "Barcodes",
   "Mockups",
-  "Photos",
-  "Videos",
-  "Manufacturing Documents",
-  "Certificates",
-  "Barcode",
-  "Others"
+  "Company Certificates",
+  "Personal Documents",
+  "Logo",
 ];
+
+function isDocumentLink(doc: { file_type?: string | null; file_url?: string | null }) {
+  const t = (doc.file_type || "").toLowerCase();
+  return t === "link" || t === "url" || t === "text/uri-list";
+}
 
 const DEPARTMENT_TYPES = [
   { value: "discovery",    label: "Product Discovery",       icon: Rocket,         color: "indigo" },
@@ -4625,6 +4619,8 @@ export default function Projects() {
     file_name: "",
     file: null as File | null,
   });
+  const [folderLinkDrafts, setFolderLinkDrafts] = useState<Record<string, { title: string; url: string }>>({});
+  const [folderLinkSaving, setFolderLinkSaving] = useState<string | null>(null);
   
   const [multipleFiles, setMultipleFiles] = useState<File[]>([]);
   const [uploadingMultiple, setUploadingMultiple] = useState(false);
@@ -5997,6 +5993,40 @@ export default function Projects() {
       
     } catch (error: any) {
       toast.error(error.message || "Failed to upload document");
+    }
+  };
+
+  const addDocumentLink = async (folder: string) => {
+    if (!selectedProject) return;
+    const draft = folderLinkDrafts[folder] || { title: "", url: "" };
+    const url = (draft.url || "").trim();
+    if (!url) {
+      toast.error("Link daalo");
+      return;
+    }
+    const href = toClickableUrl(url);
+    setFolderLinkSaving(folder);
+    try {
+      const { error } = await supabase
+        .from("project_documents")
+        .insert({
+          project_id: selectedProject.id,
+          folder,
+          file_name: (draft.title || "").trim() || url,
+          file_url: href,
+          file_size: null,
+          file_type: "link",
+          uploaded_by: user?.id,
+          version: 1,
+        });
+      if (error) throw error;
+      toast.success("Link add ho gaya");
+      setFolderLinkDrafts((prev) => ({ ...prev, [folder]: { title: "", url: "" } }));
+      fetchProjectDetails(selectedProject.id);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add link");
+    } finally {
+      setFolderLinkSaving(null);
     }
   };
 
@@ -8827,6 +8857,7 @@ export default function Projects() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {DOCUMENT_FOLDERS.map(folder => {
                     const files = documents.filter(d => d.folder === folder);
+                    const draft = folderLinkDrafts[folder] || { title: "", url: "" };
                     return (
                       <div key={folder} className="border rounded-lg p-3 hover:bg-muted/30">
                         <div className="flex items-center gap-2">
@@ -8834,16 +8865,60 @@ export default function Projects() {
                           <span className="font-medium text-sm">{folder}</span>
                           <Badge variant="outline" className="ml-auto text-xs">{files.length}</Badge>
                         </div>
+                        <div className="mt-2 grid gap-1.5">
+                          <Input
+                            className="h-8 text-xs"
+                            placeholder="Link title (optional)"
+                            value={draft.title}
+                            onChange={(e) => setFolderLinkDrafts((prev) => ({
+                              ...prev,
+                              [folder]: { ...draft, title: e.target.value },
+                            }))}
+                          />
+                          <div className="flex gap-1.5">
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder="https://... link add karo"
+                              value={draft.url}
+                              onChange={(e) => setFolderLinkDrafts((prev) => ({
+                                ...prev,
+                                [folder]: { ...draft, title: draft.title, url: e.target.value },
+                              }))}
+                            />
+                            <Button
+                              size="sm"
+                              className="h-8 shrink-0"
+                              disabled={folderLinkSaving === folder}
+                              onClick={() => addDocumentLink(folder)}
+                            >
+                              {folderLinkSaving === folder ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link2 className="h-3 w-3" />}
+                            </Button>
+                          </div>
+                        </div>
                         {files.length > 0 && (
                           <div className="mt-2 space-y-1">
                             {files.slice(0, 3).map(file => (
                               <div key={file.id} className="flex items-center gap-2 text-xs group">
-                                {file.file_type?.startsWith('image/') ? (
+                                {isDocumentLink(file) ? (
+                                  <Link2 className="h-3 w-3 text-blue-600 shrink-0" />
+                                ) : file.file_type?.startsWith('image/') ? (
                                   <Image className="h-3 w-3 text-blue-500 shrink-0" />
                                 ) : (
                                   <File className="h-3 w-3 text-muted-foreground shrink-0" />
                                 )}
-                                <span className="truncate flex-1">{file.file_name}</span>
+                                {isDocumentLink(file) ? (
+                                  <a
+                                    href={toClickableUrl(file.file_url)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="truncate flex-1 text-blue-600 hover:underline"
+                                    title={file.file_url}
+                                  >
+                                    {file.file_name}
+                                  </a>
+                                ) : (
+                                  <span className="truncate flex-1">{file.file_name}</span>
+                                )}
                                 <button
                                   type="button"
                                   title="View"
@@ -8852,6 +8927,7 @@ export default function Projects() {
                                 >
                                   <Eye className="h-3 w-3 text-blue-500" />
                                 </button>
+                                {!isDocumentLink(file) && (
                                 <a
                                   href={file.file_url}
                                   download={file.file_name}
@@ -8860,6 +8936,7 @@ export default function Projects() {
                                 >
                                   <Download className="h-3 w-3 text-muted-foreground" />
                                 </a>
+                                )}
                                 <button
                                   type="button"
                                   title="Delete"
@@ -9002,8 +9079,7 @@ export default function Projects() {
                       Social Media Content Calendar
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                     post date
-                    
+                      Kitni posts aur kis date se — aap decide karo. Extra post anytime add kar sakte ho.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -9026,7 +9102,7 @@ export default function Projects() {
                 {/* Controls */}
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-xs">number of posts</Label>
+                    <Label className="text-xs">Kitni posts</Label>
                     <Input
                       type="number"
                       min={1}
@@ -9301,13 +9377,21 @@ export default function Projects() {
             <div className="space-y-2 py-2">
               {documents.filter(d => d.folder === activeFolderView).map(file => (
                 <div key={file.id} className="flex items-center gap-3 border rounded-lg p-2">
-                  {file.file_type?.startsWith('image/') ? (
+                  {isDocumentLink(file) ? (
+                    <Link2 className="h-4 w-4 text-blue-600 shrink-0" />
+                  ) : file.file_type?.startsWith('image/') ? (
                     <img src={file.file_url} alt={file.file_name} className="h-10 w-10 rounded object-cover shrink-0" />
                   ) : (
                     <File className="h-4 w-4 text-muted-foreground shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{file.file_name}</p>
+                    {isDocumentLink(file) ? (
+                      <a href={toClickableUrl(file.file_url)} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline truncate block">
+                        {file.file_name}
+                      </a>
+                    ) : (
+                      <p className="text-sm truncate">{file.file_name}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {file.created_at ? format(new Date(file.created_at), "dd MMM yyyy") : ""}
                       {file.file_size ? ` • ${(file.file_size / 1024).toFixed(1)} KB` : ""}
@@ -10322,3 +10406,4 @@ export default function Projects() {
     </div>
   );
 }
+Add Social Media & Other Link Options - Grok
