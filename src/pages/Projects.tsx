@@ -1254,6 +1254,8 @@ interface ContentDay {
   status: "pending" | "completed";
   note: string;
   scheduled_date?: string;
+  social_media_link?: string;
+  other_link?: string;
 }
 
 const CONTENT_PLATFORMS = [
@@ -1276,6 +1278,8 @@ const EMPTY_CONTENT_DAY = (day: number): ContentDay => ({
   status: "pending",
   note: "",
   scheduled_date: "",
+  social_media_link: "",
+  other_link: "",
 });
 
 function createEmptyContentCalendar(startDate?: string): ContentDay[] {
@@ -1312,6 +1316,8 @@ function parseContentCalendar(content: string): { days: ContentDay[]; startDate:
             status: d.status === "completed" ? "completed" : "pending",
             note: d.note || "",
             scheduled_date: d.scheduled_date || "",
+            social_media_link: d.social_media_link || "",
+            other_link: d.other_link || "",
           }))
         : createEmptyContentCalendar(parsed.start_date);
       while (days.length < 25) days.push(EMPTY_CONTENT_DAY(days.length + 1));
@@ -9118,6 +9124,57 @@ export default function Projects() {
                                     placeholder="Write caption or post idea..."
                                     className="h-8 text-sm"
                                   />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="grid gap-1">
+                                  <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                    <Link2 className="h-3 w-3" /> Social Media Link
+                                  </Label>
+                                  <Input
+                                    value={day.social_media_link || ""}
+                                    onChange={(e) =>
+                                      updateContentDay(realIndex, { social_media_link: e.target.value })
+                                    }
+                                    placeholder="https://instagram.com/... or reel/post URL"
+                                    className="h-8 text-sm"
+                                  />
+                                  {isUrlLike(day.social_media_link || "") && (
+                                    <a
+                                      href={toClickableUrl(day.social_media_link || "")}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline break-all"
+                                    >
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                      Open social link
+                                    </a>
+                                  )}
+                                </div>
+                                <div className="grid gap-1">
+                                  <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                    <Link2 className="h-3 w-3" /> Other Link
+                                  </Label>
+                                  <Input
+                                    value={day.other_link || ""}
+                                    onChange={(e) =>
+                                      updateContentDay(realIndex, { other_link: e.target.value })
+                                    }
+                                    placeholder="Drive / Canva / reference URL"
+                                    className="h-8 text-sm"
+                                  />
+                                  {isUrlLike(day.other_link || "") && (
+                                    <a
+                                      href={toClickableUrl(day.other_link || "")}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline break-all"
+                                    >
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                      Open other link
+                                    </a>
+                                  )}
                                 </div>
                               </div>
 
