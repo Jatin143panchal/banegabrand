@@ -131,6 +131,9 @@ const DOCUMENT_FOLDERS = [
   "Company Certificates",
   "Personal Documents",
   "Logo",
+  "Brand Identity",
+  "Legal Agreement",
+  "Packaging",
 ];
 
 function isDocumentLink(doc: { file_type?: string | null; file_url?: string | null }) {
