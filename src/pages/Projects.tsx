@@ -1245,7 +1245,7 @@ const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduc
 );
 
 
-// ── Social Media 25-Day Content Calendar ──
+// ── Social Media Content Calendar (dynamic posts + dates) ──
 interface ContentDay {
   day: number;
   title: string;
@@ -1270,27 +1270,29 @@ const CONTENT_PLATFORMS = [
   "Other",
 ];
 
-const EMPTY_CONTENT_DAY = (day: number): ContentDay => ({
+const EMPTY_CONTENT_DAY = (day: number, scheduledDate = ""): ContentDay => ({
   day,
   title: "",
   caption: "",
   platform: "Instagram",
   status: "pending",
   note: "",
-  scheduled_date: "",
+  scheduled_date: scheduledDate,
   social_media_link: "",
   other_link: "",
 });
 
-function createEmptyContentCalendar(startDate?: string): ContentDay[] {
+function createEmptyContentCalendar(_startDate?: string): ContentDay[] {
+  return [];
+}
+
+function createContentDays(count: number, startDate?: string): ContentDay[] {
+  const n = Math.max(0, Math.min(90, Math.floor(count || 0)));
   const days: ContentDay[] = [];
   const base = startDate ? startOfDay(new Date(startDate)) : null;
-  for (let i = 1; i <= 25; i++) {
-    const d = EMPTY_CONTENT_DAY(i);
-    if (base) {
-      d.scheduled_date = format(addDays(base, i - 1), "yyyy-MM-dd");
-    }
-    days.push(d);
+  for (let i = 1; i <= n; i++) {
+    const scheduled = base ? format(addDays(base, i - 1), "yyyy-MM-dd") : "";
+    days.push(EMPTY_CONTENT_DAY(i, scheduled));
   }
   return days;
 }
@@ -1319,9 +1321,8 @@ function parseContentCalendar(content: string): { days: ContentDay[]; startDate:
             social_media_link: d.social_media_link || "",
             other_link: d.other_link || "",
           }))
-        : createEmptyContentCalendar(parsed.start_date);
-      while (days.length < 25) days.push(EMPTY_CONTENT_DAY(days.length + 1));
-      return { days: days.slice(0, 25), startDate: parsed.start_date || null };
+        : [];
+      return { days, startDate: parsed.start_date || null };
     }
     return null;
   } catch {
@@ -3698,12 +3699,13 @@ export default function Projects() {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
 
-  // ── 25-Day Social Content Calendar ──
-  const [contentCalendarDays, setContentCalendarDays] = useState<ContentDay[]>(createEmptyContentCalendar());
+  // ── Social Content Calendar ──
+  const [contentCalendarDays, setContentCalendarDays] = useState<ContentDay[]>([]);
   const [contentCalendarStartDate, setContentCalendarStartDate] = useState<string>("");
   const [contentCalendarNoteId, setContentCalendarNoteId] = useState<string | null>(null);
   const [contentCalendarSaving, setContentCalendarSaving] = useState(false);
   const [contentCalendarFilter, setContentCalendarFilter] = useState<"all" | "pending" | "completed">("all");
+  const [contentCalendarPostCount, setContentCalendarPostCount] = useState<string>("7");
 
   // ── Image upload state ──
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
@@ -5004,7 +5006,7 @@ export default function Projects() {
         setNotes(sorted);
         const docNote = sorted.find((n: ProjectNote) => n.note_type === "documentation");
         setDocNoteContent(docNote?.content || "");
-        // Load 25-day content calendar
+        // Load content calendar
         const calNote = sorted.find((n: ProjectNote) => n.note_type === "content_calendar");
         if (calNote) {
           const parsed = parseContentCalendar(calNote.content);
@@ -6456,7 +6458,7 @@ export default function Projects() {
     }
   };
 
-  // ── Save 25-Day Content Calendar ──
+  // ── Save Content Calendar ──
   const saveContentCalendar = async () => {
     if (!selectedProject) return;
     setContentCalendarSaving(true);
@@ -6467,7 +6469,7 @@ export default function Projects() {
           .from("project_notes")
           .update({
             content: payload,
-            title: "25-Day Social Media Content Calendar",
+            title: "Social Media Content Calendar",
             updated_at: new Date().toISOString(),
           })
           .eq("id", contentCalendarNoteId);
@@ -6478,7 +6480,7 @@ export default function Projects() {
           .insert({
             project_id: selectedProject.id,
             note_type: "content_calendar",
-            title: "25-Day Social Media Content Calendar",
+            title: "Social Media Content Calendar",
             content: payload,
             updated_at: new Date().toISOString(),
             created_by: user?.email || null,
@@ -6523,6 +6525,37 @@ export default function Projects() {
         ...d,
         scheduled_date: format(addDays(base, i), "yyyy-MM-dd"),
       }))
+    );
+  };
+
+  const generateContentCalendar = () => {
+    const n = Number(contentCalendarPostCount);
+    if (!n || n < 1) {
+      toast.error("Kitni posts chahiye, number daalo");
+      return;
+    }
+    if (contentCalendarDays.length > 0 && !confirm("Existing posts replace ho jayengi. Continue?")) {
+      return;
+    }
+    setContentCalendarDays(createContentDays(n, contentCalendarStartDate || undefined));
+  };
+
+  const addContentDay = () => {
+    setContentCalendarDays((prev) => {
+      const nextNum = prev.length + 1;
+      let scheduled = "";
+      if (contentCalendarStartDate) {
+        scheduled = format(addDays(startOfDay(new Date(contentCalendarStartDate)), prev.length), "yyyy-MM-dd");
+      } else if (prev.length && prev[prev.length - 1].scheduled_date) {
+        scheduled = format(addDays(startOfDay(new Date(prev[prev.length - 1].scheduled_date!)), 1), "yyyy-MM-dd");
+      }
+      return [...prev, EMPTY_CONTENT_DAY(nextNum, scheduled)];
+    });
+  };
+
+  const removeContentDay = (dayIndex: number) => {
+    setContentCalendarDays((prev) =>
+      prev.filter((_, i) => i !== dayIndex).map((d, i) => ({ ...d, day: i + 1 }))
     );
   };
 
@@ -8958,7 +8991,7 @@ export default function Projects() {
             </Card>
           </TabsContent>
 
-          {/* ── 25-Day Social Media Content Calendar ── */}
+          {/* ── Social Media Content Calendar ── */}
           <TabsContent value="content_calendar" className="mt-4 space-y-4">
             <Card>
               <CardHeader>
@@ -8966,10 +8999,10 @@ export default function Projects() {
                   <div>
                     <CardTitle className="text-lg flex items-center gap-2">
                       <CalendarDays className="h-5 w-5 text-fuchsia-500" />
-                      25-Day Social Media Content Calendar
+                      Social Media Content Calendar
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Plan daily posts, mark completed, and add notes for each day
+                      Kitni posts aur kis date se — aap decide karo. Extra post anytime add kar sakte ho.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -8992,7 +9025,19 @@ export default function Projects() {
                 {/* Controls */}
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-xs">Start Date (Day 1)</Label>
+                    <Label className="text-xs">Kitni posts</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={contentCalendarPostCount}
+                      onChange={(e) => setContentCalendarPostCount(e.target.value)}
+                      className="w-28 h-9"
+                      placeholder="e.g. 10"
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Start date</Label>
                     <Input
                       type="date"
                       value={contentCalendarStartDate}
@@ -9000,6 +9045,14 @@ export default function Projects() {
                       className="w-44 h-9"
                     />
                   </div>
+                  <Button size="sm" variant="outline" className="h-9" onClick={generateContentCalendar}>
+                    <CalendarRange className="h-4 w-4 mr-2" />
+                    Generate posts
+                  </Button>
+                  <Button size="sm" className="h-9" onClick={addContentDay}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add post
+                  </Button>
                   <div className="grid gap-1.5">
                     <Label className="text-xs">Filter</Label>
                     <Select
@@ -9020,12 +9073,14 @@ export default function Projects() {
                     <span className="text-muted-foreground">
                       Completed:{" "}
                       <strong className="text-green-600">
-                        {contentCalendarDays.filter((d) => d.status === "completed").length}/25
+                        {contentCalendarDays.filter((d) => d.status === "completed").length}/{contentCalendarDays.length || 0}
                       </strong>
                     </span>
                     <Progress
                       value={
-                        (contentCalendarDays.filter((d) => d.status === "completed").length / 25) * 100
+                        contentCalendarDays.length
+                          ? (contentCalendarDays.filter((d) => d.status === "completed").length / contentCalendarDays.length) * 100
+                          : 0
                       }
                       className="w-24 h-2"
                     />
@@ -9061,13 +9116,31 @@ export default function Projects() {
                                 title="Mark as completed"
                               />
                               <span className="text-[10px] font-bold text-muted-foreground">
-                                D{day.day}
+                                #{day.day}
                               </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-destructive"
+                                title="Remove post"
+                                onClick={() => removeContentDay(realIndex)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
                             </div>
 
                             <div className="flex-1 min-w-0 space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-semibold text-sm">Day {day.day}</span>
+                                <span className="font-semibold text-sm">Post {day.day}</span>
+                                <Input
+                                  type="date"
+                                  value={day.scheduled_date || ""}
+                                  onChange={(e) =>
+                                    updateContentDay(realIndex, { scheduled_date: e.target.value })
+                                  }
+                                  className="h-7 w-40 text-xs"
+                                />
                                 {day.scheduled_date && (
                                   <Badge variant="outline" className="text-xs">
                                     {format(new Date(day.scheduled_date), "dd MMM yyyy")}
@@ -9205,7 +9278,9 @@ export default function Projects() {
                   return true;
                 }).length === 0 && (
                   <p className="text-center text-muted-foreground py-8">
-                    No days match the current filter
+                    {contentCalendarDays.length === 0
+                      ? "Abhi koi post nahi. Upar kitni posts + start date daal ke Generate karo, ya Add post dabao."
+                      : "No posts match the current filter"}
                   </p>
                 )}
               </CardContent>
