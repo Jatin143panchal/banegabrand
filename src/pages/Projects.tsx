@@ -1,3 +1,131 @@
+Skip to main content
+Ctrl+J
+
+
+
+
+ismai jo content calender hai usmai mujhe link ka option rakhna hai jha mai link de saku ismai toh add kr 2 link k option social merdia link other link or
+
+
+Worked for 46s
+Content Calendar ke har din pe 2 link fields add kar do. Save already JSON me days dump karta hai, isliye extra backend table nahi chahiye.
+
+1. Interface
+interface ContentDay {
+  day: number;
+  title: string;
+  caption: string;
+  platform: string;
+  status: "pending" | "completed";
+  note: string;
+  scheduled_date?: string;
+  social_media_link?: string;
+  other_link?: string;
+}
+2. Empty day
+const EMPTY_CONTENT_DAY = (day: number): ContentDay => ({
+  day,
+  title: "",
+  caption: "",
+  platform: "Instagram",
+  status: "pending",
+  note: "",
+  scheduled_date: "",
+  social_media_link: "",
+  other_link: "",
+});
+3. parseContentCalendar map me ye 2 lines add karo
+social_media_link: d.social_media_link || "",
+other_link: d.other_link || "",
+4. Day card UI — Caption ke baad, Note se pehle
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+  <div className="grid gap-1">
+    <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+      <Link2 className="h-3 w-3" /> Social Media Link
+    </Label>
+    <Input
+      value={day.social_media_link || ""}
+      onChange={(e) =>
+        updateContentDay(realIndex, { social_media_link: e.target.value })
+      }
+      placeholder="https://instagram.com/... or reel/post URL"
+      className="h-8 text-sm"
+    />
+    {isUrlLike(day.social_media_link || "") && (
+      <a
+        href={toClickableUrl(day.social_media_link || "")}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline break-all"
+      >
+        <ExternalLink className="h-3 w-3 shrink-0" />
+        Open social link
+      </a>
+    )}
+  </div>
+  <div className="grid gap-1">
+    <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+      <Link2 className="h-3 w-3" /> Other Link
+    </Label>
+    <Input
+      value={day.other_link || ""}
+      onChange={(e) =>
+        updateContentDay(realIndex, { other_link: e.target.value })
+      }
+      placeholder="Drive / Canva / reference URL"
+      className="h-8 text-sm"
+    />
+    {isUrlLike(day.other_link || "") && (
+      <a
+        href={toClickableUrl(day.other_link || "")}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline break-all"
+      >
+        <ExternalLink className="h-3 w-3 shrink-0" />
+        Open other link
+      </a>
+    )}
+  </div>
+</div>
+Link2, ExternalLink, toClickableUrl, isUrlLike file me pehle se hain. Save Calendar dabane pe dono links note JSON ke saath store ho jayenge. Purane 25-day calendars load hone par empty string milenge, crash nahi hoga.
+
+donload version mai de sara ciode
+
+
+Worked for 24s
+Poora updated code ready hai. Download yahan se karo:
+
+
+Is file me Content Calendar ke har din pe Social Media Link aur Other Link add ho chuke hain. Purane calendars bhi load honge; links empty rahenge jab tak save nahi karte.
+
+Is file ko apne project me original component ki jagah paste/replace kar do (filename jo aap use karte ho, wahi rakhna).
+
+ismai se day 1 hta de ir  ismai se ye wala or daya or day dalne ko option de kitni ye post kitne date ki hai  ye aise
+
+
+Worked for 1m 3s
+Fixed Day 1 / 25 days hata diya. Ab calendar dynamic hai: kitni posts, kis date se.
+
+Download:
+
+
+Ab kaise use hoga
+
+Kitni posts + Start date → Generate posts
+Example: 10 posts, 16 Sep → 10 posts, dates 16–25 Sep.
+Add post → ek extra post last date ke next din pe.
+Har post ki apni date change ho sakti hai.
+Post delete ke liye trash icon.
+Label ab Post 1, Post 2… hai, fixed Day 1 nahi.
+Pehle save kiya 25-day data load ho jayega; truncate nahi hoga. Naya generate karoge tab replace confirm maangega.
+
+
+
+
+ProjectsPage.tsx
+
+Files
 import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10246,3 +10374,4 @@ export default function Projects() {
     </div>
   );
 }
+Add Social Media & Other Link Options - Grok
