@@ -8902,7 +8902,7 @@ export default function Projects() {
                             <Textarea
                               rows={2}
                               className="min-h-8 text-xs resize-none"
-                              placeholder="Ek ya multiple links — comma ya new line se"
+                              placeholder="multiple links —   use comma or new line "
                               value={draft.url}
                               onChange={(e) => setFolderLinkDrafts((prev) => ({
                                 ...prev,
