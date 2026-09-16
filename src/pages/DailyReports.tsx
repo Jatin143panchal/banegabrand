@@ -51,19 +51,6 @@ import {
 } from "lucide-react";
 import { format, isToday, isTomorrow, isAfter, parseISO, differenceInDays } from "date-fns";
 
-// IT Department Icons
-const itDepartmentIcons: Record<string, any> = {
-  "it": <Monitor className="h-4 w-4" />,
-  "software": <Code className="h-4 w-4" />,
-  "hardware": <HardDrive className="h-4 w-4" />,
-  "network": <Network className="h-4 w-4" />,
-  "database": <Database className="h-4 w-4" />,
-  "security": <Shield className="h-4 w-4" />,
-  "cloud": <Cloud className="h-4 w-4" />,
-  "support": <Wrench className="h-4 w-4" />,
-  "server": <Server className="h-4 w-4" />,
-};
-
 // Status Badge Component
 const StatusBadge = ({ status }: { status: string }) => {
   const variants: Record<string, any> = {
@@ -89,21 +76,9 @@ const PriorityBadge = ({ priority }: { priority: string }) => {
   return <Badge className={v.className}>{v.label}</Badge>;
 };
 
-// IT Department Badge
 const DepartmentBadge = ({ department }: { department: string }) => {
-  const deptMap: Record<string, any> = {
-    "it": { label: "IT", className: "bg-purple-500/10 text-purple-600" },
-    "software": { label: "Software", className: "bg-blue-500/10 text-blue-600" },
-    "hardware": { label: "Hardware", className: "bg-orange-500/10 text-orange-600" },
-    "network": { label: "Network", className: "bg-cyan-500/10 text-cyan-600" },
-    "database": { label: "Database", className: "bg-red-500/10 text-red-600" },
-    "security": { label: "Security", className: "bg-green-500/10 text-green-600" },
-    "cloud": { label: "Cloud", className: "bg-sky-500/10 text-sky-600" },
-    "support": { label: "Support", className: "bg-pink-500/10 text-pink-600" },
-    "server": { label: "Server", className: "bg-indigo-500/10 text-indigo-600" },
-  };
-  const dept = deptMap[department] || { label: department || "General", className: "bg-gray-500/10 text-gray-600" };
-  return <Badge className={dept.className}>{dept.label}</Badge>;
+  if (!department) return <Badge variant="outline">General</Badge>;
+  return <Badge variant="outline">{department}</Badge>;
 };
 
 // Employee Select Component with Department Filter
@@ -733,13 +708,7 @@ export default function DailyTaskAssignment() {
     tasksLoadingRef.current = true;
     setLoading(true);
     try {
-      let query = supabase
-        .from("daily_tasks")
-        .select(`
-          *,
-          assigned_to_profile:profiles!assigned_to(display_name, email, department),
-          assigned_by_profile:profiles!assigned_by(display_name, email, department)
-        `);
+      let query = supabase.from("daily_tasks").select("*");
 
       if (!isAdmin) {
         query = query.eq("assigned_to", user.id);
@@ -754,20 +723,21 @@ export default function DailyTaskAssignment() {
         .order("priority", { ascending: false });
 
       if (error) throw error;
-      setTasks(data || []);
+      const rows = data || [];
+      setTasks(rows);
 
-      const profileMap: Record<string, string> = {};
-      data?.forEach((task: any) => {
-        if (task.assigned_to_profile) {
-          profileMap[task.assigned_to] =
-            task.assigned_to_profile.display_name || task.assigned_to_profile.email;
-        }
-        if (task.assigned_by_profile) {
-          profileMap[task.assigned_by] =
-            task.assigned_by_profile.display_name || task.assigned_by_profile.email;
-        }
-      });
-      setProfiles(profileMap);
+      const ids = Array.from(new Set(rows.flatMap((t: any) => [t.assigned_to, t.assigned_by].filter(Boolean))));
+      if (ids.length) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("user_id, display_name, email")
+          .in("user_id", ids);
+        const profileMap: Record<string, string> = {};
+        (profileData || []).forEach((p: any) => {
+          profileMap[p.user_id] = p.display_name || p.email || p.user_id;
+        });
+        setProfiles(profileMap);
+      }
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -890,7 +860,8 @@ export default function DailyTaskAssignment() {
             department: taskData.department,
             task_category: taskData.task_category,
             created_at: new Date().toISOString(),
-          });
+          })
+          .select();
       }
 
       if (result.error) throw result.error;
