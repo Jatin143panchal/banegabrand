@@ -4836,9 +4836,10 @@ export default function Projects() {
 
 
 
-  const projects = isAdmin
-    ? allProjects
-    : allProjects.filter((p: Project) => assignedProjectIds.has(p.id));
+  const isITEmployee = !!itTeam.some((m) => (m.email || "").toLowerCase() === (user?.email || "").toLowerCase());
+
+  // Internal Projects page: every logged-in team member can open all projects
+  const projects = allProjects;
 
   const stats = {
     total: projects.length,
@@ -10103,7 +10104,9 @@ export default function Projects() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground text-sm">
-            {isAdmin ? "Manage all client projects from one dashboard" : "Aapko jin projects mein task assign hue hain, wahi yahan dikhte hain"}
+            {isAdmin
+              ? "Manage all client projects from one dashboard"
+              : "Saare client projects yahan dikhte hain — IT team ke liye full access"}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -10290,7 +10293,7 @@ export default function Projects() {
               <div className="text-center py-12">
                 <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
-                  {isAdmin ? "No projects found" : "You have no tasks assigned on any project yet"}
+                  {isAdmin || isITEmployee ? "No projects found" : "You have no tasks assigned on any project yet"}
                 </p>
                 {isAdmin && (
                   <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
