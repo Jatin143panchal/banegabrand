@@ -9002,7 +9002,8 @@ export default function Projects() {
                       Social Media Content Calendar
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Kitni posts aur kis date se — aap decide karo. Extra post anytime add kar sakte ho.
+                     post date
+                    
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -9025,7 +9026,7 @@ export default function Projects() {
                 {/* Controls */}
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-xs">Kitni posts</Label>
+                    <Label className="text-xs">number of posts</Label>
                     <Input
                       type="number"
                       min={1}
