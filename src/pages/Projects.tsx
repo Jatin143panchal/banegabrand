@@ -127,14 +127,21 @@ const MANUFACTURING_STAGES = [
 
 const DOCUMENT_FOLDERS = [
   "Barcodes",
-  "Mockups",
+  "Mockups / Logo",
   "Company Certificates",
   "Personal Documents",
-  "Logo",
   "Brand Identity",
   "Legal Agreement",
   "Packaging",
 ];
+
+function documentFolderAliases(folder: string): string[] {
+  if (folder === "Mockups / Logo") return ["Mockups / Logo", "Mockups", "Logo"];
+  if (folder === "Legal Agreement") return ["Legal Agreement", "Agreements"];
+  if (folder === "Company Certificates") return ["Company Certificates", "Certificates"];
+  if (folder === "Packaging") return ["Packaging", "Packaging Files"];
+  return [folder];
+}
 
 function isDocumentLink(doc: { file_type?: string | null; file_url?: string | null }) {
   const t = (doc.file_type || "").toLowerCase();
@@ -6002,28 +6009,41 @@ export default function Projects() {
   const addDocumentLink = async (folder: string) => {
     if (!selectedProject) return;
     const draft = folderLinkDrafts[folder] || { title: "", url: "" };
-    const url = (draft.url || "").trim();
-    if (!url) {
+    const raw = (draft.url || "").trim();
+    if (!raw) {
       toast.error("Link daalo");
       return;
     }
-    const href = toClickableUrl(url);
+    const parts = raw
+      .split(/[\n,]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (parts.length === 0) {
+      toast.error("Link daalo");
+      return;
+    }
+    const titleBase = (draft.title || "").trim();
     setFolderLinkSaving(folder);
     try {
-      const { error } = await supabase
-        .from("project_documents")
-        .insert({
+      const rows = parts.map((url, idx) => {
+        const href = toClickableUrl(url);
+        const name = parts.length === 1
+          ? (titleBase || url)
+          : (titleBase ? `${titleBase} ${idx + 1}` : url);
+        return {
           project_id: selectedProject.id,
           folder,
-          file_name: (draft.title || "").trim() || url,
+          file_name: name,
           file_url: href,
           file_size: null,
           file_type: "link",
           uploaded_by: user?.id,
           version: 1,
-        });
+        };
+      });
+      const { error } = await supabase.from("project_documents").insert(rows);
       if (error) throw error;
-      toast.success("Link add ho gaya");
+      toast.success(rows.length > 1 ? `${rows.length} links add ho gaye` : "Link add ho gaya");
       setFolderLinkDrafts((prev) => ({ ...prev, [folder]: { title: "", url: "" } }));
       fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
@@ -8859,7 +8879,7 @@ export default function Projects() {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {DOCUMENT_FOLDERS.map(folder => {
-                    const files = documents.filter(d => d.folder === folder);
+                    const files = documents.filter(d => documentFolderAliases(folder).includes(d.folder));
                     const draft = folderLinkDrafts[folder] || { title: "", url: "" };
                     return (
                       <div key={folder} className="border rounded-lg p-3 hover:bg-muted/30">
@@ -8879,9 +8899,10 @@ export default function Projects() {
                             }))}
                           />
                           <div className="flex gap-1.5">
-                            <Input
-                              className="h-8 text-xs"
-                              placeholder="https://... link add karo"
+                            <Textarea
+                              rows={2}
+                              className="min-h-8 text-xs resize-none"
+                              placeholder="Ek ya multiple links — comma ya new line se"
                               value={draft.url}
                               onChange={(e) => setFolderLinkDrafts((prev) => ({
                                 ...prev,
@@ -9378,7 +9399,7 @@ export default function Projects() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              {documents.filter(d => d.folder === activeFolderView).map(file => (
+              {documents.filter(d => documentFolderAliases(activeFolderView || "").includes(d.folder)).map(file => (
                 <div key={file.id} className="flex items-center gap-3 border rounded-lg p-2">
                   {isDocumentLink(file) ? (
                     <Link2 className="h-4 w-4 text-blue-600 shrink-0" />
@@ -9425,7 +9446,7 @@ export default function Projects() {
                   </Button>
                 </div>
               ))}
-              {documents.filter(d => d.folder === activeFolderView).length === 0 && (
+              {documents.filter(d => documentFolderAliases(activeFolderView || "").includes(d.folder)).length === 0 && (
                 <p className="text-center text-muted-foreground text-sm py-6">No files in this folder</p>
               )}
             </div>
