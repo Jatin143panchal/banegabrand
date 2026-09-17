@@ -9104,7 +9104,7 @@ export default function Projects() {
                       Social Media Content Calendar
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Kitni posts aur kis date se — aap decide karo. Extra post anytime add kar sakte ho.
+                 posts\
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
