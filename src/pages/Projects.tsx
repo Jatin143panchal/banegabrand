@@ -68,7 +68,6 @@ const PROJECT_STAGES = [
   { value: "qa_testing", label: "QA Testing", icon: "", color: "#22c55e" },
   { value: "live_website", label: "Live Website", icon: "", color: "#14b8a6" },
   // Ecommerce
-  { value: "ecommerce_account", label: "Ecommerce Account Creation", icon: "", color: "#8b5cf6" },
   { value: "amazon_creation", label: "Amazon Account Creation", icon: "", color: "#ff9900" },
   { value: "amazon_listing", label: "Amazon Listing", icon: "", color: "#ff9900" },
   { value: "flipkart_creation", label: "Flipkart Account Creation", icon: "", color: "#2874f0" },
@@ -507,9 +506,10 @@ const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
 async function sendStageCompletedEmail(project: Project, stageLabel: string, comment?: string) {
   const to = (project.client_email || "").trim();
   if (!to) {
-    toast.warning("Stage update ho gaya, lekin client email nahi hai — mail nahi gayi.");
+    toast.warning("Stage updated, but the client email is missing so no email was sent.");
     return;
   }
+  const remark = (comment || "").trim();
   try {
     const { error } = await supabase.functions.invoke("send-stage-complete-email", {
       body: {
@@ -518,16 +518,23 @@ async function sendStageCompletedEmail(project: Project, stageLabel: string, com
         brandName: project.brand_name,
         projectId: project.project_id,
         stageName: stageLabel,
-        comment: (comment || "").trim() || undefined,
+        remark,
+        remarks: remark,
+        comment: remark,
+        message: remark,
+        stageComment: remark,
+        notes: remark,
         fromEmail: STAGE_COMPLETE_FROM_EMAIL,
         fromName: STAGE_COMPLETE_FROM_NAME,
       },
     });
     if (error) throw error;
-    toast.success(`Client ko mail chali gayi: ${to}`);
+    toast.success(remark
+      ? `Email sent to client with remark: ${to}`
+      : `Email sent to client: ${to}`);
   } catch (err: any) {
     console.error(err);
-    toast.error(err?.message || "Stage update ho gaya, lekin email fail ho gaya");
+    toast.error(err?.message || "Stage updated, but the email failed");
   }
 }
 
@@ -5427,6 +5434,10 @@ export default function Projects() {
         if (status === "in_progress" && !existing.start_date) {
           payload.start_date = new Date().toISOString();
         }
+        const draftRemark = (stageCommentDrafts[stageLabel] || existing.remarks || "").trim();
+        if (status === "completed" && draftRemark) {
+          payload.remarks = draftRemark;
+        }
         const { error } = await supabase
           .from("project_stages")
           .update(payload)
@@ -5514,11 +5525,11 @@ export default function Projects() {
     }
   };
 
-  const saveStageComment = async (stageLabel: string, stageOrder: number, stageValue?: string, sendMail = true) => {
+  const saveStageComment = async (stageLabel: string, stageOrder: number, stageValue?: string, sendMail = false) => {
     if (!selectedProject) return;
     const comment = (stageCommentDrafts[stageLabel] || "").trim();
     if (!comment) {
-      toast.error("Pehle comment likho");
+      toast.error("Please enter a comment first");
       return;
     }
     setStageCommentSaving(stageLabel);
@@ -5565,13 +5576,13 @@ export default function Projects() {
         if (error) throw error;
       }
 
-      toast.success("Stage comment save ho gaya");
+      toast.success("Stage comment saved");
       if (sendMail) {
         await sendStageCommentEmail(selectedProject, stageLabel, comment);
       }
       fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
-      toast.error(error.message || "Comment save nahi hua");
+      toast.error(error.message || "Failed to save comment");
     } finally {
       setStageCommentSaving(null);
     }
@@ -8500,7 +8511,7 @@ export default function Projects() {
                               <Textarea
                                 rows={2}
                                 className="text-sm resize-none"
-                                placeholder="Is stage ke baare mein comment likho..."
+                                placeholder="Add a comment for this stage..."
                                 value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
                                 onChange={(e) =>
                                   setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
@@ -8517,7 +8528,7 @@ export default function Projects() {
                                 ) : (
                                   <Send className="h-3 w-3 mr-1" />
                                 )}
-                                Save & Email Comment
+                                Save Comment
                               </Button>
                             </div>
 
@@ -8594,7 +8605,7 @@ export default function Projects() {
                               <Textarea
                                 rows={2}
                                 className="text-sm resize-none"
-                                placeholder="Is stage ke baare mein comment likho..."
+                                placeholder="Add a comment for this stage..."
                                 value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
                                 onChange={(e) =>
                                   setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
@@ -8611,7 +8622,7 @@ export default function Projects() {
                                 ) : (
                                   <Send className="h-3 w-3 mr-1" />
                                 )}
-                                Save & Email Comment
+                                Save Comment
                               </Button>
                             </div>
 
@@ -8688,7 +8699,7 @@ export default function Projects() {
                               <Textarea
                                 rows={2}
                                 className="text-sm resize-none"
-                                placeholder="Is stage ke baare mein comment likho..."
+                                placeholder="Add a comment for this stage..."
                                 value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
                                 onChange={(e) =>
                                   setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
@@ -8705,7 +8716,7 @@ export default function Projects() {
                                 ) : (
                                   <Send className="h-3 w-3 mr-1" />
                                 )}
-                                Save & Email Comment
+                                Save Comment
                               </Button>
                             </div>
 
@@ -9545,7 +9556,7 @@ export default function Projects() {
                 }).length === 0 && (
                   <p className="text-center text-muted-foreground py-8">
                     {contentCalendarDays.length === 0
-                      ? "Abhi koi post nahi. Start date set karke Add post dabao."
+                      ? "No posts yet. Set a start date and tap Add post."
                       : "No posts match the current filter"}
                   </p>
                 )}
