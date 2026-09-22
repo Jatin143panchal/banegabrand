@@ -1263,12 +1263,28 @@ interface ContentDay {
   day: number;
   title: string;
   caption: string;
+  /** @deprecated kept for old saved calendars — use platforms */
   platform: string;
+  /** One post can go to multiple platforms (e.g. Instagram + Facebook) */
+  platforms: string[];
   status: "pending" | "completed";
   note: string;
   scheduled_date?: string;
   social_media_link?: string;
   other_link?: string;
+}
+
+function normalizeContentPlatforms(d: { platform?: string; platforms?: string[] | string | null }): string[] {
+  if (Array.isArray(d.platforms) && d.platforms.length) {
+    return Array.from(new Set(d.platforms.map((p) => String(p).trim()).filter(Boolean)));
+  }
+  if (typeof d.platforms === "string" && d.platforms.trim()) {
+    return d.platforms.split(/[,|/]+/).map((p) => p.trim()).filter(Boolean);
+  }
+  if (d.platform && String(d.platform).trim()) {
+    return String(d.platform).split(/[,|/]+/).map((p) => p.trim()).filter(Boolean);
+  }
+  return ["Instagram"];
 }
 
 const CONTENT_PLATFORMS = [
@@ -1288,6 +1304,7 @@ const EMPTY_CONTENT_DAY = (day: number, scheduledDate = ""): ContentDay => ({
   title: "",
   caption: "",
   platform: "Instagram",
+  platforms: ["Instagram"],
   status: "pending",
   note: "",
   scheduled_date: scheduledDate,
@@ -1323,17 +1340,21 @@ function parseContentCalendar(content: string): { days: ContentDay[]; startDate:
     const parsed = JSON.parse(content);
     if (parsed && parsed.__type === "content_calendar") {
       const days = Array.isArray(parsed.days)
-        ? parsed.days.map((d: any, idx: number) => ({
+        ? parsed.days.map((d: any, idx: number) => {
+            const platforms = normalizeContentPlatforms(d);
+            return {
             day: d.day ?? idx + 1,
             title: d.title || "",
             caption: d.caption || "",
-            platform: d.platform || "Instagram",
+            platform: platforms[0] || "Instagram",
+            platforms,
             status: d.status === "completed" ? "completed" : "pending",
             note: d.note || "",
             scheduled_date: d.scheduled_date || "",
             social_media_link: d.social_media_link || "",
             other_link: d.other_link || "",
-          }))
+          };
+          })
         : [];
       return { days, startDate: parsed.start_date || null };
     }
@@ -6639,6 +6660,20 @@ export default function Projects() {
     );
   };
 
+  const toggleContentDayPlatform = (dayIndex: number, platformName: string) => {
+    setContentCalendarDays((prev) =>
+      prev.map((d, i) => {
+        if (i !== dayIndex) return d;
+        const current = normalizeContentPlatforms(d);
+        const next = current.includes(platformName)
+          ? current.filter((p) => p !== platformName)
+          : [...current, platformName];
+        const platforms = next.length ? next : [platformName];
+        return { ...d, platforms, platform: platforms.join(", ") };
+      })
+    );
+  };
+
   const toggleContentDayStatus = (dayIndex: number) => {
     setContentCalendarDays((prev) =>
       prev.map((d, i) =>
@@ -9444,25 +9479,34 @@ export default function Projects() {
                                     className="h-8 text-sm"
                                   />
                                 </div>
-                                <div className="grid gap-1">
-                                  <Label className="text-[10px] text-muted-foreground">Platform</Label>
-                                  <Select
-                                    value={day.platform}
-                                    onValueChange={(v) =>
-                                      updateContentDay(realIndex, { platform: v })
-                                    }
-                                  >
-                                    <SelectTrigger className="h-8 text-sm">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {CONTENT_PLATFORMS.map((p) => (
-                                        <SelectItem key={p} value={p}>
-                                          {p}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                <div className="grid gap-1 sm:col-span-1 lg:col-span-2">
+                                  <Label className="text-[10px] text-muted-foreground">
+                                    Platforms (multiple — same post, alag-alag platform)
+                                  </Label>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {CONTENT_PLATFORMS.map((p) => {
+                                      const selected = normalizeContentPlatforms(day).includes(p);
+                                      return (
+                                        <button
+                                          key={p}
+                                          type="button"
+                                          onClick={() => toggleContentDayPlatform(realIndex, p)}
+                                          className={`h-7 px-2 rounded-full text-[11px] border transition-colors ${
+                                            selected
+                                              ? "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 font-medium"
+                                              : "bg-background text-muted-foreground border-border hover:bg-muted"
+                                          }`}
+                                        >
+                                          {selected ? "✓ " : ""}{p}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {normalizeContentPlatforms(day).length > 0 && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Selected: {normalizeContentPlatforms(day).join(" + ")}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="grid gap-1 sm:col-span-2">
                                   <Label className="text-[10px] text-muted-foreground">
