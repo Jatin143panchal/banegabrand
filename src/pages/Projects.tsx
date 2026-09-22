@@ -397,7 +397,7 @@ const TEAM_GROUP_MEMBER: ITTeamMember = {
   id: "__team_group__",
   name: "Team Group Chat",
   email: TEAM_GROUP_EMAIL,
-  role: "Sab members — group chat",
+  role: "All members — group chat",
   active: true,
 };
 
@@ -2343,7 +2343,7 @@ function TaskDetailDialog({
                                 value={subtaskNoteDraft}
                                 onChange={(e) => setSubtaskNoteDraft(e.target.value)}
                                 rows={3}
-                                placeholder="Jo jo hua uski history / note yahan likhein..."
+                                placeholder="Write the history / note for this subtask..."
                                 className="text-sm"
                               />
                               <div className="flex gap-2">
@@ -3080,7 +3080,7 @@ function TaskCalendarView({
     ? tasks
     : tasks.filter(t => t.project_id === selectedClientId);
 
-  // Har project ke task counts (alag calendar cards ke liye)
+  // Task counts per project (for separate calendar cards)
   const projectCalendarList = (() => {
     const map = new Map<string, {
       id: string;
@@ -3539,7 +3539,7 @@ function TaskCalendarView({
                             </Button>
                           </div>
                           <p className="text-[11px] text-muted-foreground mt-2">
-                            Nayi date choose karke <strong>Save Due Date</strong> dabao. Task us date pe shift ho jayega.
+                            Pick a new date and click <strong>Save Due Date</strong>. The task will move to that date.
                           </p>
                         </div>
                       )}
@@ -5577,7 +5577,7 @@ export default function Projects() {
       }
       const { error } = await supabase.from("project_stages").insert(toInsert);
       if (error) throw error;
-      toast.success(`${toInsert.length} stages add ho gayi`);
+      toast.success(`${toInsert.length} stages added`);
       fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
       toast.error(error.message || "Sync fail");
@@ -5726,7 +5726,7 @@ export default function Projects() {
           .select("*")
           .eq("project_id", selectedProject.id);
 
-        // Project progress bar stages se chalti hai, tasks se nahi.
+        // Project progress bar is driven by stages, not tasks.
 
         await fetchProjectDetails(selectedProject.id);
         refetch();
@@ -6091,7 +6091,7 @@ export default function Projects() {
     const draft = folderLinkDrafts[folder] || { title: "", url: "" };
     const raw = (draft.url || "").trim();
     if (!raw) {
-      toast.error("Link daalo");
+      toast.error("Please enter a link");
       return;
     }
     const parts = raw
@@ -6099,7 +6099,7 @@ export default function Projects() {
       .map((x) => x.trim())
       .filter(Boolean);
     if (parts.length === 0) {
-      toast.error("Link daalo");
+      toast.error("Please enter a link");
       return;
     }
     const titleBase = (draft.title || "").trim();
@@ -6123,7 +6123,7 @@ export default function Projects() {
       });
       const { error } = await supabase.from("project_documents").insert(rows);
       if (error) throw error;
-      toast.success(rows.length > 1 ? `${rows.length} links add ho gaye` : "Link add ho gaya");
+      toast.success(rows.length > 1 ? `${rows.length} links added` : "Link added");
       setFolderLinkDrafts((prev) => ({ ...prev, [folder]: { title: "", url: "" } }));
       fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
@@ -6536,7 +6536,7 @@ export default function Projects() {
 
   const addProjectLink = () => {
     if (!newLink.url.trim() && !newLink.username.trim() && !newLink.title.trim()) {
-      toast.error("Title, URL ya ID mein se kuch daalo");
+      toast.error("Enter a title, URL, or ID");
       return;
     }
     const item: ProjectLinkItem = { ...newLink, id: `link_${Date.now()}` };
@@ -7069,7 +7069,7 @@ export default function Projects() {
             <CardContent className="py-12 text-center">
               <Shield className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
               <p className="font-medium">Access restricted</p>
-              <p className="text-sm text-muted-foreground mt-1">Task Assignment dashboard sirf Admin ke liye hai. Aap My Tasks se apne tasks dekh sakte ho.</p>
+              <p className="text-sm text-muted-foreground mt-1">The Task Assignment dashboard is only available to Admin. You can view your work in My Tasks.</p>
               <Button className="mt-4" size="sm" onClick={() => setMainView("my_tasks")}>
                 <ClipboardList className="h-4 w-4 mr-2" /> Go to My Tasks
               </Button>
@@ -7701,7 +7701,7 @@ export default function Projects() {
                     <div className="px-4 py-3 border-b">
                       <p className="font-medium text-sm">{activeChatMember.name}</p>
                       {activeChatMember.email === TEAM_GROUP_EMAIL && (
-                        <p className="text-xs text-muted-foreground">Poori team yahan chat kar sakti hai. Messages save rehte hain.</p>
+                        <p className="text-xs text-muted-foreground">The whole team can chat here. Messages are saved.</p>
                       )}
                     </div>
                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -8197,7 +8197,7 @@ export default function Projects() {
                     ))}
                     {projectTasks.filter(t => t.status !== 'completed').length === 0 && (
                       <p className="text-center text-muted-foreground py-4">
-                        {projectTasks.length === 0 ? "No tasks yet" : "No open tasks — completed tasks yahan se hat chuke hain"}
+                        {projectTasks.length === 0 ? "No tasks yet" : "No open tasks — completed tasks are hidden here"}
                       </p>
                     )}
                   </div>
@@ -8953,7 +8953,7 @@ export default function Projects() {
                   Drive / Social Links & Logins
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Google Drive, Instagram, Amazon ID/password yahan. URL pe click karte hi naya tab khulega.
+                  Store Google Drive, Instagram, and Amazon IDs/passwords here. Click a URL to open it in a new tab.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -9054,7 +9054,7 @@ export default function Projects() {
                   })}
                   {projectLinks.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      Abhi koi Drive / social link nahi. Upar form se add karo.
+                      No Drive / social links yet. Add one using the form above.
                     </p>
                   )}
                 </div>
@@ -9297,7 +9297,7 @@ export default function Projects() {
                       Social Media Content Calendar
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                 posts\
+                      Plan posts, dates, captions, and links for this project.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -10283,7 +10283,7 @@ export default function Projects() {
           <p className="text-muted-foreground text-sm">
             {isAdmin
               ? "Manage all client projects from one dashboard"
-              : "Saare client projects yahan dikhte hain — IT team ke liye full access"}
+              : "All client projects are listed here — full access for the IT team"}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
