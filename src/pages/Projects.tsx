@@ -529,42 +529,10 @@ async function sendStageCompletedEmail(project: Project, stageLabel: string, com
       },
     });
     if (error) throw error;
-    toast.success(remark
-      ? `Email sent to client with remark: ${to}`
-      : `Email sent to client: ${to}`);
+    toast.success(remark ? `Email sent to client with remark: ${to}` : `Email sent to client: ${to}`);
   } catch (err: any) {
     console.error(err);
     toast.error(err?.message || "Stage updated, but the email failed");
-  }
-}
-
-async function sendStageCommentEmail(project: Project, stageLabel: string, comment: string) {
-  const to = (project.client_email || "").trim();
-  if (!to) {
-    toast.warning("Comment save ho gaya, lekin client email nahi hai — mail nahi gayi.");
-    return;
-  }
-  const text = (comment || "").trim();
-  if (!text) return;
-  try {
-    const { error } = await supabase.functions.invoke("send-stage-complete-email", {
-      body: {
-        to,
-        clientName: project.name,
-        brandName: project.brand_name,
-        projectId: project.project_id,
-        stageName: `${stageLabel} — Comment`,
-        comment: text,
-        message: text,
-        fromEmail: STAGE_COMPLETE_FROM_EMAIL,
-        fromName: STAGE_COMPLETE_FROM_NAME,
-      },
-    });
-    if (error) throw error;
-    toast.success(`Stage comment client ko mail ho gayi: ${to}`);
-  } catch (err: any) {
-    console.error(err);
-    toast.error(err?.message || "Comment save ho gaya, lekin email fail ho gaya");
   }
 }
 
@@ -3752,6 +3720,7 @@ export default function Projects() {
   const [contentCalendarFilter, setContentCalendarFilter] = useState<"all" | "pending" | "completed">("all");
   const [stageCommentDrafts, setStageCommentDrafts] = useState<Record<string, string>>({});
   const [stageCommentSaving, setStageCommentSaving] = useState<string | null>(null);
+  const [openStageComment, setOpenStageComment] = useState<string | null>(null);
 
   // ── Image upload state ──
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
@@ -5435,7 +5404,7 @@ export default function Projects() {
           payload.start_date = new Date().toISOString();
         }
         const draftRemark = (stageCommentDrafts[stageLabel] || existing.remarks || "").trim();
-        if (status === "completed" && draftRemark) {
+        if (draftRemark) {
           payload.remarks = draftRemark;
         }
         const { error } = await supabase
@@ -5448,11 +5417,13 @@ export default function Projects() {
           prev.map((s) => (s.id === existing.id ? { ...s, ...payload } : s))
         );
       } else {
+        const insertRemark = (stageCommentDrafts[stageLabel] || "").trim();
         const { error } = await supabase.from("project_stages").insert({
           project_id: selectedProject.id,
           stage_name: stageLabel,
           stage_order: stageOrder,
           status,
+          ...(insertRemark ? { remarks: insertRemark } : {}),
           ...(status === "in_progress" ? { start_date: new Date().toISOString() } : {}),
           ...(status === "completed" ? { completion_date: new Date().toISOString() } : {}),
         });
@@ -5525,11 +5496,11 @@ export default function Projects() {
     }
   };
 
-  const saveStageComment = async (stageLabel: string, stageOrder: number, stageValue?: string, sendMail = false) => {
+  const saveStageComment = async (stageLabel: string, stageOrder: number, stageValue?: string) => {
     if (!selectedProject) return;
     const comment = (stageCommentDrafts[stageLabel] || "").trim();
     if (!comment) {
-      toast.error("Please enter a comment first");
+      toast.error("Please enter a remark first");
       return;
     }
     setStageCommentSaving(stageLabel);
@@ -5576,13 +5547,11 @@ export default function Projects() {
         if (error) throw error;
       }
 
-      toast.success("Stage comment saved");
-      if (sendMail) {
-        await sendStageCommentEmail(selectedProject, stageLabel, comment);
-      }
+      toast.success("Remark saved");
+      setOpenStageComment(null);
       fetchProjectDetails(selectedProject.id);
     } catch (error: any) {
-      toast.error(error.message || "Failed to save comment");
+      toast.error(error.message || "Failed to save remark");
     } finally {
       setStageCommentSaving(null);
     }
@@ -8501,37 +8470,48 @@ export default function Projects() {
                             {!item && (
                               <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
                             )}
-                            {item?.remarks && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
-                                💬 {item.remarks}
-                              </p>
-                            )}
-                            <div className="mt-3 ml-6 space-y-2">
-                              <Label className="text-[10px] text-muted-foreground">Stage comment</Label>
-                              <Textarea
-                                rows={2}
-                                className="text-sm resize-none"
-                                placeholder="Add a comment for this stage..."
-                                value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                onChange={(e) =>
-                                  setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                            <div className="mt-2 ml-6">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
                                 }
-                              />
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs"
-                                disabled={stageCommentSaving === ps.label}
-                                onClick={() => saveStageComment(ps.label, index + 1, ps.value)}
                               >
-                                {stageCommentSaving === ps.label ? (
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : (
-                                  <Send className="h-3 w-3 mr-1" />
-                                )}
-                                Save Comment
-                              </Button>
+                                <MessageSquare className="h-3 w-3" />
+                                Remark
+                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
+                              </button>
+                              {openStageComment === ps.label && (
+                                <div className="mt-1.5 space-y-1.5 max-w-md">
+                                  <Textarea
+                                    rows={3}
+                                    className="text-xs resize-y min-h-[72px]"
+                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
+                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                    onChange={(e) =>
+                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                    }
+                                  />
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No need to save. Mark the stage Completed to save and email this remark.
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs shrink-0"
+                                    disabled={stageCommentSaving === ps.label}
+                                    onClick={() => saveStageComment(ps.label, index + 1, ps.value)}
+                                  >
+                                    {stageCommentSaving === ps.label ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Save"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-
                           </div>
                         );
                       })}
@@ -8595,37 +8575,48 @@ export default function Projects() {
                             {!item && (
                               <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
                             )}
-                            {item?.remarks && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
-                                💬 {item.remarks}
-                              </p>
-                            )}
-                            <div className="mt-3 ml-6 space-y-2">
-                              <Label className="text-[10px] text-muted-foreground">Stage comment</Label>
-                              <Textarea
-                                rows={2}
-                                className="text-sm resize-none"
-                                placeholder="Add a comment for this stage..."
-                                value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                onChange={(e) =>
-                                  setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                            <div className="mt-2 ml-6">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
                                 }
-                              />
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs"
-                                disabled={stageCommentSaving === ps.label}
-                                onClick={() => saveStageComment(ps.label, index + 10, ps.value)}
                               >
-                                {stageCommentSaving === ps.label ? (
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : (
-                                  <Send className="h-3 w-3 mr-1" />
-                                )}
-                                Save Comment
-                              </Button>
+                                <MessageSquare className="h-3 w-3" />
+                                Remark
+                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
+                              </button>
+                              {openStageComment === ps.label && (
+                                <div className="mt-1.5 space-y-1.5 max-w-md">
+                                  <Textarea
+                                    rows={3}
+                                    className="text-xs resize-y min-h-[72px]"
+                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
+                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                    onChange={(e) =>
+                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                    }
+                                  />
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No need to save. Mark the stage Completed to save and email this remark.
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs shrink-0"
+                                    disabled={stageCommentSaving === ps.label}
+                                    onClick={() => saveStageComment(ps.label, index + 10, ps.value)}
+                                  >
+                                    {stageCommentSaving === ps.label ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Save"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-
                           </div>
                         );
                       })}
@@ -8689,37 +8680,48 @@ export default function Projects() {
                             {!item && (
                               <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
                             )}
-                            {item?.remarks && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
-                                💬 {item.remarks}
-                              </p>
-                            )}
-                            <div className="mt-3 ml-6 space-y-2">
-                              <Label className="text-[10px] text-muted-foreground">Stage comment</Label>
-                              <Textarea
-                                rows={2}
-                                className="text-sm resize-none"
-                                placeholder="Add a comment for this stage..."
-                                value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                onChange={(e) =>
-                                  setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                            <div className="mt-2 ml-6">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
                                 }
-                              />
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs"
-                                disabled={stageCommentSaving === ps.label}
-                                onClick={() => saveStageComment(ps.label, index + 18, ps.value)}
                               >
-                                {stageCommentSaving === ps.label ? (
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : (
-                                  <Send className="h-3 w-3 mr-1" />
-                                )}
-                                Save Comment
-                              </Button>
+                                <MessageSquare className="h-3 w-3" />
+                                Remark
+                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
+                              </button>
+                              {openStageComment === ps.label && (
+                                <div className="mt-1.5 space-y-1.5 max-w-md">
+                                  <Textarea
+                                    rows={3}
+                                    className="text-xs resize-y min-h-[72px]"
+                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
+                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                    onChange={(e) =>
+                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                    }
+                                  />
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No need to save. Mark the stage Completed to save and email this remark.
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs shrink-0"
+                                    disabled={stageCommentSaving === ps.label}
+                                    onClick={() => saveStageComment(ps.label, index + 18, ps.value)}
+                                  >
+                                    {stageCommentSaving === ps.label ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Save"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-
                           </div>
                         );
                       })}
