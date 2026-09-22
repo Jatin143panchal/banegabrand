@@ -70,7 +70,9 @@ const PROJECT_STAGES = [
   // Ecommerce
   { value: "ecommerce_account", label: "Ecommerce Account Creation", icon: "", color: "#8b5cf6" },
   { value: "amazon_creation", label: "Amazon Account Creation", icon: "", color: "#ff9900" },
+  { value: "amazon_listing", label: "Amazon Listing", icon: "", color: "#ff9900" },
   { value: "flipkart_creation", label: "Flipkart Account Creation", icon: "", color: "#2874f0" },
+  { value: "flipkart_listing", label: "Flipkart Listing", icon: "", color: "#2874f0" },
   { value: "scale", label: "Scale", icon: "", color: "#ec4899" },
 ];
 
@@ -217,6 +219,7 @@ interface ProjectStage {
   status: string;
   start_date: string | null;
   completion_date: string | null;
+  remarks?: string | null;
 }
 
 interface ProjectTask {
@@ -501,10 +504,10 @@ function getDueBucket(dueDate: string | null) {
 const STAGE_COMPLETE_FROM_EMAIL = "team@banegabrand.com";
 const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
 
-async function sendStageCompletedEmail(project: Project, stageLabel: string) {
+async function sendStageCompletedEmail(project: Project, stageLabel: string, comment?: string) {
   const to = (project.client_email || "").trim();
   if (!to) {
-    toast.warning("Stage complete ho gaya, lekin client email nahi hai — mail nahi gayi.");
+    toast.warning("Stage update ho gaya, lekin client email nahi hai — mail nahi gayi.");
     return;
   }
   try {
@@ -515,6 +518,7 @@ async function sendStageCompletedEmail(project: Project, stageLabel: string) {
         brandName: project.brand_name,
         projectId: project.project_id,
         stageName: stageLabel,
+        comment: (comment || "").trim() || undefined,
         fromEmail: STAGE_COMPLETE_FROM_EMAIL,
         fromName: STAGE_COMPLETE_FROM_NAME,
       },
@@ -524,6 +528,36 @@ async function sendStageCompletedEmail(project: Project, stageLabel: string) {
   } catch (err: any) {
     console.error(err);
     toast.error(err?.message || "Stage update ho gaya, lekin email fail ho gaya");
+  }
+}
+
+async function sendStageCommentEmail(project: Project, stageLabel: string, comment: string) {
+  const to = (project.client_email || "").trim();
+  if (!to) {
+    toast.warning("Comment save ho gaya, lekin client email nahi hai — mail nahi gayi.");
+    return;
+  }
+  const text = (comment || "").trim();
+  if (!text) return;
+  try {
+    const { error } = await supabase.functions.invoke("send-stage-complete-email", {
+      body: {
+        to,
+        clientName: project.name,
+        brandName: project.brand_name,
+        projectId: project.project_id,
+        stageName: `${stageLabel} — Comment`,
+        comment: text,
+        message: text,
+        fromEmail: STAGE_COMPLETE_FROM_EMAIL,
+        fromName: STAGE_COMPLETE_FROM_NAME,
+      },
+    });
+    if (error) throw error;
+    toast.success(`Stage comment client ko mail ho gayi: ${to}`);
+  } catch (err: any) {
+    console.error(err);
+    toast.error(err?.message || "Comment save ho gaya, lekin email fail ho gaya");
   }
 }
 
@@ -3709,7 +3743,8 @@ export default function Projects() {
   const [contentCalendarNoteId, setContentCalendarNoteId] = useState<string | null>(null);
   const [contentCalendarSaving, setContentCalendarSaving] = useState(false);
   const [contentCalendarFilter, setContentCalendarFilter] = useState<"all" | "pending" | "completed">("all");
-  const [contentCalendarPostCount, setContentCalendarPostCount] = useState<string>("7");
+  const [stageCommentDrafts, setStageCommentDrafts] = useState<Record<string, string>>({});
+  const [stageCommentSaving, setStageCommentSaving] = useState<string | null>(null);
 
   // ── Image upload state ──
   const [uploadingImage, setUploadingImage] = useState<string | null>(null);
@@ -5467,7 +5502,8 @@ export default function Projects() {
       toast.success("Stage updated successfully");
 
       if (status === "completed" && existing?.status !== "completed") {
-        await sendStageCompletedEmail(selectedProject, stageLabel);
+        const comment = (stageCommentDrafts[stageLabel] || existing?.remarks || "").trim();
+        await sendStageCompletedEmail(selectedProject, stageLabel, comment);
       }
 
       fetchProjectDetails(selectedProject.id);
@@ -5475,6 +5511,69 @@ export default function Projects() {
       refetch();
     } catch (error: any) {
       toast.error(error.message || "Failed to update stage");
+    }
+  };
+
+  const saveStageComment = async (stageLabel: string, stageOrder: number, stageValue?: string, sendMail = true) => {
+    if (!selectedProject) return;
+    const comment = (stageCommentDrafts[stageLabel] || "").trim();
+    if (!comment) {
+      toast.error("Pehle comment likho");
+      return;
+    }
+    setStageCommentSaving(stageLabel);
+    try {
+      const existing =
+        projectStages.find(
+          (st) =>
+            st.stage_name === stageLabel ||
+            st.stage_name?.toLowerCase() === stageLabel.toLowerCase() ||
+            (stageValue && st.stage_name?.toLowerCase() === stageValue.toLowerCase())
+        ) ||
+        projectStages.find((st) => st.stage_order === stageOrder);
+
+      if (existing) {
+        const { error } = await supabase
+          .from("project_stages")
+          .update({ remarks: comment })
+          .eq("id", existing.id);
+        if (error && String(error.message || "").toLowerCase().includes("remarks")) {
+          const { error: noteErr } = await supabase.from("project_notes").insert({
+            project_id: selectedProject.id,
+            note_type: "stage_comment",
+            title: stageLabel,
+            content: comment,
+            created_by: user?.email || null,
+            created_by_email: user?.email || null,
+          });
+          if (noteErr) throw noteErr;
+        } else if (error) {
+          throw error;
+        } else {
+          setProjectStages((prev) =>
+            prev.map((st) => (st.id === existing.id ? { ...st, remarks: comment } : st))
+          );
+        }
+      } else {
+        const { error } = await supabase.from("project_stages").insert({
+          project_id: selectedProject.id,
+          stage_name: stageLabel,
+          stage_order: stageOrder,
+          status: "pending",
+          remarks: comment,
+        });
+        if (error) throw error;
+      }
+
+      toast.success("Stage comment save ho gaya");
+      if (sendMail) {
+        await sendStageCommentEmail(selectedProject, stageLabel, comment);
+      }
+      fetchProjectDetails(selectedProject.id);
+    } catch (error: any) {
+      toast.error(error.message || "Comment save nahi hua");
+    } finally {
+      setStageCommentSaving(null);
     }
   };
 
@@ -6580,18 +6679,6 @@ export default function Projects() {
         scheduled_date: format(addDays(base, i), "yyyy-MM-dd"),
       }))
     );
-  };
-
-  const generateContentCalendar = () => {
-    const n = Number(contentCalendarPostCount);
-    if (!n || n < 1) {
-      toast.error("Kitni posts chahiye, number daalo");
-      return;
-    }
-    if (contentCalendarDays.length > 0 && !confirm("Existing posts replace ho jayengi. Continue?")) {
-      return;
-    }
-    setContentCalendarDays(createContentDays(n, contentCalendarStartDate || undefined));
   };
 
   const addContentDay = () => {
@@ -8403,6 +8490,37 @@ export default function Projects() {
                             {!item && (
                               <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
                             )}
+                            {item?.remarks && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
+                                💬 {item.remarks}
+                              </p>
+                            )}
+                            <div className="mt-3 ml-6 space-y-2">
+                              <Label className="text-[10px] text-muted-foreground">Stage comment</Label>
+                              <Textarea
+                                rows={2}
+                                className="text-sm resize-none"
+                                placeholder="Is stage ke baare mein comment likho..."
+                                value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                onChange={(e) =>
+                                  setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                }
+                              />
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs"
+                                disabled={stageCommentSaving === ps.label}
+                                onClick={() => saveStageComment(ps.label, index + 1, ps.value)}
+                              >
+                                {stageCommentSaving === ps.label ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Send className="h-3 w-3 mr-1" />
+                                )}
+                                Save & Email Comment
+                              </Button>
+                            </div>
+
                           </div>
                         );
                       })}
@@ -8466,6 +8584,37 @@ export default function Projects() {
                             {!item && (
                               <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
                             )}
+                            {item?.remarks && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
+                                💬 {item.remarks}
+                              </p>
+                            )}
+                            <div className="mt-3 ml-6 space-y-2">
+                              <Label className="text-[10px] text-muted-foreground">Stage comment</Label>
+                              <Textarea
+                                rows={2}
+                                className="text-sm resize-none"
+                                placeholder="Is stage ke baare mein comment likho..."
+                                value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                onChange={(e) =>
+                                  setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                }
+                              />
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs"
+                                disabled={stageCommentSaving === ps.label}
+                                onClick={() => saveStageComment(ps.label, index + 10, ps.value)}
+                              >
+                                {stageCommentSaving === ps.label ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Send className="h-3 w-3 mr-1" />
+                                )}
+                                Save & Email Comment
+                              </Button>
+                            </div>
+
                           </div>
                         );
                       })}
@@ -8529,6 +8678,37 @@ export default function Projects() {
                             {!item && (
                               <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
                             )}
+                            {item?.remarks && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
+                                💬 {item.remarks}
+                              </p>
+                            )}
+                            <div className="mt-3 ml-6 space-y-2">
+                              <Label className="text-[10px] text-muted-foreground">Stage comment</Label>
+                              <Textarea
+                                rows={2}
+                                className="text-sm resize-none"
+                                placeholder="Is stage ke baare mein comment likho..."
+                                value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                onChange={(e) =>
+                                  setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                }
+                              />
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs"
+                                disabled={stageCommentSaving === ps.label}
+                                onClick={() => saveStageComment(ps.label, index + 18, ps.value)}
+                              >
+                                {stageCommentSaving === ps.label ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Send className="h-3 w-3 mr-1" />
+                                )}
+                                Save & Email Comment
+                              </Button>
+                            </div>
+
                           </div>
                         );
                       })}
@@ -9127,18 +9307,6 @@ export default function Projects() {
                 {/* Controls */}
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-xs">Kitni posts</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={90}
-                      value={contentCalendarPostCount}
-                      onChange={(e) => setContentCalendarPostCount(e.target.value)}
-                      className="w-28 h-9"
-                      placeholder="e.g. 10"
-                    />
-                  </div>
-                  <div className="grid gap-1.5">
                     <Label className="text-xs">Start date</Label>
                     <Input
                       type="date"
@@ -9147,10 +9315,6 @@ export default function Projects() {
                       className="w-44 h-9"
                     />
                   </div>
-                  <Button size="sm" variant="outline" className="h-9" onClick={generateContentCalendar}>
-                    <CalendarRange className="h-4 w-4 mr-2" />
-                    Generate posts
-                  </Button>
                   <Button size="sm" className="h-9" onClick={addContentDay}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add post
@@ -9381,7 +9545,7 @@ export default function Projects() {
                 }).length === 0 && (
                   <p className="text-center text-muted-foreground py-8">
                     {contentCalendarDays.length === 0
-                      ? "Abhi koi post nahi. Upar kitni posts + start date daal ke Generate karo, ya Add post dabao."
+                      ? "Abhi koi post nahi. Start date set karke Add post dabao."
                       : "No posts match the current filter"}
                   </p>
                 )}
