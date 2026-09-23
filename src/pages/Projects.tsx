@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,7 +40,7 @@ import {
   Star, StarOff, ThumbsUp, ThumbsDown, MessageCircle,
   BriefcaseBusiness, Grid, ListTodo, CalendarRange, Users as UsersIcon,
   UserCog2, Target as TargetIcon, Timer as TimerIcon,
-  ShoppingCart, Scale, Factory
+  ShoppingCart, Scale, Factory, Type
 } from "lucide-react";
 
 // ============================================================
@@ -130,6 +129,7 @@ const MANUFACTURING_STAGES = [
 const DOCUMENT_FOLDERS = [
   "Barcodes",
   "Mockups / Logo",
+  "Font",
   "Company Certificates",
   "Personal Documents",
   "Brand Identity",
@@ -139,6 +139,7 @@ const DOCUMENT_FOLDERS = [
 
 function documentFolderAliases(folder: string): string[] {
   if (folder === "Mockups / Logo") return ["Mockups / Logo", "Mockups", "Logo"];
+  if (folder === "Font") return ["Font", "Fonts", "Typography"];
   if (folder === "Legal Agreement") return ["Legal Agreement", "Agreements"];
   if (folder === "Company Certificates") return ["Company Certificates", "Certificates"];
   if (folder === "Packaging") return ["Packaging", "Packaging Files"];
@@ -9114,7 +9115,11 @@ export default function Projects() {
                     return (
                       <div key={folder} className="border rounded-lg p-3 hover:bg-muted/30">
                         <div className="flex items-center gap-2">
-                          <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                          {folder === "Font" ? (
+                            <Type className="h-4 w-4 text-violet-600" />
+                          ) : (
+                            <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                          )}
                           <span className="font-medium text-sm">{folder}</span>
                           <Badge variant="outline" className="ml-auto text-xs">{files.length}</Badge>
                         </div>
