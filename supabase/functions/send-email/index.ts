@@ -11,7 +11,15 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { to, subject, html, text, fromName, fromEmail } = await req.json();
+    let payload: any = {};
+    try {
+      const text = await req.text();
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = {};
+    }
+
+    const { to, subject, html, text, fromName, fromEmail } = payload;
 
     if (!to || !subject || (!html && !text)) {
       return new Response(
@@ -21,14 +29,14 @@ Deno.serve(async (req) => {
     }
 
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    const sender = `${fromName || "Banega Brand"} <${fromEmail || Deno.env.get("FROM_EMAIL") || "info@banegabrand.com"}>`;
+    let sender = `${fromName || "Banega Brand"} <${fromEmail || Deno.env.get("FROM_EMAIL") || "info@banegabrand.com"}>`;
 
     // 1. Try Resend if API Key is configured
     if (resendApiKey) {
-      const resendRes = await fetch("https://api.resend.com/emails", {
+      let resendRes = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${resendApiKey}`,
+          "Authorization": `Bearer ${resendApiKey.trim()}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -40,7 +48,40 @@ Deno.serve(async (req) => {
         }),
       });
 
-      const resendData = await resendRes.json();
+      const resendRaw = await resendRes.text();
+      let resendData: any = {};
+      try {
+        resendData = resendRaw ? JSON.parse(resendRaw) : {};
+      } catch {
+        resendData = { message: resendRaw };
+      }
+
+      // If domain verification error, fallback to onboarding@resend.dev
+      if (!resendRes.ok && (resendData.message?.includes("domain") || resendData.message?.includes("verify") || resendData.message?.includes("from"))) {
+        console.warn("[send-email] Retrying with onboarding@resend.dev...");
+        sender = `${fromName || "Banega Brand"} <onboarding@resend.dev>`;
+        resendRes = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${resendApiKey.trim()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: sender,
+            to: Array.isArray(to) ? to : [to],
+            subject,
+            html: html || undefined,
+            text: text || undefined,
+          }),
+        });
+        const retryRaw = await resendRes.text();
+        try {
+          resendData = retryRaw ? JSON.parse(retryRaw) : {};
+        } catch {
+          resendData = { message: retryRaw };
+        }
+      }
+
       if (!resendRes.ok) {
         throw new Error(resendData.message || "Failed to send email via Resend");
       }

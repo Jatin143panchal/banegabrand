@@ -13,7 +13,14 @@ serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
+    let body: any = {};
+    try {
+      const text = await req.text();
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = {};
+    }
+
     const to = body.to;
     const subject = body.subject;
     const html = body.html;
@@ -27,24 +34,55 @@ serve(async (req) => {
       });
     }
 
-    // Plug your existing mail provider here (Resend / SMTP / same as send-stage-complete-email)
     const resendKey = Deno.env.get("RESEND_API_KEY");
     if (resendKey) {
       const recipientList = Array.isArray(to) ? to : [to];
-      const res = await fetch("https://api.resend.com/emails", {
+      let sender = `${fromName} <${fromEmail}>`;
+      let res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${resendKey}`,
+          Authorization: `Bearer ${resendKey.trim()}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: `${fromName} <${fromEmail}>`,
+          from: sender,
           to: recipientList,
           subject,
           html,
         }),
       });
-      const data = await res.json();
+
+      const resRaw = await res.text();
+      let data: any = {};
+      try {
+        data = resRaw ? JSON.parse(resRaw) : {};
+      } catch {
+        data = { message: resRaw };
+      }
+
+      if (!res.ok && (data.message?.includes("domain") || data.message?.includes("verify") || data.message?.includes("from"))) {
+        sender = `${fromName} <onboarding@resend.dev>`;
+        res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendKey.trim()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: sender,
+            to: recipientList,
+            subject,
+            html,
+          }),
+        });
+        const retryRaw = await res.text();
+        try {
+          data = retryRaw ? JSON.parse(retryRaw) : {};
+        } catch {
+          data = { message: retryRaw };
+        }
+      }
+
       if (!res.ok) {
         return new Response(JSON.stringify({ error: data }), {
           status: 500,
@@ -58,7 +96,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ error: "Configure RESEND_API_KEY or reuse your stage-complete mailer" }),
+      JSON.stringify({ error: "Configure RESEND_API_KEY in Supabase secrets" }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

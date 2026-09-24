@@ -9,57 +9,55 @@ function emailApiPlugin(env: Record<string, string>): Plugin {
     name: "banega-brand-email-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (req.url === "/api/send-email" && req.method === "POST") {
-          let body = "";
-          req.on("data", (chunk) => {
-            body += chunk;
-          });
+        if (req.url && (req.url === "/api/send-email" || req.url.startsWith("/api/send-email?") || req.url.startsWith("/api/send-email/"))) {
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+          res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-          req.on("end", async () => {
-            try {
-              const { to, subject, html, text, fromName, fromEmail } = JSON.parse(body || "{}");
+          if (req.method === "OPTIONS") {
+            res.statusCode = 200;
+            res.end("ok");
+            return;
+          }
 
-              if (!to || !subject || (!html && !text)) {
-                res.statusCode = 400;
-                res.setHeader("Content-Type", "application/json");
-                res.end(JSON.stringify({ error: "Missing required fields: to, subject, and html or text." }));
-                return;
-              }
+          if (req.method === "POST") {
+            let body = "";
+            req.on("data", (chunk) => {
+              body += chunk;
+            });
 
-              const smtpUser = env.SMTP_USER || process.env.SMTP_USER;
-              const smtpPass = env.SMTP_PASS || process.env.SMTP_PASS;
-              const smtpHost = env.SMTP_HOST || process.env.SMTP_HOST || "smtp.gmail.com";
-              const smtpPort = Number(env.SMTP_PORT || process.env.SMTP_PORT || 465);
-              const resendApiKey = env.RESEND_API_KEY || process.env.RESEND_API_KEY;
+            req.on("end", async () => {
+              try {
+                let parsedBody: any = {};
+                try {
+                  parsedBody = body ? JSON.parse(body) : {};
+                } catch {
+                  parsedBody = {};
+                }
 
-              const fromEmailAddr = fromEmail || env.SMTP_FROM_EMAIL || "info@banegabrand.com";
-              const fromDisplayName = fromName || env.SMTP_FROM_NAME || "Banega Brand";
-              const sender = `"${fromDisplayName}" <${fromEmailAddr}>`;
+                const { to, subject, html, text, fromName, fromEmail } = parsedBody;
 
-              // 1. Resend.com API (High Priority)
-              if (resendApiKey) {
-                let activeSender = sender;
-                let resendRes = await fetch("https://api.resend.com/emails", {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${resendApiKey.trim()}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    from: activeSender,
-                    to: Array.isArray(to) ? to : [to],
-                    subject,
-                    html: html || undefined,
-                  }),
-                });
+                if (!to || !subject || (!html && !text)) {
+                  res.statusCode = 400;
+                  res.setHeader("Content-Type", "application/json");
+                  res.end(JSON.stringify({ error: "Missing required fields: to, subject, and html or text." }));
+                  return;
+                }
 
-                let resendData = await resendRes.json();
+                const smtpUser = env.SMTP_USER || process.env.SMTP_USER;
+                const smtpPass = env.SMTP_PASS || process.env.SMTP_PASS;
+                const smtpHost = env.SMTP_HOST || process.env.SMTP_HOST || "smtp.gmail.com";
+                const smtpPort = Number(env.SMTP_PORT || process.env.SMTP_PORT || 465);
+                const resendApiKey = env.RESEND_API_KEY || process.env.RESEND_API_KEY;
 
-                // If banegabrand.com is not verified yet in Resend, retry with onboarding@resend.dev
-                if (!resendRes.ok && (resendData.message?.includes("domain") || resendData.message?.includes("verify") || resendData.message?.includes("from"))) {
-                  console.warn("[Email API] Resend domain not verified yet for team@banegabrand.com. Retrying with onboarding@resend.dev...");
-                  activeSender = `"Banega Brand" <onboarding@resend.dev>`;
-                  resendRes = await fetch("https://api.resend.com/emails", {
+                const fromEmailAddr = fromEmail || env.SMTP_FROM_EMAIL || "info@banegabrand.com";
+                const fromDisplayName = fromName || env.SMTP_FROM_NAME || "Banega Brand";
+                const sender = `"${fromDisplayName}" <${fromEmailAddr}>`;
+
+                // 1. Resend.com API (High Priority)
+                if (resendApiKey) {
+                  let activeSender = sender;
+                  let resendRes = await fetch("https://api.resend.com/emails", {
                     method: "POST",
                     headers: {
                       Authorization: `Bearer ${resendApiKey.trim()}`,
@@ -72,27 +70,58 @@ function emailApiPlugin(env: Record<string, string>): Plugin {
                       html: html || undefined,
                     }),
                   });
-                  resendData = await resendRes.json();
-                }
 
-                if (!resendRes.ok) {
-                  throw new Error(resendData.message || "Failed to send email via Resend");
-                }
+                  const rawResend = await resendRes.text();
+                  let resendData: any = {};
+                  try {
+                    resendData = rawResend ? JSON.parse(rawResend) : {};
+                  } catch {
+                    resendData = { message: rawResend };
+                  }
 
-                console.log(`[Email API] Real email sent to ${to} from ${activeSender} via Resend:`, resendData);
-                res.statusCode = 200;
-                res.setHeader("Content-Type", "application/json");
-                res.end(
-                  JSON.stringify({
-                    success: true,
-                    provider: "resend",
-                    data: resendData,
-                    recipient: to,
-                    sender: activeSender,
-                  })
-                );
-                return;
-              }
+                  // If banegabrand.com is not verified yet in Resend, retry with onboarding@resend.dev
+                  if (!resendRes.ok && (resendData.message?.includes("domain") || resendData.message?.includes("verify") || resendData.message?.includes("from"))) {
+                    console.warn("[Email API] Resend domain not verified yet for team@banegabrand.com. Retrying with onboarding@resend.dev...");
+                    activeSender = `"Banega Brand" <onboarding@resend.dev>`;
+                    resendRes = await fetch("https://api.resend.com/emails", {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${resendApiKey.trim()}`,
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        from: activeSender,
+                        to: Array.isArray(to) ? to : [to],
+                        subject,
+                        html: html || undefined,
+                      }),
+                    });
+                    const retryRaw = await resendRes.text();
+                    try {
+                      resendData = retryRaw ? JSON.parse(retryRaw) : {};
+                    } catch {
+                      resendData = { message: retryRaw };
+                    }
+                  }
+
+                  if (!resendRes.ok) {
+                    throw new Error(resendData.message || "Failed to send email via Resend");
+                  }
+
+                  console.log(`[Email API] Real email sent to ${to} from ${activeSender} via Resend:`, resendData);
+                  res.statusCode = 200;
+                  res.setHeader("Content-Type", "application/json");
+                  res.end(
+                    JSON.stringify({
+                      success: true,
+                      provider: "resend",
+                      data: resendData,
+                      recipient: to,
+                      sender: activeSender,
+                    })
+                  );
+                  return;
+                }
 
               // 2. SMTP (Gmail, Hostinger, Zoho) fallback
               if (smtpUser && smtpPass) {

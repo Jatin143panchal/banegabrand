@@ -463,8 +463,10 @@ export interface DispatchEmailResult {
 }
 
 /**
- * Core email dispatcher: Sends via local /api/send-email (Vite dev server) with SMTP/Resend/Sandbox support.
- * Zero CORS errors, full inbox delivery when SMTP credentials exist in .env.
+ * Core email dispatcher:
+ * 1. Primary: Supabase Edge Function 'send-email' (backed by Resend with verified banegabrand.com domain)
+ * 2. Fallback: Local /api/send-email (Vite dev server)
+ * Fully protects against "Failed to execute 'json' on 'Response'" errors with safe text-to-json parsing.
  */
 export async function dispatchEmail(payload: {
   to: string;
@@ -475,36 +477,75 @@ export async function dispatchEmail(payload: {
   fromEmail?: string;
 }): Promise<DispatchEmailResult> {
   const { to, subject, html, text, fromName, fromEmail } = payload;
-  if (!to || !to.trim()) {
+  const recipient = (to || "").trim();
+  if (!recipient) {
     return { success: false, error: "Recipient email is missing" };
   }
 
-  // 1. Primary: Local Vite dev server API endpoint (/api/send-email)
+  const senderName = fromName || "Banega Brand";
+  const senderEmail = fromEmail || "info@banegabrand.com";
+
+  // 1. Primary: Supabase Edge Function (Works in cloud, production, and localhost with Resend)
+  try {
+    const { data, error } = await supabase.functions.invoke("send-email", {
+      body: {
+        to: recipient,
+        subject,
+        html,
+        text,
+        fromName: senderName,
+        fromEmail: senderEmail,
+      },
+    });
+
+    if (!error && data && (data.success || data.ok)) {
+      console.log(`[EmailService] Delivered via Supabase Edge Function to ${recipient}`, data);
+      return { success: true, provider: "supabase-edge-resend", data };
+    }
+
+    if (error) {
+      console.warn("[EmailService] Supabase edge function returned error:", error.message || error);
+    }
+  } catch (edgeErr: any) {
+    console.warn("[EmailService] Supabase edge function invoke error, falling back to local API:", edgeErr?.message || edgeErr);
+  }
+
+  // 2. Fallback: Local Vite dev server API endpoint (/api/send-email) with safe parsing
   try {
     const res = await fetch("/api/send-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        to: to.trim(),
+        to: recipient,
         subject,
         html,
         text,
-        fromName: fromName || "Banega Brand",
-        fromEmail,
+        fromName: senderName,
+        fromEmail: senderEmail,
       }),
     });
 
-    const data = await res.json();
-    if (res.ok && data.success) {
-      console.log(`[EmailService] Email sent successfully via Resend to ${to}`);
-      return data;
-    } else {
-      console.warn("[EmailService] API Error:", data.error);
-      return { success: false, error: data.error || "Failed to deliver email via Resend" };
+    const rawText = await res.text();
+    let data: any = {};
+    if (rawText && rawText.trim()) {
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = { error: rawText.length > 200 ? `HTTP ${res.status} response from email API` : rawText };
+      }
     }
+
+    if (res.ok && (data.success || data.ok)) {
+      console.log(`[EmailService] Delivered via local /api/send-email to ${recipient}`);
+      return { success: true, provider: data.provider || "local-dev-api", data };
+    }
+
+    const errMsg = data.error || (res.status !== 200 ? `HTTP ${res.status}: Mail service returned error` : "Failed to deliver email via Resend");
+    console.warn("[EmailService] API Error:", errMsg);
+    return { success: false, error: errMsg };
   } catch (apiErr: any) {
     console.error("[EmailService] /api/send-email error:", apiErr);
-    return { success: false, error: apiErr.message || "Failed to connect to email API" };
+    return { success: false, error: apiErr?.message || "Failed to connect to email API" };
   }
 }
 
