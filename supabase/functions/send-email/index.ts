@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
     }
 
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    const sender = `${fromName || "Banega Brand"} <${fromEmail || Deno.env.get("FROM_EMAIL") || "onboarding@resend.dev"}>`;
+    const sender = `${fromName || "Banega Brand"} <${fromEmail || Deno.env.get("FROM_EMAIL") || "info@banegabrand.com"}>`;
 
     // 1. Try Resend if API Key is configured
     if (resendApiKey) {
