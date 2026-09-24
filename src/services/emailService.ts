@@ -186,7 +186,26 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
             <td class="details-label">Expected Launch:</td>
             <td class="details-val">${launchDate}</td>
           </tr>
+          <tr>
+            <td class="details-label">Upload Documents:</td>
+            <td class="details-val">
+              <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ea580c; font-weight: 700; text-decoration: underline;">Upload Your Document &rarr;</a>
+            </td>
+          </tr>
         </table>
+
+        <!-- Upload Your Document Action Card -->
+        <div style="margin-top: 18px; padding: 14px 16px; background: #ffffff; border: 1.5px dashed #f95716; border-radius: 8px; text-align: center;">
+          <div style="font-size: 13.5px; font-weight: 700; color: #1e2229; margin-bottom: 6px;">
+            📁 Brand Onboarding &amp; Document Submission
+          </div>
+          <p style="margin: 0 0 12px 0; font-size: 12.5px; color: #64748b; line-height: 1.5;">
+            Please submit your trademark, brand identity, formulation &amp; required KYC documents to kickstart the launch process.
+          </p>
+          <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="display: inline-block; background-color: #f95716; background: linear-gradient(135deg, #f95716 0%, #ea580c 100%); color: #ffffff !important; text-decoration: none; padding: 12px 26px; border-radius: 6px; font-weight: 800; font-size: 14px; letter-spacing: 0.03em; box-shadow: 0 4px 12px rgba(249, 87, 22, 0.35);">
+            Upload Your Document &rarr;
+          </a>
+        </div>
       </div>
 
       <!-- Scope of Work & Deliverables Heading -->
