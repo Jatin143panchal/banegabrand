@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { sendProjectCreatedEmail, sendStageCompletedEmailService } from "@/services/emailService";
 import * as XLSX from 'xlsx';
 import { format, isBefore, isToday, isThisWeek, startOfDay, differenceInDays, eachDayOfInterval, subDays, addDays, subMonths, addMonths, isSameDay, isSameMonth, startOfMonth, endOfMonth, getDay } from "date-fns";
 import {
@@ -40,13 +42,13 @@ import {
   Star, StarOff, ThumbsUp, ThumbsDown, MessageCircle,
   BriefcaseBusiness, Grid, ListTodo, CalendarRange, Users as UsersIcon,
   UserCog2, Target as TargetIcon, Timer as TimerIcon,
-  ShoppingCart, Scale, Factory, Type
+  ShoppingCart, Scale, Factory
 } from "lucide-react";
 
 // ============================================================
 // CONSTANTS (Same as before)
 // ============================================================
-// Project Stages only (projects.current_stage) — order: Social Media → Campaign/Launch → Development → Ecommerce
+// Project Stages only (projects.current_stage) — order: Social Media → Development → Ecommerce
 const PROJECT_STAGES = [
   // Social Media
   { value: "brand_identity", label: "Brand Identity", icon: "", color: "#8b5cf6" },
@@ -58,9 +60,6 @@ const PROJECT_STAGES = [
   { value: "product_name", label: "Product Name", icon: "", color: "#f97316" },
   { value: "social_media_activation", label: "Social Media Activation", icon: "", color: "#06b6d4" },
   { value: "pr", label: "PR", icon: "", color: "#db2777" },
-  { value: "campaign_meta_ads", label: "Campaign / Meta Ads", icon: "", color: "#2563eb" },
-  { value: "brand_awareness", label: "Brand Awareness", icon: "", color: "#7c3aed" },
-  { value: "launch", label: "Launch", icon: "", color: "#16a34a" },
   // Development
   { value: "ui_ux", label: "UI / UX", icon: "", color: "#6366f1" },
   { value: "shopify_theme", label: "Shopify Theme (Paid / Free)", icon: "", color: "#96bf48" },
@@ -75,7 +74,18 @@ const PROJECT_STAGES = [
   { value: "amazon_listing", label: "Amazon Listing", icon: "", color: "#ff9900" },
   { value: "flipkart_creation", label: "Flipkart Account Creation", icon: "", color: "#2874f0" },
   { value: "flipkart_listing", label: "Flipkart Listing", icon: "", color: "#2874f0" },
+  // Marketing & Launch
+  { value: "brand_awareness", label: "Brand Awareness", icon: "", color: "#06b6d4" },
+  { value: "adds_campaign_meta_ads", label: "Adds Campaign / Meta Ads", icon: "", color: "#8b5cf6" },
+  { value: "launch", label: "Launch", icon: "", color: "#f97316" },
   { value: "scale", label: "Scale", icon: "", color: "#ec4899" },
+];
+
+const STAGE_SECTIONS = [
+  { title: "Social Media", color: "text-purple-700", stages: PROJECT_STAGES.slice(0, 9) },
+  { title: "Development", color: "text-indigo-700", stages: PROJECT_STAGES.slice(9, 17) },
+  { title: "Ecommerce", color: "text-orange-700", stages: PROJECT_STAGES.slice(17, 21) },
+  { title: "Marketing & Launch", color: "text-rose-700", stages: PROJECT_STAGES.slice(21) },
 ];
 
 const PROJECT_STATUSES = [
@@ -132,7 +142,7 @@ const MANUFACTURING_STAGES = [
 const DOCUMENT_FOLDERS = [
   "Barcodes",
   "Mockups / Logo",
-  "Font",
+  "Fonts",
   "Company Certificates",
   "Personal Documents",
   "Brand Identity",
@@ -142,7 +152,7 @@ const DOCUMENT_FOLDERS = [
 
 function documentFolderAliases(folder: string): string[] {
   if (folder === "Mockups / Logo") return ["Mockups / Logo", "Mockups", "Logo"];
-  if (folder === "Font") return ["Font", "Fonts", "Typography"];
+  if (folder === "Fonts" || folder === "Font") return ["Fonts", "Font", "fonts", "font"];
   if (folder === "Legal Agreement") return ["Legal Agreement", "Agreements"];
   if (folder === "Company Certificates") return ["Company Certificates", "Certificates"];
   if (folder === "Packaging") return ["Packaging", "Packaging Files"];
@@ -511,33 +521,28 @@ const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
 async function sendStageCompletedEmail(project: Project, stageLabel: string, comment?: string) {
   const to = (project.client_email || "").trim();
   if (!to) {
-    toast.warning("Stage updated, but the client email is missing so no email was sent.");
+    toast.warning("Stage updated, but client email is missing so no notification was sent.");
     return;
   }
   const remark = (comment || "").trim();
   try {
-    const { error } = await supabase.functions.invoke("send-stage-complete-email", {
-      body: {
-        to,
-        clientName: project.name,
-        brandName: project.brand_name,
-        projectId: project.project_id,
-        stageName: stageLabel,
-        remark,
-        remarks: remark,
-        comment: remark,
-        message: remark,
-        stageComment: remark,
-        notes: remark,
-        fromEmail: STAGE_COMPLETE_FROM_EMAIL,
-        fromName: STAGE_COMPLETE_FROM_NAME,
-      },
+    const res = await sendStageCompletedEmailService({
+      to,
+      clientName: project.name,
+      brandName: project.brand_name,
+      projectId: project.project_id,
+      stageName: stageLabel,
+      remark,
     });
-    if (error) throw error;
-    toast.success(remark ? `Email sent to client with remark: ${to}` : `Email sent to client: ${to}`);
+
+    if (res.success) {
+      toast.success(`"${stageLabel}" completion email delivered to ${to}`);
+    } else {
+      toast.error(`Email delivery failed: ${res.error || "Check Resend API Key"}`);
+    }
   } catch (err: any) {
-    console.error(err);
-    toast.error(err?.message || "Stage updated, but the email failed");
+    console.warn("[StageComplete] Error:", err?.message || err);
+    toast.error(`Stage email failed: ${err.message}`);
   }
 }
 
@@ -704,7 +709,7 @@ function SubtaskTagBadge({ tag }: { tag: string | null }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────
-function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee, stageProgress }: { 
+const ProjectCard = memo(function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee, stageProgress }: { 
   project: Project; 
   onClick: () => void;
   onImageUpload?: (projectId: string, file: File) => Promise<void>;
@@ -720,6 +725,21 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, las
 
   const lastNotePreview = (() => {
     if (!lastNote) return null;
+    const type = (lastNote.note_type || "").toLowerCase().trim();
+    const title = (lastNote.title || "").toLowerCase().trim();
+    // Exclude documentation, calendar, drive links, and system communications
+    if (
+      type === "documentation" ||
+      type === "content_calendar" ||
+      type === "drive_links" ||
+      type === "communication" ||
+      type === "stage_comment" ||
+      title === "drive links" ||
+      title === "project documentation" ||
+      title.includes("onboarding email")
+    ) {
+      return null;
+    }
     if (lastNote.note_type === "brand_kit") {
       const kit = parseBrandKit(lastNote.content);
       return kit?.fields?.brand_name || kit?.fields?.tagline || lastNote.title || "Brand kit";
@@ -894,7 +914,7 @@ function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, las
       </div>
     </div>
   );
-}
+});
 
 // ── Department Status Badge ────────────────────────────────────
 function DepartmentStatusBadge({ status }: { status: string }) {
@@ -3675,6 +3695,14 @@ export default function Projects() {
   const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat" | "task_calendar" | "task_assignment">("projects");
   
   // ── States ──────────────────────────────────────────────────
+  const navigate = useNavigate();
+  const { projectId: routeProjectId, tabName: routeTabName } = useParams<{ projectId?: string; tabName?: string }>();
+  const [searchParams] = useSearchParams();
+
+  // Project ID from route params (:projectId) or query string (?id=... / ?projectId=...)
+  const activeProjectId = routeProjectId || searchParams.get("id") || searchParams.get("projectId") || null;
+  const activeTabFromUrl = routeTabName || searchParams.get("tab") || (searchParams.get("task") ? "tasks" : null);
+
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
@@ -4753,7 +4781,8 @@ export default function Projects() {
 
   const { data: allProjects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
-    staleTime: 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -4769,32 +4798,37 @@ export default function Projects() {
   // Latest note per project (for project list cards)
   const { data: lastNotesByProject = {} } = useQuery({
     queryKey: ["project_last_notes"],
-    staleTime: 2 * 60 * 1000,
+    staleTime: 3 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_notes")
         .select("id, project_id, note_type, title, content, created_by, created_by_email, created_at, updated_at")
+        .not("note_type", "in", '("documentation","content_calendar","drive_links","communication","stage_comment")')
         .order("updated_at", { ascending: false })
-        .limit(3000);
+        .limit(1000);
       
       if (error) throw error;
-
-      const HIDDEN_NOTE_TYPES = new Set([
-        "documentation",
-        "content_calendar",
-        "drive_links",
-        "stage_comment",
-      ]);
       
+      const isExcluded = (note: ProjectNote) => {
+        const type = (note.note_type || "").toLowerCase().trim();
+        const title = (note.title || "").toLowerCase().trim();
+        return (
+          type === "documentation" ||
+          type === "content_calendar" ||
+          type === "drive_links" ||
+          type === "communication" ||
+          type === "stage_comment" ||
+          title === "drive links" ||
+          title === "project documentation" ||
+          title.includes("onboarding email")
+        );
+      };
+
       const result: Record<string, ProjectNote> = {};
       for (const note of (data || []) as ProjectNote[]) {
-        const type = (note.note_type || "").toLowerCase();
-        const title = (note.title || "").trim().toLowerCase();
-        // Project Documentation / Drive Links / calendar should never appear as "last note" on cards
-        if (HIDDEN_NOTE_TYPES.has(type)) continue;
-        if (title === "drive links" || title === "project documentation" || title === "documentation") continue;
-        if (!result[note.project_id]) {
+        if (!isExcluded(note) && !result[note.project_id]) {
           result[note.project_id] = note;
         }
       }
@@ -4804,7 +4838,8 @@ export default function Projects() {
 
   const { data: lastAssigneeByProject = {} } = useQuery({
     queryKey: ["project_last_assignees"],
-    staleTime: 2 * 60 * 1000,
+    staleTime: 3 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       // Latest activity per project (updated_at / assigned_at / created_at).
@@ -4815,7 +4850,7 @@ export default function Projects() {
         .not("assigned_to_email", "is", null)
         .neq("status", "completed")
         .order("updated_at", { ascending: false })
-        .limit(2000);
+        .limit(800);
       if (error) throw error;
 
       const activityTs = (t: {
@@ -4889,7 +4924,7 @@ export default function Projects() {
   // Internal Projects page: every logged-in team member can open all projects
   const projects = allProjects;
 
-  const stats = {
+  const stats = useMemo(() => ({
     total: projects.length,
     active: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "active").length,
     onHold: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "on_hold").length,
@@ -4897,32 +4932,36 @@ export default function Projects() {
     completed: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "completed").length,
     refund: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "refund").length,
     totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
-  };
+  }), [projects]);
 
   const PROJECT_PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
-  const filteredProjects = projects
-    .filter((project: Project) => {
-      const matchSearch = 
-        project.name.toLowerCase().includes(search.toLowerCase()) ||
-        (project.brand_name || "").toLowerCase().includes(search.toLowerCase()) ||
-        project.project_id.toLowerCase().includes(search.toLowerCase());
-      
-      const matchStatus =
-        filterStatus === "all" || normalizeProjectStatus(project.status) === filterStatus;
-      const matchStage = filterStage === "all" || project.current_stage === filterStage;
-      const matchPriority = filterPriority === "all" || project.priority === filterPriority;
-      
-      return matchSearch && matchStatus && matchStage && matchPriority;
-    })
-    .sort((a, b) => {
-      if (sortBy === "priority") {
-        return (PROJECT_PRIORITY_RANK[a.priority] ?? 1) - (PROJECT_PRIORITY_RANK[b.priority] ?? 1);
-      }
-      const da = a.expected_launch_date ? new Date(a.expected_launch_date).getTime() : Infinity;
-      const db = b.expected_launch_date ? new Date(b.expected_launch_date).getTime() : Infinity;
-      return sortBy === "date_asc" ? da - db : db - da;
-    });
+  const filteredProjects = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return projects
+      .filter((project: Project) => {
+        const matchSearch = 
+          !q ||
+          project.name.toLowerCase().includes(q) ||
+          (project.brand_name || "").toLowerCase().includes(q) ||
+          project.project_id.toLowerCase().includes(q);
+        
+        const matchStatus =
+          filterStatus === "all" || normalizeProjectStatus(project.status) === filterStatus;
+        const matchStage = filterStage === "all" || project.current_stage === filterStage;
+        const matchPriority = filterPriority === "all" || project.priority === filterPriority;
+        
+        return matchSearch && matchStatus && matchStage && matchPriority;
+      })
+      .sort((a, b) => {
+        if (sortBy === "priority") {
+          return (PROJECT_PRIORITY_RANK[a.priority] ?? 1) - (PROJECT_PRIORITY_RANK[b.priority] ?? 1);
+        }
+        const da = a.expected_launch_date ? new Date(a.expected_launch_date).getTime() : Infinity;
+        const db = b.expected_launch_date ? new Date(b.expected_launch_date).getTime() : Infinity;
+        return sortBy === "date_asc" ? da - db : db - da;
+      });
+  }, [projects, search, filterStatus, filterStage, filterPriority, sortBy]);
 
   const filteredTasks = projectTasks.filter(task => {
     if (taskAssigneeFilter === "all") return true;
@@ -4931,15 +4970,32 @@ export default function Projects() {
   });
 
   const documentationNote = notes.find(n => n.note_type === "documentation") || null;
-  // Last Note & Notes tab: only real project notes (never content_calendar / documentation)
+  // Last Note & Notes tab: only real project notes (never content_calendar / documentation / communication)
   const generalNotes = notes
-    .filter(n =>
-      n.note_type === "general" ||
-      n.note_type === "brand_kit" ||
-      n.note_type === "client_tracker" ||
-      n.note_type === "team_update" ||
-      (!n.note_type && n.title !== "Drive Links")
-    )
+    .filter(n => {
+      const type = (n.note_type || "").toLowerCase().trim();
+      const title = (n.title || "").toLowerCase().trim();
+      if (
+        type === "documentation" ||
+        type === "content_calendar" ||
+        type === "drive_links" ||
+        type === "communication" ||
+        type === "stage_comment" ||
+        title === "drive links" ||
+        title === "project documentation" ||
+        title.includes("onboarding email")
+      ) {
+        return false;
+      }
+      return (
+        type === "general" ||
+        type === "brand_kit" ||
+        type === "client_tracker" ||
+        type === "team_update" ||
+        type === "quick" ||
+        !type
+      );
+    })
     .sort((a, b) => {
       const ta = new Date(a.updated_at || a.created_at).getTime();
       const tb = new Date(b.updated_at || b.created_at).getTime();
@@ -5105,6 +5161,76 @@ export default function Projects() {
     }
   };
 
+  // ── Sync URL Route -> Project Detail State ──
+  useEffect(() => {
+    if (activeProjectId) {
+      if (mainView !== "projects") {
+        setMainView("projects");
+      }
+
+      // If already viewing this project, just sync tab if needed
+      if (selectedProject && (selectedProject.id === activeProjectId || selectedProject.project_id === activeProjectId)) {
+        if (viewMode !== "detail") setViewMode("detail");
+        if (activeTabFromUrl && activeTab !== activeTabFromUrl) {
+          setActiveTab(activeTabFromUrl);
+        }
+        return;
+      }
+
+      // Look up in loaded projects list
+      const matched = projects.find(
+        (p) => p.id === activeProjectId || p.project_id === activeProjectId
+      );
+
+      if (matched) {
+        setSelectedProject(matched);
+        setViewMode("detail");
+        if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
+        setTaskAssigneeFilter("all");
+        setSelectedDepartment(null);
+        fetchProjectDetails(matched.id);
+      } else if (!isLoading) {
+        // Fallback: fetch project directly from Supabase (for direct link / fresh page load)
+        supabase
+          .from("projects")
+          .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
+          .or(`id.eq.${activeProjectId},project_id.eq.${activeProjectId}`)
+          .maybeSingle()
+          .then(({ data, error }) => {
+            if (data && !error) {
+              const proj = data as Project;
+              setSelectedProject(proj);
+              setViewMode("detail");
+              if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
+              setTaskAssigneeFilter("all");
+              setSelectedDepartment(null);
+              fetchProjectDetails(proj.id);
+            } else {
+              toast.error("Project not found");
+              navigate("/projects", { replace: true });
+            }
+          });
+      }
+    } else {
+      // URL has no project ID -> ensure dashboard view (e.g. browser back button hit)
+      if (viewMode === "detail" || selectedProject !== null) {
+        setViewMode("dashboard");
+        setSelectedProject(null);
+        setDepartments([]);
+        setSelectedDepartment(null);
+        setProjectStages([]);
+        setProjectTasks([]);
+        setAgreements([]);
+        setPayments([]);
+        setManufacturing([]);
+        setDocuments([]);
+        setCommunications([]);
+        setNotes([]);
+        setDocNoteContent("");
+      }
+    }
+  }, [activeProjectId, activeTabFromUrl, projects, isLoading]);
+
   const handleProjectClick = (project: Project) => {
     setSelectedProject(project);
     setViewMode("detail");
@@ -5112,22 +5238,18 @@ export default function Projects() {
     setTaskAssigneeFilter("all");
     setSelectedDepartment(null);
     fetchProjectDetails(project.id);
+    navigate(`/projects/${project.id}`);
   };
 
   const handleBack = () => {
-    setViewMode("dashboard");
-    setSelectedProject(null);
-    setDepartments([]);
-    setSelectedDepartment(null);
-    setProjectStages([]);
-    setProjectTasks([]);
-    setAgreements([]);
-    setPayments([]);
-    setManufacturing([]);
-    setDocuments([]);
-    setCommunications([]);
-    setNotes([]);
-    setDocNoteContent("");
+    navigate("/projects");
+  };
+
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab);
+    if (selectedProject) {
+      navigate(`/projects/${selectedProject.id}/${newTab}`, { replace: true });
+    }
   };
 
   const [newProject, setNewProject] = useState({
@@ -5242,11 +5364,12 @@ export default function Projects() {
         project_id: data.id,
         note_type: "documentation",
         title: "Project Documentation",
-        content: "test",
+        content: "",
         created_by: user?.email || null,
         created_by_email: user?.email || null,
       });
 
+      // Onboarding email is not sent automatically; client manager triggers it manually via the Send/Resend Email button
       toast.success("Project created successfully!");
       setDialogOpen(false);
       setNewProject({
@@ -7927,7 +8050,7 @@ export default function Projects() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
@@ -8153,7 +8276,7 @@ export default function Projects() {
                     <StickyNote className="h-5 w-5 text-amber-600" />
                     Last Note
                   </CardTitle>
-                  <Button size="sm" variant="outline" onClick={() => setActiveTab("notes")}>
+                  <Button size="sm" variant="outline" onClick={() => handleTabChange("notes")}>
                     View all notes
                   </Button>
                 </div>
@@ -8208,6 +8331,62 @@ export default function Projects() {
                       <p className="text-xs text-muted-foreground">Address</p>
                       <p className="text-sm font-medium">{selectedProject.client_address || "Not added"}</p>
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between col-span-1 md:col-span-2 pt-2 border-t mt-1">
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-primary" />
+                      <span className="text-xs text-muted-foreground">Onboarding Scope of Work Email:</span>
+                    </div>
+                    {selectedProject.client_email ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1.5"
+                        onClick={async () => {
+                          toast.loading("Sending onboarding Scope of Work email...", { id: "resend-process-mail" });
+                          try {
+                            const res = await sendProjectCreatedEmail({
+                              to: selectedProject.client_email!,
+                              clientName: selectedProject.name,
+                              brandName: selectedProject.brand_name || selectedProject.name,
+                              projectId: selectedProject.project_id,
+                              projectType: selectedProject.project_type,
+                              productCategory: selectedProject.product_category,
+                              productsToLaunch: selectedProject.products_to_launch,
+                              startDate: selectedProject.start_date,
+                              expectedLaunchDate: selectedProject.expected_launch_date,
+                              projectValue: selectedProject.project_value,
+                              clientPhone: selectedProject.client_phone,
+                              clientAddress: selectedProject.client_address,
+                              projectManager: selectedProject.project_manager || "Pankaj",
+                            });
+
+                            if (res.success) {
+                              // Log communication record in project notes
+                              await supabase.from("project_notes").insert({
+                                project_id: selectedProject.id,
+                                note_type: "communication",
+                                title: "Client Onboarding Email Dispatched",
+                                content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${selectedProject.client_email}.`,
+                                created_by: user?.email || null,
+                                created_by_email: user?.email || null,
+                              });
+
+                              toast.success(`Onboarding Scope of Work email delivered to ${selectedProject.client_email}!`, { id: "resend-process-mail" });
+                            } else {
+                              toast.error(`Email delivery failed: ${res.error || "Check RESEND_API_KEY in .env"}`, { id: "resend-process-mail" });
+                            }
+                          } catch (err: any) {
+                            toast.error("Failed to send email: " + err.message, { id: "resend-process-mail" });
+                          }
+                        }}
+                      >
+                        <Mail className="h-3 w-3" />
+                        Resend Onboarding Email
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">Add email address to trigger</span>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -8463,320 +8642,112 @@ export default function Projects() {
                       />
                     </div>
 
-                    {/* Social Media */}
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-purple-700 flex items-center gap-2">
-                        Social Media
-                      </p>
-                      {PROJECT_STAGES.slice(0, 12).map((ps, index) => {
-                        const item = projectStages.find(
-                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                        );
-                        return (
-                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                            <div className="flex items-center justify-between gap-3 flex-wrap">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div
-                                  className={`w-3 h-3 rounded-full shrink-0 ${
-                                    item?.status === "completed"
-                                      ? "bg-green-500"
-                                      : item?.status === "in_progress"
-                                      ? "bg-blue-500"
-                                      : item?.status === "blocked"
-                                      ? "bg-red-500"
-                                      : "bg-gray-300"
-                                  }`}
-                                />
-                                <span className="font-medium">
-                                  {ps.label}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {item?.status || "pending"}
-                                </Badge>
-                                <Select
-                                  value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 1, v, ps.value)}
-                                >
-                                  <SelectTrigger className="w-36 h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="pending">Pending</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                    <SelectItem value="blocked">Blocked</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            {item?.start_date && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6">
-                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
-                                {item.completion_date &&
-                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
-                              </p>
-                            )}
-                            {!item && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
-                            )}
-                            <div className="mt-2 ml-6">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() =>
-                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
-                                }
-                              >
-                                <MessageSquare className="h-3 w-3" />
-                                Remark
-                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
-                              </button>
-                              {openStageComment === ps.label && (
-                                <div className="mt-1.5 space-y-1.5 max-w-md">
-                                  <Textarea
-                                    rows={3}
-                                    className="text-xs resize-y min-h-[72px]"
-                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
-                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                    onChange={(e) =>
-                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
-                                    }
+                    {STAGE_SECTIONS.map((section) => (
+                      <div key={section.title} className="space-y-2">
+                        <p className={`text-sm font-semibold ${section.color} flex items-center gap-2`}>
+                          {section.title}
+                        </p>
+                        {section.stages.map((ps) => {
+                          const item = projectStages.find(
+                            (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                          );
+                          const stageOrder = PROJECT_STAGES.findIndex((s) => s.value === ps.value) + 1;
+                          return (
+                            <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div
+                                    className={`w-3 h-3 rounded-full shrink-0 ${
+                                      item?.status === "completed"
+                                        ? "bg-green-500"
+                                        : item?.status === "in_progress"
+                                        ? "bg-blue-500"
+                                        : item?.status === "blocked"
+                                        ? "bg-red-500"
+                                        : "bg-gray-300"
+                                    }`}
                                   />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    No need to save. Mark the stage Completed to save and email this remark.
-                                  </p>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs shrink-0"
-                                    disabled={stageCommentSaving === ps.label}
-                                    onClick={() => saveStageComment(ps.label, index + 1, ps.value)}
-                                  >
-                                    {stageCommentSaving === ps.label ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      "Save"
-                                    )}
-                                  </Button>
+                                  <span className="font-medium">
+                                    {ps.label}
+                                  </span>
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Development */}
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-indigo-700 flex items-center gap-2">
-                        Development
-                      </p>
-                      {PROJECT_STAGES.slice(12, 20).map((ps, index) => {
-                        const item = projectStages.find(
-                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                        );
-                        return (
-                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                            <div className="flex items-center justify-between gap-3 flex-wrap">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div
-                                  className={`w-3 h-3 rounded-full shrink-0 ${
-                                    item?.status === "completed"
-                                      ? "bg-green-500"
-                                      : item?.status === "in_progress"
-                                      ? "bg-blue-500"
-                                      : item?.status === "blocked"
-                                      ? "bg-red-500"
-                                      : "bg-gray-300"
-                                  }`}
-                                />
-                                <span className="font-medium">
-                                  {ps.label}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {item?.status || "pending"}
+                                  </Badge>
+                                  <Select
+                                    value={item?.status || "pending"}
+                                    onValueChange={(v) => upsertProjectStageStatus(ps.label, stageOrder, v, ps.value)}
+                                  >
+                                    <SelectTrigger className="w-36 h-8 text-xs">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="pending">Pending</SelectItem>
+                                      <SelectItem value="in_progress">In Progress</SelectItem>
+                                      <SelectItem value="completed">Completed</SelectItem>
+                                      <SelectItem value="blocked">Blocked</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {item?.status || "pending"}
-                                </Badge>
-                                <Select
-                                  value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 13, v, ps.value)}
+                              {item?.start_date && (
+                                <p className="text-xs text-muted-foreground mt-2 ml-6">
+                                  Started: {format(new Date(item.start_date), "dd MMM yyyy")}
+                                  {item.completion_date &&
+                                    ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
+                                </p>
+                              )}
+                              {!item && (
+                                <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
+                              )}
+                              <div className="mt-2 ml-6">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                  onClick={() =>
+                                    setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
+                                  }
                                 >
-                                  <SelectTrigger className="w-36 h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="pending">Pending</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                    <SelectItem value="blocked">Blocked</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                  <MessageSquare className="h-3 w-3" />
+                                  Remark
+                                  {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
+                                </button>
+                                {openStageComment === ps.label && (
+                                  <div className="mt-1.5 space-y-1.5 max-w-md">
+                                    <Textarea
+                                      rows={3}
+                                      className="text-xs resize-y min-h-[72px]"
+                                      placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
+                                      value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                      onChange={(e) =>
+                                        setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                      }
+                                    />
+                                    <p className="text-[10px] text-muted-foreground">
+                                      No need to save. Mark the stage Completed to save and email this remark.
+                                    </p>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs shrink-0"
+                                      disabled={stageCommentSaving === ps.label}
+                                      onClick={() => saveStageComment(ps.label, stageOrder, ps.value)}
+                                    >
+                                      {stageCommentSaving === ps.label ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        "Save"
+                                      )}
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            {item?.start_date && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6">
-                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
-                                {item.completion_date &&
-                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
-                              </p>
-                            )}
-                            {!item && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
-                            )}
-                            <div className="mt-2 ml-6">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() =>
-                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
-                                }
-                              >
-                                <MessageSquare className="h-3 w-3" />
-                                Remark
-                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
-                              </button>
-                              {openStageComment === ps.label && (
-                                <div className="mt-1.5 space-y-1.5 max-w-md">
-                                  <Textarea
-                                    rows={3}
-                                    className="text-xs resize-y min-h-[72px]"
-                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
-                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                    onChange={(e) =>
-                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
-                                    }
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    No need to save. Mark the stage Completed to save and email this remark.
-                                  </p>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs shrink-0"
-                                    disabled={stageCommentSaving === ps.label}
-                                    onClick={() => saveStageComment(ps.label, index + 13, ps.value)}
-                                  >
-                                    {stageCommentSaving === ps.label ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      "Save"
-                                    )}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Ecommerce */}
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-orange-700 flex items-center gap-2">
-                        Ecommerce
-                      </p>
-                      {PROJECT_STAGES.slice(20).map((ps, index) => {
-                        const item = projectStages.find(
-                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                        );
-                        return (
-                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                            <div className="flex items-center justify-between gap-3 flex-wrap">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div
-                                  className={`w-3 h-3 rounded-full shrink-0 ${
-                                    item?.status === "completed"
-                                      ? "bg-green-500"
-                                      : item?.status === "in_progress"
-                                      ? "bg-blue-500"
-                                      : item?.status === "blocked"
-                                      ? "bg-red-500"
-                                      : "bg-gray-300"
-                                  }`}
-                                />
-                                <span className="font-medium">
-                                  {ps.label}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {item?.status || "pending"}
-                                </Badge>
-                                <Select
-                                  value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 21, v, ps.value)}
-                                >
-                                  <SelectTrigger className="w-36 h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="pending">Pending</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                    <SelectItem value="blocked">Blocked</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            {item?.start_date && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6">
-                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
-                                {item.completion_date &&
-                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
-                              </p>
-                            )}
-                            {!item && (
-                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
-                            )}
-                            <div className="mt-2 ml-6">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() =>
-                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
-                                }
-                              >
-                                <MessageSquare className="h-3 w-3" />
-                                Remark
-                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
-                              </button>
-                              {openStageComment === ps.label && (
-                                <div className="mt-1.5 space-y-1.5 max-w-md">
-                                  <Textarea
-                                    rows={3}
-                                    className="text-xs resize-y min-h-[72px]"
-                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
-                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                    onChange={(e) =>
-                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
-                                    }
-                                  />
-                                  <p className="text-[10px] text-muted-foreground">
-                                    No need to save. Mark the stage Completed to save and email this remark.
-                                  </p>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs shrink-0"
-                                    disabled={stageCommentSaving === ps.label}
-                                    onClick={() => saveStageComment(ps.label, index + 21, ps.value)}
-                                  >
-                                    {stageCommentSaving === ps.label ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      "Save"
-                                    )}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -9129,11 +9100,7 @@ export default function Projects() {
                     return (
                       <div key={folder} className="border rounded-lg p-3 hover:bg-muted/30">
                         <div className="flex items-center gap-2">
-                          {folder === "Font" ? (
-                            <Type className="h-4 w-4 text-violet-600" />
-                          ) : (
-                            <FolderKanban className="h-4 w-4 text-muted-foreground" />
-                          )}
+                          <FolderKanban className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium text-sm">{folder}</span>
                           <Badge variant="outline" className="ml-auto text-xs">{files.length}</Badge>
                         </div>
@@ -9926,7 +9893,7 @@ export default function Projects() {
                     <input 
                       ref={fileInputRef} 
                       type="file" 
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.ttf,.otf,.woff,.woff2"
                       onChange={(e) => { 
                         const file = e.target.files?.[0]; 
                         if (file) { 
@@ -9961,7 +9928,7 @@ export default function Projects() {
                         <div>
                           <FilePlus className="h-8 w-8 mx-auto text-muted-foreground" />
                           <p className="text-sm text-muted-foreground mt-2">Click to upload a file</p>
-                          <p className="text-xs text-muted-foreground">Images, PDFs, Documents (Max 10MB)</p>
+                          <p className="text-xs text-muted-foreground">Images, PDFs, Documents, Fonts (Max 10MB)</p>
                         </div>
                       )}
                     </label>
@@ -9984,7 +9951,7 @@ export default function Projects() {
                     <input 
                       type="file" 
                       multiple
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.ttf,.otf,.woff,.woff2"
                       onChange={handleMultipleFileSelect} 
                       className="hidden" 
                       id="multiple-file-upload" 
@@ -10401,7 +10368,20 @@ export default function Projects() {
                     <div className="grid gap-2"><Label>Client Name *</Label><Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" /></div>
                     <div className="grid gap-2"><Label>Brand Name</Label><Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" /></div>
                     <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
-                    <div className="grid gap-2"><Label>Client Email</Label><Input value={newProject.client_email} onChange={(e) => setNewProject({ ...newProject, client_email: e.target.value })} placeholder="Enter email address" /></div>
+                    <div className="grid gap-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Client Email</Label>
+                        <span className="text-[11px] text-muted-foreground font-normal flex items-center gap-1">
+                          <Mail className="h-3 w-3 text-primary" /> Full process roadmap will be emailed automatically
+                        </span>
+                      </div>
+                      <Input
+                        type="email"
+                        value={newProject.client_email}
+                        onChange={(e) => setNewProject({ ...newProject, client_email: e.target.value })}
+                        placeholder="Enter email address (e.g. client@gmail.com)"
+                      />
+                    </div>
                     <div className="grid gap-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
                     <div className="grid gap-2"><Label>Project Type</Label><Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
                     <div className="grid gap-2"><Label>Product Category</Label><Select value={newProject.product_category} onValueChange={(v) => setNewProject({ ...newProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>

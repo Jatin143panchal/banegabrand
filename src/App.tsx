@@ -73,6 +73,8 @@ function ProtectedRoutes() {
         <Route path="/expo-leads" element={<ExpoLeads />} />
         <Route path="/workshop-leads" element={<WorkshopLeads />} />
         <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/:projectId" element={<Projects />} />
+        <Route path="/projects/:projectId/:tabName" element={<Projects />} />
         <Route path="/messenger" element={<CrmMessenger />} /> {/* <-- ADD THIS */}
         <Route path="/attendance" element={<Attendance />} />
         <Route path="/marketing" element={<Marketing />} />

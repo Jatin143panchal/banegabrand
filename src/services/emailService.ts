@@ -362,15 +362,15 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
           Banega Brand’s role will cover the complete end-to-end journey of the brand:
         </p>
         <div class="pipeline-wrapper">
-          <span class="pipeline-step">Brand Strategy</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Product Development</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Brand Identity</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Packaging</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Product Production</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Website/E-commerce</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Photography &amp; Creative</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Social Media</span> <span class="pipeline-arrow">&rarr;</span>
-          <span class="pipeline-step">Marketing</span> <span class="pipeline-arrow">&rarr;</span>
+          <span class="pipeline-step">Brand Strategy</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Product Development</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Brand Identity</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Packaging</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Product Production</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Website/E-commerce</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Photography &amp; Creative</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Social Media</span> <span class="pipeline-arrow">→</span>
+          <span class="pipeline-step">Marketing</span> <span class="pipeline-arrow">→</span>
           <span class="pipeline-step">Launch</span>
         </div>
         <p style="margin: 10px 0 0 0; font-size: 13px; color: #475569; line-height: 1.6;">
@@ -452,7 +452,6 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
 
 /**
  * Automatically triggers the welcome & process email to the client upon project creation.
- */
 export interface DispatchEmailResult {
   success: boolean;
   provider?: string;
