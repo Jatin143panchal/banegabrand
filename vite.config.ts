@@ -178,10 +178,13 @@ function emailApiPlugin(env: Record<string, string>): Plugin {
           return;
         }
 
-        next();
-      });
-    },
-  };
+        return;
+      }
+
+      next();
+    });
+  },
+};
 }
 
 // https://vitejs.dev/config/
