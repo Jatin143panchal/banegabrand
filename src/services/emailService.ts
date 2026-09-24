@@ -187,25 +187,40 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
             <td class="details-val">${launchDate}</td>
           </tr>
           <tr>
-            <td class="details-label">Upload Documents:</td>
-            <td class="details-val">
-              <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ea580c; font-weight: 700; text-decoration: underline;">Upload Your Document &rarr;</a>
+            <td class="details-label" style="padding: 6px 0; color: #64748b; font-weight: 500;">Upload Documents:</td>
+            <td class="details-val" style="padding: 6px 0;">
+              <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ea580c; font-weight: 700; text-decoration: underline; font-size: 13.5px;">Upload Your Document &rarr;</a>
             </td>
           </tr>
         </table>
 
-        <!-- Upload Your Document Action Card -->
-        <div style="margin-top: 18px; padding: 14px 16px; background: #ffffff; border: 1.5px dashed #f95716; border-radius: 8px; text-align: center;">
-          <div style="font-size: 13.5px; font-weight: 700; color: #1e2229; margin-bottom: 6px;">
-            📁 Brand Onboarding &amp; Document Submission
-          </div>
-          <p style="margin: 0 0 12px 0; font-size: 12.5px; color: #64748b; line-height: 1.5;">
-            Please submit your trademark, brand identity, formulation &amp; required KYC documents to kickstart the launch process.
-          </p>
-          <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="display: inline-block; background-color: #f95716; background: linear-gradient(135deg, #f95716 0%, #ea580c 100%); color: #ffffff !important; text-decoration: none; padding: 12px 26px; border-radius: 6px; font-weight: 800; font-size: 14px; letter-spacing: 0.03em; box-shadow: 0 4px 12px rgba(249, 87, 22, 0.35);">
-            Upload Your Document &rarr;
-          </a>
-        </div>
+        <!-- Bulletproof Upload Your Document Action Card -->
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-top: 18px; border-top: 1px dashed #fed7aa; padding-top: 16px;">
+          <tr>
+            <td align="center" style="text-align: center;">
+              <div style="font-size: 14px; font-weight: 700; color: #1e2229; margin-bottom: 6px;">
+                📁 Brand Onboarding &amp; Document Submission
+              </div>
+              <p style="margin: 0 0 14px 0; font-size: 13px; color: #64748b; line-height: 1.5;">
+                Please click below to submit your trademark, brand identity, formulation &amp; required KYC documents:
+              </p>
+              <table border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto; border-collapse: separate;">
+                <tr>
+                  <td align="center" valign="middle" bgcolor="#f95716" style="background-color: #f95716; border-radius: 8px; padding: 14px 32px; box-shadow: 0 4px 14px rgba(249, 87, 22, 0.35);">
+                    <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: bold; text-decoration: none; display: inline-block; letter-spacing: 0.02em;">
+                      Upload Your Document &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <div style="margin-top: 10px; font-size: 12px;">
+                <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ea580c; text-decoration: underline; font-weight: 600;">
+                  Or click this direct link: Google Form Submission &rarr;
+                </a>
+              </div>
+            </td>
+          </tr>
+        </table>
       </div>
 
       <!-- Scope of Work & Deliverables Heading -->
@@ -719,6 +734,32 @@ export const sendStageCompletedEmailService = async (data: {
                 <tr>
                   <td style="padding: 6px 0; color: #64748b; font-weight: 500;">Completion Date:</td>
                   <td style="padding: 6px 0; color: #334155; font-weight: 500;">${currentDate}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748b; font-weight: 500;">Upload Documents:</td>
+                  <td style="padding: 6px 0;">
+                    <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ea580c; font-weight: 700; text-decoration: underline; font-size: 13.5px;">Upload Your Document &rarr;</a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Upload Documents Action Section in Milestone Summary -->
+              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-top: 16px; border-top: 1px dashed #cbd5e1; padding-top: 14px;">
+                <tr>
+                  <td align="center" style="text-align: center;">
+                    <p style="margin: 0 0 10px 0; font-size: 13px; color: #475569;">
+                      Need to submit assets or documents for this milestone?
+                    </p>
+                    <table border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto; border-collapse: separate;">
+                      <tr>
+                        <td align="center" valign="middle" bgcolor="#f95716" style="background-color: #f95716; border-radius: 6px; padding: 10px 26px;">
+                          <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; font-weight: bold; text-decoration: none; display: inline-block;">
+                            Upload Your Document &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
                 </tr>
               </table>
             </div>
