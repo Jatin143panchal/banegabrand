@@ -46,7 +46,7 @@ import {
 // ============================================================
 // CONSTANTS (Same as before)
 // ============================================================
-// Project Stages only (projects.current_stage) — order: Social Media → Development → Ecommerce
+// Project Stages only (projects.current_stage) — order: Social Media → Campaign/Launch → Development → Ecommerce
 const PROJECT_STAGES = [
   // Social Media
   { value: "brand_identity", label: "Brand Identity", icon: "", color: "#8b5cf6" },
@@ -58,6 +58,9 @@ const PROJECT_STAGES = [
   { value: "product_name", label: "Product Name", icon: "", color: "#f97316" },
   { value: "social_media_activation", label: "Social Media Activation", icon: "", color: "#06b6d4" },
   { value: "pr", label: "PR", icon: "", color: "#db2777" },
+  { value: "campaign_meta_ads", label: "Campaign / Meta Ads", icon: "", color: "#2563eb" },
+  { value: "brand_awareness", label: "Brand Awareness", icon: "", color: "#7c3aed" },
+  { value: "launch", label: "Launch", icon: "", color: "#16a34a" },
   // Development
   { value: "ui_ux", label: "UI / UX", icon: "", color: "#6366f1" },
   { value: "shopify_theme", label: "Shopify Theme (Paid / Free)", icon: "", color: "#96bf48" },
@@ -4772,14 +4775,25 @@ export default function Projects() {
       const { data, error } = await supabase
         .from("project_notes")
         .select("id, project_id, note_type, title, content, created_by, created_by_email, created_at, updated_at")
-        .neq("note_type", "content_calendar")
         .order("updated_at", { ascending: false })
         .limit(3000);
       
       if (error) throw error;
+
+      const HIDDEN_NOTE_TYPES = new Set([
+        "documentation",
+        "content_calendar",
+        "drive_links",
+        "stage_comment",
+      ]);
       
       const result: Record<string, ProjectNote> = {};
       for (const note of (data || []) as ProjectNote[]) {
+        const type = (note.note_type || "").toLowerCase();
+        const title = (note.title || "").trim().toLowerCase();
+        // Project Documentation / Drive Links / calendar should never appear as "last note" on cards
+        if (HIDDEN_NOTE_TYPES.has(type)) continue;
+        if (title === "drive links" || title === "project documentation" || title === "documentation") continue;
         if (!result[note.project_id]) {
           result[note.project_id] = note;
         }
@@ -8454,7 +8468,7 @@ export default function Projects() {
                       <p className="text-sm font-semibold text-purple-700 flex items-center gap-2">
                         Social Media
                       </p>
-                      {PROJECT_STAGES.slice(0, 9).map((ps, index) => {
+                      {PROJECT_STAGES.slice(0, 12).map((ps, index) => {
                         const item = projectStages.find(
                           (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                         );
@@ -8559,7 +8573,7 @@ export default function Projects() {
                       <p className="text-sm font-semibold text-indigo-700 flex items-center gap-2">
                         Development
                       </p>
-                      {PROJECT_STAGES.slice(9, 17).map((ps, index) => {
+                      {PROJECT_STAGES.slice(12, 20).map((ps, index) => {
                         const item = projectStages.find(
                           (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                         );
@@ -8588,7 +8602,7 @@ export default function Projects() {
                                 </Badge>
                                 <Select
                                   value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 10, v, ps.value)}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 13, v, ps.value)}
                                 >
                                   <SelectTrigger className="w-36 h-8 text-xs">
                                     <SelectValue />
@@ -8643,7 +8657,7 @@ export default function Projects() {
                                     variant="outline"
                                     className="h-7 text-xs shrink-0"
                                     disabled={stageCommentSaving === ps.label}
-                                    onClick={() => saveStageComment(ps.label, index + 10, ps.value)}
+                                    onClick={() => saveStageComment(ps.label, index + 13, ps.value)}
                                   >
                                     {stageCommentSaving === ps.label ? (
                                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -8664,7 +8678,7 @@ export default function Projects() {
                       <p className="text-sm font-semibold text-orange-700 flex items-center gap-2">
                         Ecommerce
                       </p>
-                      {PROJECT_STAGES.slice(17).map((ps, index) => {
+                      {PROJECT_STAGES.slice(20).map((ps, index) => {
                         const item = projectStages.find(
                           (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                         );
@@ -8693,7 +8707,7 @@ export default function Projects() {
                                 </Badge>
                                 <Select
                                   value={item?.status || "pending"}
-                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 18, v, ps.value)}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, index + 21, v, ps.value)}
                                 >
                                   <SelectTrigger className="w-36 h-8 text-xs">
                                     <SelectValue />
@@ -8748,7 +8762,7 @@ export default function Projects() {
                                     variant="outline"
                                     className="h-7 text-xs shrink-0"
                                     disabled={stageCommentSaving === ps.label}
-                                    onClick={() => saveStageComment(ps.label, index + 18, ps.value)}
+                                    onClick={() => saveStageComment(ps.label, index + 21, ps.value)}
                                   >
                                     {stageCommentSaving === ps.label ? (
                                       <Loader2 className="h-3 w-3 animate-spin" />
