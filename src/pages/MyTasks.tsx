@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { notifyTaskCompleted } from "@/services/emailService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -166,6 +167,19 @@ function TaskDetailDialog({
         new_value: status,
       });
       if (historyError) throw historyError;
+
+      if (status === "completed") {
+        const explicitRemark = message.trim() || task.employee_remarks || null;
+        notifyTaskCompleted({
+          taskId: task.id,
+          explicitRemark,
+          completedByName: user?.email || "Banega Brand Team",
+        }).then((res) => {
+          if (res?.success) {
+            toast({ title: "Completion email sent to client from team@banegabrand.com" });
+          }
+        });
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["my_tasks"] });

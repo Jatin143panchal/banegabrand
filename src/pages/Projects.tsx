@@ -18,7 +18,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { sendProjectCreatedEmail, sendStageCompletedEmailService } from "@/services/emailService";
+import { sendProjectCreatedEmail, sendStageCompletedEmailService, notifyTaskCompleted } from "@/services/emailService";
 import * as XLSX from 'xlsx';
 import { format, isBefore, isToday, isThisWeek, startOfDay, differenceInDays, eachDayOfInterval, subDays, addDays, subMonths, addMonths, isSameDay, isSameMonth, startOfMonth, endOfMonth, getDay } from "date-fns";
 import {
@@ -515,6 +515,41 @@ function getDueBucket(dueDate: string | null) {
 
 
 
+export interface ProjectManagerInfo {
+  name: string;
+  email: string;
+  phone: string;
+}
+
+export function parseProjectManagerInfo(raw: string | null | undefined): ProjectManagerInfo {
+  const defaultPM: ProjectManagerInfo = {
+    name: "Pankaj Singh",
+    email: "pankaj@banegabrand.com",
+    phone: "+91 9717943312",
+  };
+  if (!raw || !raw.trim()) {
+    return defaultPM;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return {
+        name: parsed.name?.trim() || defaultPM.name,
+        email: parsed.email?.trim() || defaultPM.email,
+        phone: parsed.phone?.trim() || defaultPM.phone,
+      };
+    } catch {
+      // fallback if JSON parse fails
+    }
+  }
+  return {
+    name: trimmed,
+    email: defaultPM.email,
+    phone: defaultPM.phone,
+  };
+}
+
 const STAGE_COMPLETE_FROM_EMAIL = "team@banegabrand.com";
 const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
 
@@ -709,7 +744,7 @@ function SubtaskTagBadge({ tag }: { tag: string | null }) {
 }
 
 // ── Project Card ──────────────────────────────────────────────
-const ProjectCard = memo(function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee, stageProgress }: { 
+const ProjectCard = memo(function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee, stageProgress, hasOnboardingEmailSent }: { 
   project: Project; 
   onClick: () => void;
   onImageUpload?: (projectId: string, file: File) => Promise<void>;
@@ -717,6 +752,7 @@ const ProjectCard = memo(function ProjectCard({ project, onClick, onImageUpload,
   lastNote?: ProjectNote | null;
   lastAssignee?: { name: string | null; email: string | null; taskName?: string | null; assignedAt?: string | null; status?: string | null } | null;
   stageProgress?: number;
+  hasOnboardingEmailSent?: boolean;
 }) {
   const progress = typeof stageProgress === "number" ? stageProgress : (project.completion_percentage || 0);
   const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "";
@@ -838,6 +874,12 @@ const ProjectCard = memo(function ProjectCard({ project, onClick, onImageUpload,
               <StageBadge stage={project.current_stage} />
               <StatusBadge status={project.status} />
               <ProjectPriorityBadge priority={project.priority || "medium"} />
+              {hasOnboardingEmailSent && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <CheckCircle className="h-3 w-3 text-emerald-600" />
+                  Already Sent
+                </span>
+              )}
               {project.project_value && project.project_value > 0 && (
                 <span className="text-sm font-medium text-green-600">
                   {formatCurrency(project.project_value)}
@@ -3980,9 +4022,22 @@ export default function Projects() {
 
   const updateMyTaskStatus = async (taskId: string, status: string) => {
     try {
-      const { error } = await supabase.from("project_tasks").update({ status }).eq("id", taskId);
+      const payload: Record<string, any> = { status };
+      if (status === "completed") payload.completion_date = new Date().toISOString();
+      const { error } = await supabase.from("project_tasks").update(payload).eq("id", taskId);
       if (error) throw error;
       toast.success("Task updated");
+      if (status === "completed") {
+        notifyTaskCompleted({
+          taskId,
+          explicitRemark: (newRemarkDraft[taskId] || "").trim() || undefined,
+          completedByName: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email),
+        }).then((res) => {
+          if (res?.success) {
+            toast.success("Completion email delivered from team@banegabrand.com");
+          }
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
     } catch (error: any) {
@@ -4521,9 +4576,21 @@ export default function Projects() {
 
   const handleDialogStatusChange = async (taskId: string, status: string) => {
     try {
-      const { error } = await supabase.from("project_tasks").update({ status }).eq("id", taskId);
+      const payload: Record<string, any> = { status };
+      if (status === "completed") payload.completion_date = new Date().toISOString();
+      const { error } = await supabase.from("project_tasks").update(payload).eq("id", taskId);
       if (error) throw error;
       toast.success("Status updated");
+      if (status === "completed") {
+        notifyTaskCompleted({
+          taskId,
+          completedByName: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email),
+        }).then((res) => {
+          if (res?.success) {
+            toast.success("Completion email delivered from team@banegabrand.com");
+          }
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
       queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
@@ -4833,6 +4900,29 @@ export default function Projects() {
         }
       }
       return result;
+    },
+  });
+
+  // Track projects where onboarding email has been dispatched
+  const { data: onboardingEmailSentProjects = new Set<string>() } = useQuery({
+    queryKey: ["onboarding_email_sent_projects"],
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("project_notes")
+        .select("project_id, title")
+        .ilike("title", "%Onboarding Email%");
+      if (error) {
+        console.error("Error fetching onboarding email status:", error);
+        return new Set<string>();
+      }
+      return new Set<string>(
+        (data || [])
+          .map((row: any) => row.project_id)
+          .filter((id): id is string => Boolean(id))
+      );
     },
   });
 
@@ -5266,6 +5356,15 @@ export default function Projects() {
     product_category: "perfume",
     products_to_launch: "1",
     product_category_note: "",
+    project_manager_name: "Pankaj Singh",
+    project_manager_email: "pankaj@banegabrand.com",
+    project_manager_phone: "+91 9717943312",
+  });
+
+  const [editPmInfo, setEditPmInfo] = useState({
+    name: "Pankaj Singh",
+    email: "pankaj@banegabrand.com",
+    phone: "+91 9717943312",
   });
 
   const handleNewProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -5317,6 +5416,11 @@ export default function Projects() {
     setProjectSaving(true);
     try {
       const projectId = `PRJ-${Date.now().toString().slice(-6)}`;
+      const pmData = JSON.stringify({
+        name: newProject.project_manager_name?.trim() || "Pankaj Singh",
+        email: newProject.project_manager_email?.trim() || "pankaj@banegabrand.com",
+        phone: newProject.project_manager_phone?.trim() || "+91 9717943312",
+      });
       
       const { data, error } = await supabase
         .from("projects")
@@ -5324,7 +5428,7 @@ export default function Projects() {
           project_id: projectId,
           name: newProject.name,
           brand_name: newProject.brand_name || null,
-          project_type: newProject.project_type || null,
+          project_type: newProject.project_type || "perfume",
           project_value: Number(newProject.project_value) || 0,
           priority: newProject.priority || "medium",
           start_date: newProject.start_date || null,
@@ -5335,6 +5439,7 @@ export default function Projects() {
           product_category: newProject.product_category || null,
           products_to_launch: Number(newProject.products_to_launch) || 1,
           product_category_note: newProject.product_category_note || null,
+          project_manager: pmData,
           current_stage: "brand_identity",
           status: "active",
           completion_percentage: 0,
@@ -5369,7 +5474,45 @@ export default function Projects() {
         created_by_email: user?.email || null,
       });
 
-      // Onboarding email is not sent automatically; client manager triggers it manually via the Send/Resend Email button
+      // Send client onboarding Scope of Work email if client email is provided
+      if (newProject.client_email?.trim()) {
+        try {
+          const res = await sendProjectCreatedEmail({
+            to: newProject.client_email.trim(),
+            clientName: newProject.name,
+            brandName: newProject.brand_name || newProject.name,
+            projectId: projectId,
+            projectType: newProject.project_type || "perfume",
+            productCategory: newProject.product_category,
+            productsToLaunch: newProject.products_to_launch,
+            startDate: newProject.start_date,
+            expectedLaunchDate: newProject.expected_launch_date,
+            projectValue: newProject.project_value,
+            clientPhone: newProject.client_phone,
+            clientAddress: newProject.client_address,
+            projectManager: newProject.project_manager_name?.trim() || "Pankaj Singh",
+            projectManagerName: newProject.project_manager_name?.trim() || "Pankaj Singh",
+            projectManagerEmail: newProject.project_manager_email?.trim() || "pankaj@banegabrand.com",
+            projectManagerPhone: newProject.project_manager_phone?.trim() || "+91 9717943312",
+            projectDescription: newProject.product_category_note || undefined,
+          });
+
+          if (res.success) {
+            await supabase.from("project_notes").insert({
+              project_id: data.id,
+              note_type: "communication",
+              title: "Client Onboarding Email Dispatched",
+              content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${newProject.client_email}. Assigned PM: ${newProject.project_manager_name} (${newProject.project_manager_phone}).`,
+              created_by: user?.email || null,
+              created_by_email: user?.email || null,
+            });
+            queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
+          }
+        } catch (emailErr) {
+          console.error("Auto onboarding email dispatch error:", emailErr);
+        }
+      }
+
       toast.success("Project created successfully!");
       setDialogOpen(false);
       setNewProject({
@@ -5383,9 +5526,16 @@ export default function Projects() {
         client_address: "",
         client_phone: "",
         client_email: "",
+        product_category: "perfume",
+        products_to_launch: "1",
+        product_category_note: "",
+        project_manager_name: "Pankaj Singh",
+        project_manager_email: "pankaj@banegabrand.com",
+        project_manager_phone: "+91 9717943312",
       });
       clearNewProjectImage();
       refetch();
+      queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -5425,6 +5575,11 @@ export default function Projects() {
       }
 
       const normalizedStatus = normalizeProjectStatus(editingProject.status) || editingProject.status;
+      const pmPayload = JSON.stringify({
+        name: editPmInfo.name?.trim() || "Pankaj Singh",
+        email: editPmInfo.email?.trim() || "pankaj@banegabrand.com",
+        phone: editPmInfo.phone?.trim() || "+91 9717943312",
+      });
 
       // Note: .select() after update often returns [] under RLS even when UPDATE succeeds.
       // So we update without relying on returned rows, then optimistically update UI + refetch.
@@ -5446,6 +5601,7 @@ export default function Projects() {
           product_category: editingProject.product_category || null,
           products_to_launch: editingProject.products_to_launch ?? null,
           product_category_note: editingProject.product_category_note || null,
+          project_manager: pmPayload,
           image_url: imageUrl,
           updated_at: new Date().toISOString(),
         })
@@ -5455,6 +5611,7 @@ export default function Projects() {
 
       const saved: Project = {
         ...editingProject,
+        project_manager: pmPayload,
         status: normalizedStatus,
         image_url: imageUrl,
       };
@@ -5866,14 +6023,27 @@ export default function Projects() {
 
   const updateTaskStatus = async (taskId: string, status: string) => {
     try {
+      const payload: Record<string, any> = { status };
+      if (status === "completed") payload.completion_date = new Date().toISOString();
       const { error } = await supabase
         .from("project_tasks")
-        .update({ status })
+        .update(payload)
         .eq("id", taskId);
       
       if (error) throw error;
       
       toast.success("Task updated successfully");
+
+      if (status === "completed") {
+        notifyTaskCompleted({
+          taskId,
+          completedByName: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email),
+        }).then((res) => {
+          if (res?.success) {
+            toast.success("Completion email delivered from team@banegabrand.com");
+          }
+        });
+      }
 
       const changedTask = projectTasks.find(t => t.id === taskId);
       if (changedTask?.department_id) {
@@ -7979,6 +8149,12 @@ export default function Projects() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {onboardingEmailSentProjects.has(selectedProject.id) && (
+              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 gap-1 text-xs hover:bg-emerald-100 font-medium">
+                <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                Already Sent
+              </Badge>
+            )}
             <Badge variant="outline" className="text-sm">
               {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"} 
               {selectedProject.project_type || "N/A"}
@@ -8017,6 +8193,7 @@ export default function Projects() {
                   variant="outline"
                   onClick={() => {
                     setEditingProject(selectedProject);
+                    setEditPmInfo(parseProjectManagerInfo(selectedProject.project_manager));
                     setEditProjectImageFile(null);
                     setEditProjectImagePreview(null);
                     setEditDialogOpen(true);
@@ -8221,20 +8398,14 @@ export default function Projects() {
 
                   <div className="space-y-1.5">
                     <p className="text-xs text-muted-foreground font-medium">
-                      Product note
+                      Project Description
                       <span className="block text-[10px] opacity-80 mt-0.5">
-                        (e.g. fragrance of perfume, or your own note when category is Other)
+                        (Scope of work, product details, requirements or special instructions)
                       </span>
                     </p>
                     <Textarea
                       value={selectedProject.product_category_note || ""}
-                      placeholder={
-                        selectedProject.product_category === "other"
-                          ? "Write your own note for Other category..."
-                          : selectedProject.product_category === "perfume"
-                          ? "e.g. Fragrance: woody, floral, citrus..."
-                          : "Add product details or notes..."
-                      }
+                      placeholder="Enter detailed project description, scope of work, client requirements..."
                       className="min-h-[70px] text-sm"
                       onChange={(e) =>
                         setSelectedProject({
@@ -8256,10 +8427,10 @@ export default function Projects() {
                           setSelectedProject((prev) =>
                             prev ? { ...prev, product_category_note: note } : prev
                           );
-                          toast.success("Product note saved");
+                          toast.success("Project description saved");
                           refetch();
                         } catch (err: any) {
-                          toast.error(err.message || "Failed to save product note");
+                          toast.error(err.message || "Failed to save project description");
                         }
                       }}
                     />
@@ -8308,43 +8479,64 @@ export default function Projects() {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle className="text-lg">Client Details</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-lg">Client &amp; Project Manager Details</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex items-center gap-2">
                     <Phone className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-xs text-muted-foreground">Phone Number</p>
+                      <p className="text-xs text-muted-foreground">Client Phone</p>
                       <p className="text-sm font-medium">{selectedProject.client_phone || "Not added"}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-xs text-muted-foreground">Email Address</p>
+                      <p className="text-xs text-muted-foreground">Client Email</p>
                       <p className="text-sm font-medium">{selectedProject.client_email || "Not added"}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-xs text-muted-foreground">Address</p>
+                      <p className="text-xs text-muted-foreground">Client Address</p>
                       <p className="text-sm font-medium">{selectedProject.client_address || "Not added"}</p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between col-span-1 md:col-span-2 pt-2 border-t mt-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <UserCog className="h-4 w-4 text-orange-600" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Project Manager</p>
+                      {(() => {
+                        const pm = parseProjectManagerInfo(selectedProject.project_manager);
+                        return (
+                          <p className="text-sm font-medium text-orange-600">
+                            {pm.name} • {pm.phone} ({pm.email})
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between col-span-1 md:col-span-2 pt-2 border-t mt-1 flex-wrap gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Mail className="h-4 w-4 text-primary" />
                       <span className="text-xs text-muted-foreground">Onboarding Scope of Work Email:</span>
+                      {onboardingEmailSentProjects.has(selectedProject.id) && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                          Already Sent
+                        </span>
+                      )}
                     </div>
                     {selectedProject.client_email ? (
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant={onboardingEmailSentProjects.has(selectedProject.id) ? "outline" : "default"}
                         className="h-7 text-xs gap-1.5"
                         onClick={async () => {
                           toast.loading("Sending onboarding Scope of Work email...", { id: "resend-process-mail" });
                           try {
+                            const pmInfo = parseProjectManagerInfo(selectedProject.project_manager);
                             const res = await sendProjectCreatedEmail({
                               to: selectedProject.client_email!,
                               clientName: selectedProject.name,
@@ -8358,7 +8550,11 @@ export default function Projects() {
                               projectValue: selectedProject.project_value,
                               clientPhone: selectedProject.client_phone,
                               clientAddress: selectedProject.client_address,
-                              projectManager: selectedProject.project_manager || "Pankaj",
+                              projectManager: pmInfo.name,
+                              projectManagerName: pmInfo.name,
+                              projectManagerEmail: pmInfo.email,
+                              projectManagerPhone: pmInfo.phone,
+                              projectDescription: selectedProject.product_category_note || undefined,
                             });
 
                             if (res.success) {
@@ -8367,11 +8563,12 @@ export default function Projects() {
                                 project_id: selectedProject.id,
                                 note_type: "communication",
                                 title: "Client Onboarding Email Dispatched",
-                                content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${selectedProject.client_email}.`,
+                                content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${selectedProject.client_email}. Assigned PM: ${pmInfo.name} (${pmInfo.phone} / ${pmInfo.email}).`,
                                 created_by: user?.email || null,
                                 created_by_email: user?.email || null,
                               });
 
+                              queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
                               toast.success(`Onboarding Scope of Work email delivered to ${selectedProject.client_email}!`, { id: "resend-process-mail" });
                             } else {
                               toast.error(`Email delivery failed: ${res.error || "Check RESEND_API_KEY in .env"}`, { id: "resend-process-mail" });
@@ -8382,7 +8579,7 @@ export default function Projects() {
                         }}
                       >
                         <Mail className="h-3 w-3" />
-                        Resend Onboarding Email
+                        {onboardingEmailSentProjects.has(selectedProject.id) ? "Resend Onboarding Email" : "Send Onboarding Email"}
                       </Button>
                     ) : (
                       <span className="text-xs text-muted-foreground italic">Add email address to trigger</span>
@@ -10251,23 +10448,41 @@ export default function Projects() {
                 <div className="grid gap-2"><Label>Brand Name</Label><Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} /></div>
                 <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
                 <div className="grid gap-2"><Label>Client Email</Label><Input value={editingProject.client_email || ""} onChange={(e) => setEditingProject({ ...editingProject, client_email: e.target.value })} placeholder="Enter email address" /></div>
-                <div className="grid gap-2"><Label>Client Address</Label><Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                <div className="grid gap-2"><Label>Project Type</Label><Select value={editingProject.project_type || "perfume"} onValueChange={(v) => setEditingProject({ ...editingProject, project_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2 sm:col-span-2"><Label>Client Address</Label><Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" /></div>
                 <div className="grid gap-2"><Label>Product Category</Label><Select value={editingProject.product_category || ""} onValueChange={(v) => setEditingProject({ ...editingProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={editingProject.products_to_launch != null ? String(editingProject.products_to_launch) : ""} onValueChange={(v) => setEditingProject({ ...editingProject, products_to_launch: Number(v) })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2 sm:col-span-2">
-                  <Label>Product note</Label>
+                  <Label>Project Description</Label>
                   <Textarea
                     value={editingProject.product_category_note || ""}
                     onChange={(e) => setEditingProject({ ...editingProject, product_category_note: e.target.value })}
-                    placeholder={
-                      editingProject.product_category === "other"
-                        ? "Write your own note for Other category..."
-                        : editingProject.product_category === "perfume"
-                        ? "e.g. Fragrance: woody, floral, citrus..."
-                        : "Add product details or notes..."
-                    }
+                    placeholder="Enter detailed project description, scope of work, client requirements..."
                     className="min-h-[80px]"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Project Manager Name</Label>
+                  <Input
+                    value={editPmInfo.name}
+                    onChange={(e) => setEditPmInfo({ ...editPmInfo, name: e.target.value })}
+                    placeholder="e.g. Pankaj Singh"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Project Manager Email ID</Label>
+                  <Input
+                    type="email"
+                    value={editPmInfo.email}
+                    onChange={(e) => setEditPmInfo({ ...editPmInfo, email: e.target.value })}
+                    placeholder="e.g. pankaj@banegabrand.com"
+                  />
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>Project Manager Phone Number</Label>
+                  <Input
+                    value={editPmInfo.phone}
+                    onChange={(e) => setEditPmInfo({ ...editPmInfo, phone: e.target.value })}
+                    placeholder="e.g. +91 9717943312"
                   />
                 </div>
                 <div className="grid gap-2"><Label>Priority</Label><Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
@@ -10382,23 +10597,41 @@ export default function Projects() {
                         placeholder="Enter email address (e.g. client@gmail.com)"
                       />
                     </div>
-                    <div className="grid gap-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                    <div className="grid gap-2"><Label>Project Type</Label><Select value={newProject.project_type} onValueChange={(v) => setNewProject({ ...newProject, project_type: v })}><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent>{PROJECT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2 sm:col-span-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
                     <div className="grid gap-2"><Label>Product Category</Label><Select value={newProject.product_category} onValueChange={(v) => setNewProject({ ...newProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
                     <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={newProject.products_to_launch} onValueChange={(v) => setNewProject({ ...newProject, products_to_launch: v })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
                     <div className="grid gap-2 sm:col-span-2">
-                      <Label>Product note</Label>
+                      <Label>Project Description</Label>
                       <Textarea
                         value={newProject.product_category_note}
                         onChange={(e) => setNewProject({ ...newProject, product_category_note: e.target.value })}
-                        placeholder={
-                          newProject.product_category === "other"
-                            ? "Write your own note for Other category..."
-                            : newProject.product_category === "perfume"
-                            ? "e.g. Fragrance: woody, floral, citrus..."
-                            : "Add product details or notes..."
-                        }
+                        placeholder="Enter detailed project description, scope of work, client requirements..."
                         className="min-h-[80px]"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Project Manager Name</Label>
+                      <Input
+                        value={newProject.project_manager_name}
+                        onChange={(e) => setNewProject({ ...newProject, project_manager_name: e.target.value })}
+                        placeholder="e.g. Pankaj Singh"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Project Manager Email ID</Label>
+                      <Input
+                        type="email"
+                        value={newProject.project_manager_email}
+                        onChange={(e) => setNewProject({ ...newProject, project_manager_email: e.target.value })}
+                        placeholder="e.g. pankaj@banegabrand.com"
+                      />
+                    </div>
+                    <div className="grid gap-2 sm:col-span-2">
+                      <Label>Project Manager Phone Number</Label>
+                      <Input
+                        value={newProject.project_manager_phone}
+                        onChange={(e) => setNewProject({ ...newProject, project_manager_phone: e.target.value })}
+                        placeholder="e.g. +91 9717943312"
                       />
                     </div>
                     <div className="grid gap-2"><Label>Priority</Label><Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
@@ -10533,6 +10766,7 @@ export default function Projects() {
                   lastNote={lastNotesByProject[project.id] || null}
                   lastAssignee={lastAssigneeByProject[project.id] || null}
                   stageProgress={project.completion_percentage}
+                  hasOnboardingEmailSent={onboardingEmailSentProjects.has(project.id)}
                 />
               ))
             )}

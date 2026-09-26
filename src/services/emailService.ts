@@ -23,7 +23,11 @@ export interface ProjectEmailData {
   clientPhone?: string | null;
   clientAddress?: string | null;
   notes?: string | null;
+  projectDescription?: string | null;
   projectManager?: string | null;
+  projectManagerName?: string | null;
+  projectManagerEmail?: string | null;
+  projectManagerPhone?: string | null;
 }
 /**
  * Banega Brand Official Logo URL.
@@ -35,31 +39,30 @@ export const BANEGA_BRAND_LOGO_URL = "https://www.banegabrand.com/assets/main_lo
  * ============================================================
  * [OFFICIAL ONBOARDING EMAIL TEMPLATE - SCOPE OF WORK & DELIVERABLES]
  * Client: Dynamic ({clientName})
- * Contact: Pankaj Singh (Senior Growth Manager)
- * Email: pankaj@banegabrand.com | Mobile: +91 9717943312
+ * Contact: Dynamic Project Manager ({projectManagerName} / {projectManagerEmail} / {projectManagerPhone})
  * Office: Banega Brand, C 171, Sector 63, Noida, India
  * ============================================================
  */
 export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string {
-  const clientName = data.clientName || "H K";
+  const clientName = data.clientName || "Valued Client";
   const brandName = data.brandName || data.clientName || "Your Brand";
   const category = data.productCategory || data.projectType || "Brand Incubation";
   const productsCount = data.productsToLaunch || 1;
-  const projectManager = data.projectManager || "Pankaj";
-  const launchDate = data.expectedLaunchDate
-    ? new Date(data.expectedLaunchDate).toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "To be finalized";
+  const projectManagerName = data.projectManagerName || data.projectManager || "Pankaj Singh";
+  const projectManagerEmail = data.projectManagerEmail || "pankaj@banegabrand.com";
+  const projectManagerPhone = data.projectManagerPhone || "+91 9717943312";
+  const projectDescription = (data.projectDescription || data.notes || "").trim();
   const startDate = data.startDate
     ? new Date(data.startDate).toLocaleDateString("en-IN", {
         day: "numeric",
         month: "long",
         year: "numeric",
       })
-    : "Immediate";
+    : new Date().toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
 
   return `
 <!DOCTYPE html>
@@ -104,8 +107,15 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
                   Project Snapshot
                 </div>
                 
-                <div style="background-color: #ffedd5; border: 1px solid #fed7aa; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px; color: #9a3412; font-weight: 600;">
-                  Your Project Manager is <span style="font-weight: 700; color: #c2410c;">${projectManager}</span>
+                <div style="background-color: #ffedd5; border: 1px solid #fed7aa; border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 13.5px; color: #9a3412;">
+                  <div style="font-weight: 700; color: #c2410c; margin-bottom: 4px;">
+                    Your Assigned Project Manager: ${projectManagerName}
+                  </div>
+                  <div style="font-size: 12.5px; color: #7c2d12;">
+                    <span>Email: <strong><a href="mailto:${projectManagerEmail}" style="color: #c2410c; text-decoration: none;">${projectManagerEmail}</a></strong></span>
+                    &nbsp;&nbsp;|&nbsp;&nbsp;
+                    <span>Mobile: <strong><a href="tel:${projectManagerPhone.replace(/\s+/g, '')}" style="color: #c2410c; text-decoration: none;">${projectManagerPhone}</a></strong></span>
+                  </div>
                 </div>
 
                 <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 13.5px; border-collapse: collapse;">
@@ -126,10 +136,6 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
                     <td style="padding: 7px 0; color: #1e293b; font-weight: 600;">${clientName}</td>
                   </tr>
                   <tr>
-                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Project Manager:</td>
-                    <td style="padding: 7px 0; color: #ea580c; font-weight: 700;">${projectManager}</td>
-                  </tr>
-                  <tr>
                     <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Category:</td>
                     <td style="padding: 7px 0; color: #1e293b; font-weight: 600;">${category}</td>
                   </tr>
@@ -140,18 +146,6 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
                   <tr>
                     <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Start Date:</td>
                     <td style="padding: 7px 0; color: #1e293b; font-weight: 500;">${startDate}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Expected Launch:</td>
-                    <td style="padding: 7px 0; color: #1e293b; font-weight: 500;">${launchDate}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Upload Documents:</td>
-                    <td style="padding: 7px 0;">
-                      <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ea580c; font-weight: 700; text-decoration: underline; font-size: 13.5px;">
-                        Upload Your Document &rarr;
-                      </a>
-                    </td>
                   </tr>
                 </table>
 
@@ -183,6 +177,18 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
                   </tr>
                 </table>
               </div>
+
+              ${projectDescription ? `
+              <!-- Project Description Card -->
+              <div style="background-color: #ffffff; border: 1.5px solid #fed7aa; border-left: 4px solid #f95716; border-radius: 8px; padding: 16px 20px; margin: 20px 0 26px 0;">
+                <div style="font-size: 12px; font-weight: 800; color: #ea580c; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">
+                  Project Description
+                </div>
+                <p style="margin: 0; font-size: 14px; color: #1e293b; line-height: 1.6; white-space: pre-wrap;">
+                  ${projectDescription}
+                </p>
+              </div>
+              ` : ""}
 
               <!-- Scope of Work & Deliverables Heading -->
               <div style="margin: 32px 0 18px 0; border-bottom: 2px solid #fed7aa; padding-bottom: 10px;">
@@ -407,12 +413,12 @@ export function generateProjectWelcomeEmailHtml(data: ProjectEmailData): string 
               <!-- Signature Card -->
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #f95716; border-radius: 8px; padding: 20px; margin: 28px 0 10px 0;">
                 <p style="margin: 0 0 4px 0; font-size: 13.5px; color: #64748b;">Warm regards,</p>
-                <div style="font-size: 16px; font-weight: 800; color: #1e2229; margin: 0 0 2px 0;">Pankaj Singh</div>
-                <div style="font-size: 13px; font-weight: 600; color: #ea580c; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.05em;">Senior Growth Manager | Banega Brand</div>
+                <div style="font-size: 16px; font-weight: 800; color: #1e2229; margin: 0 0 2px 0;">${projectManagerName}</div>
+                <div style="font-size: 13px; font-weight: 600; color: #ea580c; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.05em;">Project Manager | Banega Brand</div>
                 <div style="font-size: 13.5px; color: #334155; line-height: 1.7;">
                   <div>Website: <a href="https://www.banegabrand.com" target="_blank" style="color: #ea580c; text-decoration: none; font-weight: 600;">www.banegabrand.com</a></div>
-                  <div>Mobile: <a href="tel:+919717943312" style="color: #ea580c; text-decoration: none; font-weight: 600;">+91 9717943312</a></div>
-                  <div>Email: <a href="mailto:info@banegabrand.com" style="color: #ea580c; text-decoration: none; font-weight: 600;">info@banegabrand.com</a></div>
+                  <div>Mobile: <a href="tel:${projectManagerPhone.replace(/\s+/g, '')}" style="color: #ea580c; text-decoration: none; font-weight: 600;">${projectManagerPhone}</a></div>
+                  <div>Email: <a href="mailto:${projectManagerEmail}" style="color: #ea580c; text-decoration: none; font-weight: 600;">${projectManagerEmail}</a></div>
                 </div>
               </div>
             </td>
@@ -785,6 +791,335 @@ export const sendStageCompletedEmailService = async (data: {
     fromEmail: "info@banegabrand.com",
   });
 };
+
+/**
+ * ============================================================
+ * [TASK COMPLETED EMAIL SERVICE]
+ * Triggered automatically when any project task is marked as "completed".
+ * Sent exclusively in professional English from team@banegabrand.com.
+ * ============================================================
+ */
+export interface TaskCompletedEmailData {
+  to: string;
+  clientName: string;
+  brandName?: string | null;
+  projectName?: string | null;
+  projectId: string;
+  taskName: string;
+  department?: string | null;
+  remark?: string | null;
+  completedBy?: string | null;
+}
+
+export function generateTaskCompletedEmailHtml(data: TaskCompletedEmailData): string {
+  const clientName = data.clientName || "Valued Client";
+  const brandName = data.brandName || data.projectName || data.clientName || "Your Brand";
+  const projectName = data.projectName || brandName;
+  const projectId = data.projectId || "BB-PROJECT";
+  const taskName = data.taskName || "Deliverable Task";
+  const department = data.department || null;
+  const completedBy = data.completedBy || "Banega Brand Team";
+  const remark = data.remark?.trim() || "";
+  const currentDate = new Date().toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Completed - Banega Brand</title>
+</head>
+<body style="margin: 0; padding: 20px 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; color: #1e293b; line-height: 1.6;">
+  <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9;">
+    <tr>
+      <td align="center">
+        <!-- Main Wrapper Container -->
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 620px; background-color: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td align="center" style="background-color: #1e2229; border-bottom: 3px solid #f95716; padding: 28px 24px; text-align: center;">
+              <div style="display: inline-block; background-color: #ffffff; padding: 8px 22px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 3px 10px rgba(0,0,0,0.25);">
+                <img src="${BANEGA_BRAND_LOGO_URL}" alt="Banega Brand" style="height: 36px; width: auto; max-width: 180px; display: block;" />
+              </div>
+              <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #cbd5e1;">
+                Brand Incubation | Manufacturing | D2C Launchpad
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 30px 28px; text-align: left;">
+              <!-- Title & Status Badge -->
+              <div style="margin-bottom: 18px;">
+                <span style="display: inline-block; background-color: #dcfce7; color: #15803d; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;">
+                  Task Completed ✓
+                </span>
+                <h2 style="font-size: 21px; font-weight: 700; color: #1e2229; margin: 0 0 6px 0;">
+                  Task Completed for Your Project
+                </h2>
+                <p style="font-size: 14px; color: #64748b; margin: 0;">
+                  Update for project: <strong style="color: #0f172a;">${brandName}</strong> (${projectId})
+                </p>
+              </div>
+
+              <!-- Greeting -->
+              <p style="font-size: 14.5px; color: #1e293b; line-height: 1.6; margin: 0 0 12px 0;">
+                Dear <strong>${clientName}</strong>,
+              </p>
+              <p style="font-size: 14px; color: #334155; line-height: 1.65; margin: 0 0 20px 0;">
+                We are pleased to inform you that our team has successfully finished the following task for your brand roadmap.
+              </p>
+
+              <!-- Task Details Card -->
+              <div style="background-color: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 20px 0;">
+                <div style="font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #ea580c; margin: 0 0 14px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
+                  Task Summary
+                </div>
+                
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 13.5px; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; width: 38%; font-weight: 500;">Project Name:</td>
+                    <td style="padding: 7px 0; width: 62%; color: #1e293b; font-weight: 700;">${projectName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Client Name:</td>
+                    <td style="padding: 7px 0; color: #1e293b; font-weight: 600;">${clientName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Project ID:</td>
+                    <td style="padding: 7px 0;">
+                      <span style="display: inline-block; background-color: #ffedd5; color: #c2410c; padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; font-family: monospace;">
+                        ${projectId}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Task Completed:</td>
+                    <td style="padding: 7px 0; color: #0f172a; font-weight: 700; font-size: 14.5px;">${taskName}</td>
+                  </tr>
+                  ${department ? `
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Department:</td>
+                    <td style="padding: 7px 0; color: #334155; font-weight: 600;">${department}</td>
+                  </tr>` : ""}
+                  ${completedBy ? `
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Completed By:</td>
+                    <td style="padding: 7px 0; color: #334155; font-weight: 600;">${completedBy}</td>
+                  </tr>` : ""}
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Status:</td>
+                    <td style="padding: 7px 0;">
+                      <span style="display: inline-block; background-color: #dcfce7; color: #15803d; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 9999px;">
+                        Completed ✓
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 7px 0; color: #64748b; font-weight: 500;">Completion Date:</td>
+                    <td style="padding: 7px 0; color: #334155; font-weight: 500;">${currentDate}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Remarks / Notes Section -->
+              <div style="background-color: #fffaf5; border: 1.5px solid #fed7aa; border-left: 4px solid #f95716; border-radius: 8px; padding: 16px 18px; margin: 22px 0;">
+                <div style="font-size: 12px; font-weight: 800; color: #ea580c; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">
+                  Task Remark / Notes
+                </div>
+                <p style="margin: 0; font-size: 14px; color: #1e293b; line-height: 1.6; white-space: pre-wrap;">
+                  ${remark || "The task has been reviewed, executed, and completed as per project specifications."}
+                </p>
+              </div>
+
+              <!-- Upload Documents Action Section -->
+              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 18px; margin: 24px 0;">
+                <tr>
+                  <td align="center" style="text-align: center;">
+                    <div style="font-size: 13.5px; font-weight: 700; color: #1e2229; margin-bottom: 6px;">
+                      📁 Need to share any feedback or documents?
+                    </div>
+                    <p style="margin: 0 0 14px 0; font-size: 13px; color: #64748b; line-height: 1.5;">
+                      You can securely upload files, assets, or feedback using our document portal:
+                    </p>
+                    <table border="0" cellpadding="0" cellspacing="0" style="margin: 0 auto; border-collapse: separate;">
+                      <tr>
+                        <td align="center" valign="middle" bgcolor="#f95716" style="background-color: #f95716; border-radius: 6px; padding: 10px 24px;">
+                          <a href="https://docs.google.com/forms/d/e/1FAIpQLScRVZubHMCH9hw5_lZx1_waaSZRpbqapIcJRLbVPVKOMKBDQw/viewform?pli=1" target="_blank" style="color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13.5px; font-weight: bold; text-decoration: none; display: inline-block;">
+                            Upload Your Document &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Closing Note -->
+              <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 20px 0 0 0;">
+                Our team is actively executing the upcoming milestones on your roadmap. If you have any questions regarding this deliverable, please feel free to reach out to us at <a href="mailto:team@banegabrand.com" style="color: #ea580c; text-decoration: none; font-weight: 600;">team@banegabrand.com</a>.
+              </p>
+
+              <!-- Signature Card -->
+              <div style="margin-top: 26px; padding-top: 18px; border-top: 1px solid #f1f5f9;">
+                <p style="margin: 0 0 4px 0; font-size: 13px; color: #64748b;">Warm regards,</p>
+                <div style="font-size: 15.5px; font-weight: 800; color: #1e2229;">Banega Brand Team</div>
+                <div style="font-size: 12.5px; font-weight: 600; color: #ea580c; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px;">
+                  Brand Incubation &amp; Launchpad
+                </div>
+                <div style="margin-top: 10px; font-size: 13px; color: #64748b; line-height: 1.6;">
+                  <div>Website: <a href="https://www.banegabrand.com" target="_blank" style="color: #ea580c; text-decoration: none; font-weight: 600;">www.banegabrand.com</a></div>
+                  <div>Email: <a href="mailto:team@banegabrand.com" style="color: #ea580c; text-decoration: none; font-weight: 600;">team@banegabrand.com</a></div>
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #1e2229; color: #94a3b8; padding: 26px 22px; text-align: center; font-size: 12px; border-top: 3px solid #f95716; line-height: 1.7;">
+              <div style="margin-bottom: 12px;">
+                <div style="display: inline-block; background-color: #ffffff; padding: 6px 18px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+                  <img src="${BANEGA_BRAND_LOGO_URL}" alt="Banega Brand" style="height: 28px; width: auto; max-width: 140px; display: block;" />
+                </div>
+              </div>
+              <div style="color: #ffffff; font-weight: 700; font-size: 13.5px; margin-bottom: 2px;">Banega Brand Pvt Ltd</div>
+              <div style="color: #cbd5e1; font-size: 12px; margin-bottom: 8px;">
+                Block C-171, Sector 63, Noida, Uttar Pradesh, India
+              </div>
+              <div style="padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.1); border-bottom: 1px solid rgba(255,255,255,0.1); margin: 8px 0; font-size: 12px; color: #e2e8f0;">
+                <span>Email: <a href="mailto:team@banegabrand.com" style="color: #f95716; text-decoration: none; font-weight: 600;">team@banegabrand.com</a></span>
+                &nbsp;&nbsp;|&nbsp;&nbsp;
+                <span>Website: <a href="https://www.banegabrand.com" target="_blank" style="color: #f95716; text-decoration: none; font-weight: 600;">www.banegabrand.com</a></span>
+              </div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 8px;">
+                © ${new Date().getFullYear()} Banega Brand Pvt Ltd. All rights reserved.<br />
+                This notification was automatically sent to ${clientName} for project reference.
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Direct task completion email sender.
+ * Always triggers from team@banegabrand.com.
+ */
+export const sendTaskCompletedEmailService = async (
+  data: TaskCompletedEmailData
+): Promise<DispatchEmailResult> => {
+  const brand = data.brandName || data.projectName || data.clientName || "Your Brand";
+  const task = data.taskName || "Task";
+  const html = generateTaskCompletedEmailHtml(data);
+
+  return await dispatchEmail({
+    to: data.to,
+    subject: `Task Completed: ${task} | Project "${brand}" [${data.projectId}]`,
+    html,
+    fromName: "Banega Brand Team",
+    fromEmail: "team@banegabrand.com",
+  });
+};
+
+/**
+ * Higher-level helper to trigger a task completion email by taskId.
+ * Automatically looks up project details, client email, and latest task remarks.
+ */
+export async function notifyTaskCompleted(params: {
+  taskId: string;
+  explicitRemark?: string | null;
+  completedByName?: string | null;
+}): Promise<DispatchEmailResult | null> {
+  try {
+    const { data: task, error: taskError } = await supabase
+      .from("project_tasks")
+      .select("id, project_id, task_name, description, department, employee_remarks, assigned_to_name, assigned_to_email")
+      .eq("id", params.taskId)
+      .single();
+
+    if (taskError || !task) {
+      console.warn("[notifyTaskCompleted] Could not find task:", params.taskId, taskError);
+      return null;
+    }
+
+    if (!task.project_id) {
+      console.warn("[notifyTaskCompleted] Task has no project_id:", params.taskId);
+      return null;
+    }
+
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, project_id, name, brand_name, client_email")
+      .eq("id", task.project_id)
+      .single();
+
+    if (projectError || !project) {
+      console.warn("[notifyTaskCompleted] Could not find project:", task.project_id, projectError);
+      return null;
+    }
+
+    const clientEmail = (project.client_email || "").trim();
+    if (!clientEmail) {
+      console.info(`[notifyTaskCompleted] Project "${project.name}" has no client email. Skipping email.`);
+      return null;
+    }
+
+    // Determine remark: explicit remark > latest task_remarks > employee_remarks
+    let remark = (params.explicitRemark || "").trim();
+    if (!remark) {
+      try {
+        const { data: latestRemark } = await supabase
+          .from("task_remarks")
+          .select("remark")
+          .eq("task_id", params.taskId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestRemark?.remark) {
+          remark = latestRemark.remark.trim();
+        }
+      } catch (e) {
+        console.warn("[notifyTaskCompleted] Error fetching latest task_remarks:", e);
+      }
+    }
+
+    if (!remark && task.employee_remarks) {
+      remark = task.employee_remarks.trim();
+    }
+
+    const result = await sendTaskCompletedEmailService({
+      to: clientEmail,
+      clientName: project.name || "Valued Client",
+      brandName: project.brand_name || project.name || "Your Brand",
+      projectName: project.name || "Brand Launch",
+      projectId: project.project_id || "BB-PROJECT",
+      taskName: task.task_name,
+      department: task.department,
+      remark: remark || null,
+      completedBy: params.completedByName || task.assigned_to_name || "Banega Brand Team",
+    });
+
+    return result;
+  } catch (err: any) {
+    console.error("[notifyTaskCompleted] Error sending task completion email:", err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
 
 /**
  * Alternative: Using SMTP directly
