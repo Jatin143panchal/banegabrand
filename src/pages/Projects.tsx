@@ -9665,7 +9665,7 @@ export default function Projects() {
                                 </div>
                                 <div className="grid gap-1 sm:col-span-1 lg:col-span-2">
                                   <Label className="text-[10px] text-muted-foreground">
-                                    Platforms (multiple — same post, alag-alag platform)
+                                    Platforms (multiple — same post, different platforms)
                                   </Label>
                                   <div className="flex flex-wrap gap-1.5">
                                     {CONTENT_PLATFORMS.map((p) => {
