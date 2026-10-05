@@ -1327,6 +1327,8 @@ const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduc
 
 // ── Social Media Content Calendar (dynamic posts + dates) ──
 interface ContentDay {
+  /** Stable unique id so date changes / inserts don't break UI keys */
+  id: string;
   day: number;
   title: string;
   caption: string;
@@ -1366,7 +1368,12 @@ const CONTENT_PLATFORMS = [
   "Other",
 ];
 
+function newContentDayId() {
+  return `post_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
 const EMPTY_CONTENT_DAY = (day: number, scheduledDate = ""): ContentDay => ({
+  id: newContentDayId(),
   day,
   title: "",
   caption: "",
@@ -1378,6 +1385,19 @@ const EMPTY_CONTENT_DAY = (day: number, scheduledDate = ""): ContentDay => ({
   social_media_link: "",
   other_link: "",
 });
+
+/** Sort posts by scheduled_date (empty dates last), then by day number */
+function sortContentDaysByDate(days: ContentDay[]): ContentDay[] {
+  return [...days].sort((a, b) => {
+    const da = (a.scheduled_date || "").trim();
+    const db = (b.scheduled_date || "").trim();
+    if (da && db) {
+      if (da !== db) return da.localeCompare(db);
+    } else if (da && !db) return -1;
+    else if (!da && db) return 1;
+    return (a.day || 0) - (b.day || 0);
+  }).map((d, i) => ({ ...d, day: i + 1 }));
+}
 
 function createEmptyContentCalendar(_startDate?: string): ContentDay[] {
   return [];
@@ -1410,6 +1430,7 @@ function parseContentCalendar(content: string): { days: ContentDay[]; startDate:
         ? parsed.days.map((d: any, idx: number) => {
             const platforms = normalizeContentPlatforms(d);
             return {
+            id: d.id || `post_legacy_${idx}_${d.day ?? idx + 1}`,
             day: d.day ?? idx + 1,
             title: d.title || "",
             caption: d.caption || "",
@@ -3814,6 +3835,8 @@ export default function Projects() {
   const [contentCalendarNoteId, setContentCalendarNoteId] = useState<string | null>(null);
   const [contentCalendarSaving, setContentCalendarSaving] = useState(false);
   const [contentCalendarFilter, setContentCalendarFilter] = useState<"all" | "pending" | "completed">("all");
+  /** Optional date when adding a single post (for forgotten days) */
+  const [contentCalendarNewPostDate, setContentCalendarNewPostDate] = useState<string>("");
   const [stageCommentDrafts, setStageCommentDrafts] = useState<Record<string, string>>({});
   const [stageCommentSaving, setStageCommentSaving] = useState<string | null>(null);
   const [openStageComment, setOpenStageComment] = useState<string | null>(null);
@@ -5175,7 +5198,7 @@ export default function Projects() {
         if (calNote) {
           const parsed = parseContentCalendar(calNote.content);
           if (parsed) {
-            setContentCalendarDays(parsed.days);
+            setContentCalendarDays(sortContentDaysByDate(parsed.days));
             setContentCalendarStartDate(parsed.startDate || "");
             setContentCalendarNoteId(calNote.id);
           } else {
@@ -5212,7 +5235,7 @@ export default function Projects() {
         if (calNote) {
           const parsed = parseContentCalendar(calNote.content);
           if (parsed) {
-            setContentCalendarDays(parsed.days);
+            setContentCalendarDays(sortContentDaysByDate(parsed.days));
             setContentCalendarStartDate(parsed.startDate || "");
             setContentCalendarNoteId(calNote.id);
           } else {
@@ -6926,7 +6949,9 @@ export default function Projects() {
     if (!selectedProject) return;
     setContentCalendarSaving(true);
     try {
-      const payload = serializeContentCalendar(contentCalendarDays, contentCalendarStartDate || null);
+      const sortedDays = sortContentDaysByDate(contentCalendarDays);
+      setContentCalendarDays(sortedDays);
+      const payload = serializeContentCalendar(sortedDays, contentCalendarStartDate || null);
       if (contentCalendarNoteId) {
         const { error } = await supabase
           .from("project_notes")
@@ -6996,32 +7021,70 @@ export default function Projects() {
   const applyStartDateToCalendar = (start: string) => {
     setContentCalendarStartDate(start);
     if (!start) return;
+    // Only fill empty dates — never overwrite dates the user already set (fixes "forgot a day" pain)
     const base = startOfDay(new Date(start));
-    setContentCalendarDays((prev) =>
-      prev.map((d, i) => ({
-        ...d,
-        scheduled_date: format(addDays(base, i), "yyyy-MM-dd"),
-      }))
-    );
-  };
-
-  const addContentDay = () => {
     setContentCalendarDays((prev) => {
-      const nextNum = prev.length + 1;
-      let scheduled = "";
-      if (contentCalendarStartDate) {
-        scheduled = format(addDays(startOfDay(new Date(contentCalendarStartDate)), prev.length), "yyyy-MM-dd");
-      } else if (prev.length && prev[prev.length - 1].scheduled_date) {
-        scheduled = format(addDays(startOfDay(new Date(prev[prev.length - 1].scheduled_date!)), 1), "yyyy-MM-dd");
-      }
-      return [...prev, EMPTY_CONTENT_DAY(nextNum, scheduled)];
+      let emptySlot = 0;
+      const next = prev.map((d) => {
+        if ((d.scheduled_date || "").trim()) return d;
+        const scheduled = format(addDays(base, emptySlot), "yyyy-MM-dd");
+        emptySlot += 1;
+        return { ...d, scheduled_date: scheduled };
+      });
+      return sortContentDaysByDate(next);
     });
   };
 
+  /** Add a post for a specific date (or smart default). Inserts date-wise — no need to delete later posts. */
+  const addContentDay = (forDate?: string) => {
+    setContentCalendarDays((prev) => {
+      let scheduled = (forDate || "").trim();
+      if (!scheduled) {
+        // Prefer explicit new-post date from UI, then start date, then day after last dated post
+        const pick = (contentCalendarNewPostDate || "").trim();
+        if (pick) {
+          scheduled = pick;
+        } else if (contentCalendarStartDate) {
+          const dated = prev
+            .map((d) => (d.scheduled_date || "").trim())
+            .filter(Boolean)
+            .sort();
+          if (dated.length === 0) {
+            scheduled = contentCalendarStartDate;
+          } else {
+            const last = dated[dated.length - 1];
+            scheduled = format(addDays(startOfDay(new Date(last)), 1), "yyyy-MM-dd");
+          }
+        } else if (prev.length) {
+          const dated = prev
+            .map((d) => (d.scheduled_date || "").trim())
+            .filter(Boolean)
+            .sort();
+          if (dated.length) {
+            scheduled = format(addDays(startOfDay(new Date(dated[dated.length - 1])), 1), "yyyy-MM-dd");
+          }
+        }
+      }
+      const next = [...prev, EMPTY_CONTENT_DAY(prev.length + 1, scheduled)];
+      return sortContentDaysByDate(next);
+    });
+    // Clear one-shot date picker after add
+    setContentCalendarNewPostDate("");
+  };
+
   const removeContentDay = (dayIndex: number) => {
-    setContentCalendarDays((prev) =>
-      prev.filter((_, i) => i !== dayIndex).map((d, i) => ({ ...d, day: i + 1 }))
-    );
+    setContentCalendarDays((prev) => {
+      const next = prev.filter((_, i) => i !== dayIndex);
+      return sortContentDaysByDate(next);
+    });
+  };
+
+  /** When user changes a post's date, re-sort so calendar stays date-wise */
+  const updateContentDayDate = (dayIndex: number, scheduled_date: string) => {
+    setContentCalendarDays((prev) => {
+      const next = prev.map((d, i) => (i === dayIndex ? { ...d, scheduled_date } : d));
+      return sortContentDaysByDate(next);
+    });
   };
 
   const deleteProject = async (id: string) => {
@@ -8338,7 +8401,13 @@ export default function Projects() {
                   <div className="space-y-1.5">
                     <p className="text-xs text-muted-foreground font-medium">Product Category</p>
                     <Select
-                      value={selectedProject.product_category || ""}
+                      value={
+                        !selectedProject.product_category
+                          ? ""
+                          : PRODUCT_CATEGORIES.some((c) => c.value === selectedProject.product_category)
+                            ? selectedProject.product_category
+                            : "other"
+                      }
                       onValueChange={async (v) => {
                         try {
                           const { error } = await supabase
@@ -8363,6 +8432,39 @@ export default function Projects() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {(selectedProject.product_category === "other" ||
+                      (selectedProject.product_category &&
+                        !PRODUCT_CATEGORIES.some((c) => c.value === selectedProject.product_category))) && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-[11px] text-muted-foreground">Specify other category</p>
+                        <Input
+                          className="h-9"
+                          placeholder="e.g. Home Decor, Pet Care, Fashion..."
+                          defaultValue={
+                            selectedProject.product_category === "other"
+                              ? ""
+                              : (selectedProject.product_category || "")
+                          }
+                          key={`other-cat-${selectedProject.id}-${selectedProject.product_category}`}
+                          onBlur={async (e) => {
+                            const custom = e.target.value.trim();
+                            if (!custom) return;
+                            try {
+                              const { error } = await supabase
+                                .from("projects")
+                                .update({ product_category: custom, updated_at: new Date().toISOString() })
+                                .eq("id", selectedProject.id);
+                              if (error) throw error;
+                              setSelectedProject({ ...selectedProject, product_category: custom });
+                              toast.success(`Product category → ${custom}`);
+                              refetch();
+                            } catch (err: any) {
+                              toast.error(err.message || "Failed to save custom category");
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -9539,7 +9641,7 @@ export default function Projects() {
                 {/* Controls */}
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-xs">Start date</Label>
+                    <Label className="text-xs">Start date (fills empty only)</Label>
                     <Input
                       type="date"
                       value={contentCalendarStartDate}
@@ -9547,10 +9649,22 @@ export default function Projects() {
                       className="w-44 h-9"
                     />
                   </div>
-                  <Button size="sm" className="h-9" onClick={addContentDay}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add post
-                  </Button>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Add post for date</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="date"
+                        value={contentCalendarNewPostDate}
+                        onChange={(e) => setContentCalendarNewPostDate(e.target.value)}
+                        className="w-40 h-9"
+                        title="Pick any date — even a forgotten day in between"
+                      />
+                      <Button size="sm" className="h-9" onClick={() => addContentDay(contentCalendarNewPostDate || undefined)}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add post
+                      </Button>
+                    </div>
+                  </div>
                   <div className="grid gap-1.5">
                     <Label className="text-xs">Filter</Label>
                     <Select
@@ -9594,10 +9708,10 @@ export default function Projects() {
                       return true;
                     })
                     .map((day) => {
-                      const realIndex = contentCalendarDays.findIndex((x) => x.day === day.day);
+                      const realIndex = contentCalendarDays.findIndex((x) => (x.id && day.id ? x.id === day.id : x.day === day.day));
                       return (
                         <div
-                          key={day.day}
+                          key={day.id || `day_${day.day}`}
                           className={`border rounded-lg p-3 transition-colors ${
                             day.status === "completed"
                               ? "bg-green-50/50 border-green-200"
@@ -9635,7 +9749,7 @@ export default function Projects() {
                                   type="date"
                                   value={day.scheduled_date || ""}
                                   onChange={(e) =>
-                                    updateContentDay(realIndex, { scheduled_date: e.target.value })
+                                    updateContentDayDate(realIndex, e.target.value)
                                   }
                                   className="h-7 w-40 text-xs"
                                 />
@@ -9786,7 +9900,7 @@ export default function Projects() {
                 }).length === 0 && (
                   <p className="text-center text-muted-foreground py-8">
                     {contentCalendarDays.length === 0
-                      ? "No posts yet. Set a start date and tap Add post."
+                      ? "No posts yet. Pick a date (optional) and tap Add post — you can add any forgotten day later without deleting others."
                       : "No posts match the current filter"}
                   </p>
                 )}
@@ -10449,7 +10563,41 @@ export default function Projects() {
                 <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
                 <div className="grid gap-2"><Label>Client Email</Label><Input value={editingProject.client_email || ""} onChange={(e) => setEditingProject({ ...editingProject, client_email: e.target.value })} placeholder="Enter email address" /></div>
                 <div className="grid gap-2 sm:col-span-2"><Label>Client Address</Label><Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                <div className="grid gap-2"><Label>Product Category</Label><Select value={editingProject.product_category || ""} onValueChange={(v) => setEditingProject({ ...editingProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2">
+                  <Label>Product Category</Label>
+                  <Select
+                    value={
+                      !editingProject.product_category
+                        ? ""
+                        : PRODUCT_CATEGORIES.some((c) => c.value === editingProject.product_category)
+                          ? editingProject.product_category
+                          : "other"
+                    }
+                    onValueChange={(v) => setEditingProject({ ...editingProject, product_category: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                    <SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  {(editingProject.product_category === "other" ||
+                    (editingProject.product_category &&
+                      !PRODUCT_CATEGORIES.some((c) => c.value === editingProject.product_category))) && (
+                    <Input
+                      className="mt-1"
+                      placeholder="Specify other category (e.g. Home Decor, Pet Care...)"
+                      value={
+                        editingProject.product_category === "other"
+                          ? ""
+                          : (editingProject.product_category || "")
+                      }
+                      onChange={(e) =>
+                        setEditingProject({
+                          ...editingProject,
+                          product_category: e.target.value.trim() || "other",
+                        })
+                      }
+                    />
+                  )}
+                </div>
                 <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={editingProject.products_to_launch != null ? String(editingProject.products_to_launch) : ""} onValueChange={(v) => setEditingProject({ ...editingProject, products_to_launch: Number(v) })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
                 <div className="grid gap-2 sm:col-span-2">
                   <Label>Project Description</Label>
@@ -10598,7 +10746,41 @@ export default function Projects() {
                       />
                     </div>
                     <div className="grid gap-2 sm:col-span-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                    <div className="grid gap-2"><Label>Product Category</Label><Select value={newProject.product_category} onValueChange={(v) => setNewProject({ ...newProject, product_category: v })}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="grid gap-2">
+                      <Label>Product Category</Label>
+                      <Select
+                        value={
+                          !newProject.product_category
+                            ? ""
+                            : PRODUCT_CATEGORIES.some((c) => c.value === newProject.product_category)
+                              ? newProject.product_category
+                              : "other"
+                        }
+                        onValueChange={(v) => setNewProject({ ...newProject, product_category: v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                        <SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                      {(newProject.product_category === "other" ||
+                        (newProject.product_category &&
+                          !PRODUCT_CATEGORIES.some((c) => c.value === newProject.product_category))) && (
+                        <Input
+                          className="mt-1"
+                          placeholder="Specify other category (e.g. Home Decor, Pet Care...)"
+                          value={
+                            newProject.product_category === "other"
+                              ? ""
+                              : (newProject.product_category || "")
+                          }
+                          onChange={(e) =>
+                            setNewProject({
+                              ...newProject,
+                              product_category: e.target.value.trim() || "other",
+                            })
+                          }
+                        />
+                      )}
+                    </div>
                     <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={newProject.products_to_launch} onValueChange={(v) => setNewProject({ ...newProject, products_to_launch: v })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
                     <div className="grid gap-2 sm:col-span-2">
                       <Label>Project Description</Label>
@@ -10887,4 +11069,3 @@ export default function Projects() {
       </Dialog>
     </div>
   );
-}
