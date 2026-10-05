@@ -11069,3 +11069,5 @@ export default function Projects() {
       </Dialog>
     </div>
   );
+}
+Fix it - Grok
