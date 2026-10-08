@@ -18,7 +18,7 @@ import {
   Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
   Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
   MessageCircle, Calendar, TrendingUp, Flag, XCircle,
-  FileSignature, Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
+  Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
   AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio, BarChart3,
   PieChart, PieChartIcon, ChartColumn, ShieldCheck,
   PhoneCall, Layers, ChevronDown, ChevronUp
@@ -139,8 +139,6 @@ interface DbLead {
   /** true = employee claimed this lead from Shared Pool (counts toward the 10 pool limit) */
   claimed_from_pool?: boolean | null;
 }
-
-
 
 
 // ── Follow-up urgency config ──
@@ -870,10 +868,6 @@ export default function Leads() {
   const fileRef = useRef<HTMLInputElement>(null);
   
   const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
-  const [leegalitySignDialog, setLeegalitySignDialog] = useState<DbLead | null>(null);
-  const [leegalityLoading, setLeegalityLoading] = useState<string | null>(null);
-  const [sendingAgreement, setSendingAgreement] = useState<string | null>(null);
-  const [agreementData, setAgreementData] = useState<Record<string, any>>({});
 
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
   const [exportStage, setExportStage] = useState("all");
@@ -931,161 +925,6 @@ export default function Leads() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  const handleSendAgreement = useCallback(async (lead: DbLead) => {
-    if (!lead.email) {
-      toast.error("Client email is required to send agreement");
-      return;
-    }
-    
-    setSendingAgreement(lead.id);
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-agreement`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          lead_id: lead.id,
-          client_name: lead.name,
-          client_email: lead.email,
-          client_phone: lead.phone,
-          company_name: lead.company,
-          package_name: "Premium Package",
-          amount: lead.value || 0,
-        }),
-      });
-      
-      const result = await response.json();
-      
-      if (result.success && result.sign_url) {
-        setAgreementData(prev => ({ ...prev, [lead.id]: result.agreement }));
-        toast.success(`Signing link generated for ${lead.email}`);
-        logActivity(lead.id, "agreement_sent", `Signing link sent to ${lead.email}`);
-      } else {
-        toast.error(result.error || "Failed to send agreement");
-      }
-    } catch (error: any) {
-      console.error("Send agreement error:", error);
-      toast.error(error.message || "Something went wrong");
-    } finally {
-      setSendingAgreement(null);
-    }
-  }, [logActivity]);
-
-  const fetchAgreementStatus = useCallback(async (leadId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("agreements")
-        .select("*")
-        .eq("lead_id", leadId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (!error && data) {
-        setAgreementData(prev => ({ ...prev, [leadId]: data }));
-      }
-    } catch (error) {
-      // No agreement found - ignore
-    }
-  }, []);
-
-  const handleLeegalitySign = useCallback(async (leadId: string) => {
-    const lead = leads.find(l => l.id === leadId);
-    if (!lead) {
-      toast.error("Lead not found");
-      return;
-    }
-    
-    if (!lead.email && !lead.phone) {
-      toast.error("Lead must have email or phone number to sign agreement");
-      return;
-    }
-    
-    setLeegalityLoading(leadId);
-    
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session?.access_token) {
-        toast.error("You need to be logged in. Please refresh and try again.");
-        setLeegalityLoading(null);
-        return;
-      }
-      
-      const samplePdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-      const redirectUrl = `${window.location.origin}/leads?agreement_signed=true&lead_id=${lead.id}`;
-      
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) {
-        toast.error("Configuration error. Please contact support.");
-        setLeegalityLoading(null);
-        return;
-      }
-      
-      const response = await fetch(`${supabaseUrl}/functions/v1/leegality-prod`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          lead_id: lead.id,
-          document_url: samplePdfUrl,
-          signer_name: lead.name,
-          signer_email: lead.email,
-          signer_phone: lead.phone,
-          redirect_url: redirectUrl,
-        }),
-      });
-      
-      const result = await response.json();
-      
-      if (result.success && result.sign_url) {
-        const updatedLead = { ...lead, leegality_status: "pending", leegality_document_id: result.document_id };
-        setDetailLead(prev => prev?.id === lead.id ? updatedLead : prev);
-        setLeads(prev => prev.map(l => l.id === lead.id ? updatedLead : l));
-        
-        toast.success("eSign request created! Redirecting to Leegality...");
-        logActivity(lead.id, "leegality_initiated", `Document ID: ${result.document_id}`);
-        
-        setTimeout(() => {
-          window.location.href = result.sign_url;
-        }, 1000);
-      } else {
-        toast.error(result.error || "Failed to create eSign request");
-      }
-    } catch (error: any) {
-      console.error("Leegality error:", error);
-      toast.error(error.message || "Something went wrong");
-    } finally {
-      setLeegalityLoading(null);
-      setLeegalitySignDialog(null);
-    }
-  }, [leads, logActivity]);
-
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('agreement_signed') === 'true') {
-      const leadId = urlParams.get('lead_id');
-      toast.success("Agreement signed successfully!");
-      fetchLeads(true);
-      if (leadId) {
-        fetchAgreementStatus(leadId);
-      }
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [fetchLeads, fetchAgreementStatus]);
-
-  useEffect(() => {
-    if (detailLead?.id) {
-      fetchAgreementStatus(detailLead.id);
-    }
-  }, [detailLead?.id, fetchAgreementStatus]);
 
   const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
     const lostDate = new Date().toISOString();
@@ -1769,8 +1608,6 @@ export default function Leads() {
       "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
       "Lost Reason": l.lost_reason || "",
       "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
-      "eSign Status": l.leegality_status || "Not Started",
-      "eSign Date": l.leegality_signed_at ? format(new Date(l.leegality_signed_at), "dd MMM yyyy") : "",
       "Temperature": l.temperature || "Warm",
     }));
   }, [getProfileName]);
@@ -1868,13 +1705,6 @@ export default function Leads() {
         open={!!lostLeadDialog}
         onClose={() => setLostLeadDialog(null)}
         onConfirm={markLeadAsLost}
-      />
-      
-      <LeegalitySignDialog
-        lead={leegalitySignDialog}
-        open={!!leegalitySignDialog}
-        onClose={() => setLeegalitySignDialog(null)}
-        onSignInitiated={handleLeegalitySign}
       />
 
       <BulkDeleteDialog
@@ -2615,7 +2445,7 @@ export default function Leads() {
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
                             {lead.stage !== "lost" && lead.stage !== "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setLostLeadDialog(lead)} title="Mark as Lost"><Flag className="h-3.5 w-3.5" /></Button>)}
-                            {lead.stage === "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-green-600" onClick={() => setLeegalitySignDialog(lead)} title="eSign via Leegality" disabled={leegalityLoading === lead.id}>{leegalityLoading === lead.id ? (<Loader2 className="h-3.5 w-3.5 animate-spin" />) : (<FileSignature className="h-3.5 w-3.5" />)}</Button>)}
+                            
                             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete"><Trash2 className="h-3.5 w-3.5" /></Button>
                           </div></TableCell>
                         </TableRow>
@@ -2726,8 +2556,7 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Assign Date</p><p className="font-medium">{detailLead.assign_date ? format(new Date(detailLead.assign_date), "dd MMM yyyy") : "-"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Created At</p><p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p></div>
                 {detailLead.lost_reason && (<div className="col-span-2"><p className="text-muted-foreground text-xs">Lost Reason</p><p className="font-medium text-red-600">{formatStageLabel(detailLead.lost_reason)}</p></div>)}
-                {detailLead.leegality_status && (<div className="col-span-2"><p className="text-muted-foreground text-xs">eSign Status</p><span className="text-xs font-semibold px-2 py-0.5 rounded border" style={{ background: detailLead.leegality_status === "completed" ? "#ecfdf5" : "#fef3c7", color: detailLead.leegality_status === "completed" ? "#16a34a" : "#d97706", borderColor: detailLead.leegality_status === "completed" ? "#bbf7d0" : "#fde68a" }}>{detailLead.leegality_status === "completed" ? "✓ Signed" : detailLead.leegality_status === "pending" ? "⏳ Pending" : "Not Started"}</span></div>)}
-                {agreementData[detailLead.id] && (<div className="col-span-2 mt-2 p-3 rounded-lg border bg-muted/20"><p className="text-muted-foreground text-xs font-semibold mb-2">Agreement Status</p><div className="flex flex-wrap items-center gap-2"><Badge className={agreementData[detailLead.id].status === 'signed' ? 'bg-green-100 text-green-800' : agreementData[detailLead.id].status === 'sent' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}>{agreementData[detailLead.id].status === 'signed' && '✓ Signed'}{agreementData[detailLead.id].status === 'sent' && '📤 Sent'}{agreementData[detailLead.id].status === 'not_sent' && 'Not Sent'}{agreementData[detailLead.id].status === 'rejected' && '❌ Rejected'}</Badge>{agreementData[detailLead.id].signed_date && (<span className="text-xs text-muted-foreground">Signed: {format(new Date(agreementData[detailLead.id].signed_date), "dd MMM yyyy, hh:mm a")}</span>)}{agreementData[detailLead.id].leegality_sign_url && agreementData[detailLead.id].status !== 'signed' && (<Button variant="link" size="sm" className="p-0 h-auto text-xs" asChild><a href={agreementData[detailLead.id].leegality_sign_url} target="_blank" rel="noopener noreferrer">View Signing Link</a></Button>)}{agreementData[detailLead.id].signed_pdf_url && (<Button variant="link" size="sm" className="p-0 h-auto text-xs" asChild><a href={agreementData[detailLead.id].signed_pdf_url} target="_blank" rel="noopener noreferrer">📄 Download Signed PDF</a></Button>)}</div></div>)}
+                
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
               </div>
@@ -2736,7 +2565,7 @@ export default function Leads() {
                 {detailLead.email && (<Button size="sm" variant="outline" asChild><a href={`mailto:${detailLead.email}`} onClick={() => logActivity(detailLead.id, "emailed", detailLead.email || undefined)}><Mail className="mr-1 h-3 w-3" />Email</a></Button>)}
                 {detailLead.phone && (<Button size="sm" variant="outline" asChild><a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer" onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}><MessageCircle className="mr-1 h-3 w-3" />WhatsApp</a></Button>)}
                 {detailLead.stage !== "lost" && detailLead.stage !== "converted" && (<Button size="sm" variant="destructive" onClick={() => setLostLeadDialog(detailLead)}><Flag className="mr-1 h-3 w-3" />Mark as Lost</Button>)}
-                {detailLead.stage === "converted" && (<><Button size="sm" variant="default" onClick={() => handleSendAgreement(detailLead)} disabled={sendingAgreement === detailLead.id} className="bg-blue-600 hover:bg-blue-700">{sendingAgreement === detailLead.id ? (<Loader2 className="mr-1 h-3 w-3 animate-spin" />) : (<FileSignature className="mr-1 h-3 w-3" />)}Send Agreement</Button><Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => setLeegalitySignDialog(detailLead)} disabled={leegalityLoading === detailLead.id}>{leegalityLoading === detailLead.id ? (<Loader2 className="mr-1 h-3 w-3 animate-spin" />) : (<FileSignature className="mr-1 h-3 w-3" />)}eSign</Button></>)}
+                
               </div>
               <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
             </div>
@@ -2771,81 +2600,6 @@ export default function Leads() {
   );
 }
 
-function LeegalitySignDialog({ lead, open, onClose, onSignInitiated }: {
-  lead: DbLead | null;
-  open: boolean;
-  onClose: () => void;
-  onSignInitiated: (leadId: string) => Promise<void>;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [agreementType, setAgreementType] = useState("service_agreement");
-  
-  if (!lead) return null;
-  
-  const handleSign = async () => {
-    setLoading(true);
-    try {
-      await onSignInitiated(lead.id);
-      onClose();
-    } catch (error) {
-      console.error("Sign initiation failed:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-green-600">
-            <FileSignature className="h-5 w-5" />
-            Leegality eSign Agreement
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="bg-green-50 p-4 rounded-lg">
-            <p className="font-semibold text-green-800">{lead.name}</p>
-            <p className="text-sm text-green-600 mt-1">{lead.email || lead.phone}</p>
-            {lead.company && <p className="text-xs text-green-600">{lead.company}</p>}
-          </div>
-          
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Agreement Type</Label>
-              <Select value={agreementType} onValueChange={setAgreementType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select agreement type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="service_agreement">Service Agreement</SelectItem>
-                  <SelectItem value="nda">NDA</SelectItem>
-                  <SelectItem value="partnership">Partnership Agreement</SelectItem>
-                  <SelectItem value="custom">Custom Agreement</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="text-xs text-muted-foreground space-y-1 border-t pt-3">
-              <p className="font-semibold">✓ Legally compliant with:</p>
-              <p>• IT Act 2000 (Aadhaar eSign)</p>
-              <p>• Indian Stamp Act (eStamp)</p>
-              <p>• DPDP Act 2023</p>
-              <p>• RBI/SEBI guidelines</p>
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSign} disabled={loading} className="bg-green-600 hover:bg-green-700">
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}
-            Continue to Sign
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function LostLeadDialog({ lead, open, onClose, onConfirm }: {
   lead: DbLead | null;
@@ -3004,3 +2758,4 @@ function downloadExcelTemplate() {
   XLSX.writeFile(wb, "lead_import_template.xlsx");
   toast.success("Template downloaded! Fill it with your data and re-upload.");
 }
+Supabase Agreements API 400 Bad Request - Grok
