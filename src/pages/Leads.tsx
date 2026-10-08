@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useMemo, memo } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,11068 +9,2775 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useCanAssignTasks, useAllProfiles } from "@/hooks/useAdmin";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
-import { sendProjectCreatedEmail, sendStageCompletedEmailService, notifyTaskCompleted } from "@/services/emailService";
-import * as XLSX from 'xlsx';
-import { format, isBefore, isToday, isThisWeek, startOfDay, differenceInDays, eachDayOfInterval, subDays, addDays, subMonths, addMonths, isSameDay, isSameMonth, startOfMonth, endOfMonth, getDay } from "date-fns";
+import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
-  Plus, Search, Loader2, Trash2, Edit, Eye, Download, X,
-  Users, Phone, Mail, Calendar, TrendingUp, Flag, XCircle,
-  FileSignature, Flame, Snowflake, Sun, FolderKanban, 
-  CheckCircle, AlertTriangle, DollarSign, Clock, Rocket,
-  Package, MessageSquare, Share2, MoreVertical, UserCheck,
-  FileText, CreditCard, ClipboardList, Building2, Send,
-  ChevronRight, ArrowLeft, Bell, File, Image, Video,
-  Shield, Award, Coffee, Globe, Zap, Target, BarChart3,
-  RefreshCw, Save, Copy, Upload, StickyNote, MapPin, PhoneCall,
-  CircleDot, EyeOff, Filter, Users2, Briefcase, PieChart,
-  Layers, Link2, ExternalLink, Archive, BookOpen, CheckSquare,
-  ListChecks, CalendarDays, Timer, Hourglass, AlarmClock,
-  UserPlus, UserMinus, Settings, SlidersHorizontal, FileSpreadsheet,
-  Import, Table as TableIcon, FileDown, FileUp, Sparkles, Palette,
-  LayoutGrid, List, ImagePlus, FolderPlus, Images, FilePlus,
-  ChevronDown, Tag, History, UserCog, Clock as ClockIcon,
-  Calendar as CalendarIcon, Check, AlertCircle, Info,
-  Star, StarOff, ThumbsUp, ThumbsDown, MessageCircle,
-  BriefcaseBusiness, Grid, ListTodo, CalendarRange, Users as UsersIcon,
-  UserCog2, Target as TargetIcon, Timer as TimerIcon,
-  ShoppingCart, Scale, Factory
+  Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
+  Download, X, UserCheck, CheckSquare, Users, Phone, Mail,
+  MessageCircle, Calendar, TrendingUp, Flag, XCircle,
+  Flame, Snowflake, Sun, ChevronLeft, ChevronRight,
+  AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Radio, BarChart3,
+  PieChart, PieChartIcon, ChartColumn, ShieldCheck,
+  PhoneCall, Layers, ChevronDown, ChevronUp
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import LeadCommentsPanel from "@/components/LeadCommentsPanel";
+import { useBulkAssignLeads } from "@/hooks/useLeadComments";
+import { isToday, isPast, isFuture, subDays, format, startOfDay } from "date-fns";
+import { toast } from "sonner";
+import * as XLSX from "xlsx";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart as RePieChart, Pie, Cell, Legend, LineChart, Line
+} from 'recharts';
 
-// ============================================================
-// CONSTANTS (Same as before)
-// ============================================================
-// Project Stages only (projects.current_stage) — order: Social Media → Development → Ecommerce
-const PROJECT_STAGES = [
-  // Social Media
-  { value: "brand_identity", label: "Brand Identity", icon: "", color: "#8b5cf6" },
-  { value: "brand_name", label: "Brand Name", icon: "", color: "#a855f7" },
-  { value: "logo", label: "Logo", icon: "", color: "#ec4899" },
-  { value: "domain_registration", label: "Domain Registration", icon: "", color: "#3b82f6" },
-  { value: "trademark", label: "Trademark", icon: "", color: "#10b981" },
-  { value: "mockups", label: "Mockups", icon: "", color: "#f59e0b" },
-  { value: "product_name", label: "Product Name", icon: "", color: "#f97316" },
-  { value: "social_media_activation", label: "Social Media Activation", icon: "", color: "#06b6d4" },
-  { value: "pr", label: "PR", icon: "", color: "#db2777" },
-  // Development
-  { value: "ui_ux", label: "UI / UX", icon: "", color: "#6366f1" },
-  { value: "shopify_theme", label: "Shopify Theme (Paid / Free)", icon: "", color: "#96bf48" },
-  { value: "mobile_view", label: "Mobile View", icon: "", color: "#0ea5e9" },
-  { value: "payment_gateway", label: "Payment Gateway", icon: "", color: "#ef4444" },
-  { value: "logistics_integration", label: "Logistics Integration", icon: "", color: "#f97316" },
-  { value: "account_creation", label: "Account Creation", icon: "", color: "#64748b" },
-  { value: "qa_testing", label: "QA Testing", icon: "", color: "#22c55e" },
-  { value: "live_website", label: "Live Website", icon: "", color: "#14b8a6" },
-  // Ecommerce
-  { value: "amazon_creation", label: "Amazon Account Creation", icon: "", color: "#ff9900" },
-  { value: "amazon_listing", label: "Amazon Listing", icon: "", color: "#ff9900" },
-  { value: "flipkart_creation", label: "Flipkart Account Creation", icon: "", color: "#2874f0" },
-  { value: "flipkart_listing", label: "Flipkart Listing", icon: "", color: "#2874f0" },
-  // Marketing & Launch
-  { value: "brand_awareness", label: "Brand Awareness", icon: "", color: "#06b6d4" },
-  { value: "adds_campaign_meta_ads", label: "Adds Campaign / Meta Ads", icon: "", color: "#8b5cf6" },
-  { value: "launch", label: "Launch", icon: "", color: "#f97316" },
-  { value: "scale", label: "Scale", icon: "", color: "#ec4899" },
+// ── Stages config ─────────────────────────────────────────────────────────────
+const DEFAULT_LEAD_STAGE = "new";
+
+const LEAD_STAGES = [
+  { value: "new",       label: "New",       color: "#3b82f6", bg: "#eff6ff", icon: "✨" },
+  { value: "ringing",   label: "Ringing",   color: "#f97316", bg: "#fff7ed", icon: "📞" },
+  { value: "callback",  label: "Callback",  color: "#3b82f6", bg: "#eff6ff", icon: "🔔" },
+  { value: "dp",        label: "DP",        color: "#8b5cf6", bg: "#f5f3ff", icon: "📋" },
+  { value: "vms",       label: "VMS",       color: "#06b6d4", bg: "#ecfeff", icon: "🎙" },
+  { value: "pg",        label: "PG",        color: "#ec4899", bg: "#fdf2f8", icon: "👥" },
+  { value: "converted", label: "Converted", color: "#10b981", bg: "#ecfdf5", icon: "✅" },
+  { value: "lost",      label: "Lost",      color: "#ef4444", bg: "#fef2f2", icon: "❌" },
 ];
 
-const STAGE_SECTIONS = [
-  { title: "Social Media", color: "text-purple-700", stages: PROJECT_STAGES.slice(0, 9) },
-  { title: "Development", color: "text-indigo-700", stages: PROJECT_STAGES.slice(9, 17) },
-  { title: "Ecommerce", color: "text-orange-700", stages: PROJECT_STAGES.slice(17, 21) },
-  { title: "Marketing & Launch", color: "text-rose-700", stages: PROJECT_STAGES.slice(21) },
+const LEAD_TEMPERATURE = [
+  { value: "hot",   label: "🔥 Hot",   color: "#ef4444", bg: "#fef2f2" },
+  { value: "warm",  label: "☀️ Warm",  color: "#f97316", bg: "#fff7ed" },
+  { value: "cold",  label: "❄️ Cold",  color: "#3b82f6", bg: "#eff6ff" },
 ];
 
-const PROJECT_STATUSES = [
-  { value: "active", label: "Active", color: "#10b981" },
-  { value: "on_hold", label: "On Hold", color: "#f59e0b" },
-  { value: "completed", label: "Completed", color: "#3b82f6" },
-  { value: "cancelled", label: "Cancelled", color: "#ef4444" },
-  { value: "refund", label: "Refund", color: "#a855f7" },
+const LEAD_STATUSES = [
+  { value: "ringing",            label: "Ringing"           },
+  { value: "callback",           label: "Callback"          },
+  { value: "dp",                 label: "DP"                },
+  { value: "vms",                label: "VMS"               },
+  { value: "pg",                 label: "PG"                },
+  { value: "converted",          label: "Converted"         },
+  { value: "lost",               label: "Lost"              },
+  { value: "meeting_booked",     label: "Meeting Booked"    },
+  { value: "business_generated", label: "Business Generated"},
 ];
 
-const PROJECT_TYPES = [
-  { value: "perfume", label: "Perfume", icon: "" },
-  { value: "ayurveda", label: "Ayurveda", icon: "" },
-  { value: "cosmetics", label: "Cosmetics", icon: "" },
-  { value: "food", label: "Food", icon: "" },
-  { value: "supplements", label: "Supplements", icon: "" },
-];
-
-/** Product category options shown in Project Overview */
-const PRODUCT_CATEGORIES = [
-  { value: "perfume", label: "Perfume" },
-  { value: "ayurveda", label: "Ayurveda" },
-  { value: "cosmetics", label: "Cosmetics" },
-  { value: "food", label: "Food & Beverage" },
-  { value: "supplements", label: "Supplements / Nutraceutical" },
-  { value: "herbal", label: "Herbal & Ayurvedic" },
-  { value: "pharma", label: "Pharma" },
-  { value: "other", label: "Other" },
-];
-
-/** How many products to launch (1–10) */
-const PRODUCTS_TO_LAUNCH_OPTIONS = Array.from({ length: 10 }, (_, i) => ({
-  value: String(i + 1),
-  label: String(i + 1),
-}));
-
-const PROJECT_PRIORITIES = [
-  { value: "high", label: "High", color: "#ef4444", icon: "" },
-  { value: "medium", label: "Medium", color: "#f59e0b", icon: "" },
-  { value: "low", label: "Low", color: "#10b981", icon: "" },
-];
-
-const MANUFACTURING_STAGES = [
-  "Advanced Payment",
-  "Sample",
-  "Documentation",
-  "Production",
-  "PKG Selection",
-  "Quality Check",
-  "Dispatch",
-  "Delivery"
-];
-
-const DOCUMENT_FOLDERS = [
-  "Barcodes",
-  "Mockups / Logo",
-  "Fonts",
-  "Company Certificates",
-  "Personal Documents",
-  "Brand Identity",
-  "Legal Agreement",
-  "Packaging",
-];
-
-function documentFolderAliases(folder: string): string[] {
-  if (folder === "Mockups / Logo") return ["Mockups / Logo", "Mockups", "Logo"];
-  if (folder === "Fonts" || folder === "Font") return ["Fonts", "Font", "fonts", "font"];
-  if (folder === "Legal Agreement") return ["Legal Agreement", "Agreements"];
-  if (folder === "Company Certificates") return ["Company Certificates", "Certificates"];
-  if (folder === "Packaging") return ["Packaging", "Packaging Files"];
-  return [folder];
-}
-
-function isDocumentLink(doc: { file_type?: string | null; file_url?: string | null }) {
-  const t = (doc.file_type || "").toLowerCase();
-  return t === "link" || t === "url" || t === "text/uri-list";
-}
-
-const DEPARTMENT_TYPES = [
-  { value: "discovery",    label: "Product Discovery",       icon: Rocket,         color: "indigo" },
-  { value: "branding",     label: "Branding",                icon: Sparkles,       color: "pink" },
-  { value: "packaging",    label: "Packaging",               icon: Package,        color: "amber" },
-  { value: "website",      label: "Website Development",     icon: Globe,          color: "blue" },
-  { value: "social",       label: "Social Media",            icon: MessageSquare,  color: "fuchsia" },
-  { value: "marketplace",  label: "Marketplace Listing",     icon: ShoppingCart,   color: "orange" },
-  { value: "marketing",    label: "Performance Marketing",   icon: Zap,            color: "red" },
-  { value: "trademark",    label: "Trademark",               icon: Scale,          color: "emerald" },
-  { value: "production",   label: "Production",              icon: Factory,        color: "slate" },
-  { value: "others",       label: "Others",                  icon: Layers,         color: "gray" },
-];
-
-const DEPARTMENT_STATUSES = [
-  { value: "active", label: "Active", color: "#10b981" },
-  { value: "on_hold", label: "On Hold", color: "#f59e0b" },
-  { value: "completed", label: "Completed", color: "#3b82f6" },
-  { value: "blocked", label: "Blocked", color: "#ef4444" },
-];
-
-const SUBTASK_TAGS = [
-  "Design", "Content", "Approval", "Follow-up", "Review",
-  "Blocked", "Urgent", "Research", "Client Input", "Other"
-];
-
-const SUBTASK_STATUSES = [
-  { value: "not_started", label: "Not Started" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "completed", label: "Completed" },
-];
-
-// ============================================================
-// INTERFACES
-// ============================================================
-interface Project {
-  id: string;
-  project_id: string;
-  lead_id: string | null;
-  name: string;
-  brand_name: string | null;
-  project_type: string | null;
-  project_value: number | null;
-  start_date: string | null;
-  expected_launch_date: string | null;
-  project_manager: string | null;
-  current_stage: string;
-  completion_percentage: number;
-  status: string;
-  priority: string;
-  client_address: string | null;
-  client_phone: string | null;
-  client_email: string | null;
-  image_url: string | null;
-  product_category: string | null;
-  products_to_launch: number | null;
-  /** Free-text note e.g. fragrance of perfume, or custom text when category is Other */
-  product_category_note: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ProjectStage {
-  id: string;
-  project_id: string;
-  stage_name: string;
-  stage_order: number;
-  status: string;
-  start_date: string | null;
-  completion_date: string | null;
-  remarks?: string | null;
-}
-
-interface ProjectTask {
-  id: string;
-  project_id: string;
-  stage_id: string | null;
-  department_id: string | null;
-  task_name: string;
-  description: string | null;
-  department: string | null;
-  assigned_to: string | null;
-  assigned_to_email: string | null;
-  assigned_to_name: string | null;
-  assigned_by: string | null;
-  priority: string;
-  status: string;
-  start_date: string | null;
-  due_date: string | null;
-  completion_date: string | null;
-  employee_remarks: string | null;
-  created_at?: string | null;
-  assigned_at?: string | null;
-  updated_at?: string | null;
-}
-
-interface Department {
-  id: string;
-  project_id: string;
-  department_id: string;
-  name: string;
-  department_type: string | null;
-  manager_name: string | null;
-  manager_email: string | null;
-  status: string;
-  progress: number;
-  start_date: string | null;
-  due_date: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface DepartmentLookup {
-  id: string;
-  name: string;
-}
-
-interface Agreement {
-  id: string;
-  project_id: string;
-  agreement_type: string;
-  title: string;
-  status: string;
-  file_url: string | null;
-  signed_file_url: string | null;
-  sent_date: string | null;
-  signed_date: string | null;
-}
-
-interface Payment {
-  id: string;
-  project_id: string;
-  payment_type: string;
-  milestone: string;
-  amount: number;
-  due_date: string | null;
-  paid_date: string | null;
-  payment_mode: string | null;
-  invoice_number: string | null;
-  status: string;
-}
-
-interface Manufacturing {
-  id: string;
-  project_id: string;
-  stage: string;
-  status: string;
-  start_date: string | null;
-  completion_date: string | null;
-  remarks: string | null;
-  responsible_person: string | null;
-  file_url: string | null;
-}
-
-interface Document {
-  id: string;
-  project_id: string;
-  folder: string;
-  file_name: string;
-  file_url: string;
-  file_size: number | null;
-  file_type: string | null;
-  version: number;
-  uploaded_by: string | null;
-  created_at: string;
-}
-
-interface Communication {
-  id: string;
-  project_id: string;
-  communication_type: string;
-  subject: string | null;
-  message: string | null;
-  attachment_url: string | null;
-  communication_date: string;
-  user_id: string | null;
-  next_followup_date: string | null;
-}
-
-interface ProjectNote {
-  id: string;
-  project_id: string;
-  note_type: string;
-  title: string | null;
-  content: string;
-  created_by: string | null;
-  created_by_email: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ITTeamMember {
-  id: string;
-  name: string;
-  email: string;
-  role: string | null;
-  active: boolean;
-}
-
-interface TaskSubtask {
-  id: string;
-  task_id: string;
-  title: string;
-  tag: string | null;
-  status: string;
-  assigned_to_email: string | null;
-  assigned_to_name: string | null;
-  note: string | null;
-  created_at: string;
-  updated_at?: string | null;
-}
-
-interface TaskRemark {
-  id: string;
-  task_id: string;
-  remark: string;
-  created_by_email: string | null;
-  created_by_name: string | null;
-  created_at: string;
-}
-
-interface MyTaskRow extends ProjectTask {
-  projects: {
-    name: string;
-    project_id: string;
-    brand_name: string | null;
-    client_phone: string | null;
-    client_email: string | null;
-    client_address: string | null;
-    current_stage: string | null;
-    status: string | null;
-  } | null;
-}
-
-interface InternalMessage {
-  id: string;
-  sender_email: string;
-  receiver_email: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
-}
-
-const TEAM_GROUP_EMAIL = "__team_group__";
-const TEAM_GROUP_MEMBER: ITTeamMember = {
-  id: "__team_group__",
-  name: "Team Group Chat",
-  email: TEAM_GROUP_EMAIL,
-  role: "All members — group chat",
-  active: true,
+const SUB_STAGES: Record<string, { value: string; label: string }[]> = {
+  ringing:  [
+    { value: "ringing_1st", label: "1st Ring" },
+    { value: "ringing_2nd", label: "2nd Ring" },
+    { value: "ringing_3rd", label: "3rd Ring" },
+  ],
+  callback: [
+    { value: "callback_scheduled", label: "Callback Scheduled" },
+    { value: "callback_done",      label: "Callback Done"      },
+  ],
+  dp:       [
+    { value: "dp_sent",     label: "DP Sent"     },
+    { value: "dp_reviewed", label: "DP Reviewed" },
+  ],
+  vms:      [
+    { value: "vms_left",    label: "VMS Left"    },
+    { value: "vms_replied", label: "VMS Replied" },
+  ],
+  pg:       [
+    { value: "pg_initiated", label: "PG Initiated" },
+    { value: "pg_confirmed", label: "PG Confirmed" },
+  ],
+  converted:[
+    { value: "meeting_booked",      label: "Meeting Booked"      },
+    { value: "business_generated",  label: "Business Generated"  },
+  ],
+  lost: [
+    { value: "not_interested",  label: "Not Interested" },
+    { value: "no_response",     label: "No Response" },
+    { value: "budget_issue",    label: "Budget Issue" },
+    { value: "competitor",      label: "Competitor" },
+    { value: "wrong_number",    label: "Wrong Number" },
+  ],
 };
 
-// ============================================================
-// HELPER FUNCTIONS (Same as before)
-// ============================================================
-
-const ADMIN_EMAIL = "banegabrand.admin@gmail.com";
-const ADMIN_DISPLAY_NAME = "Mayank Sir";
-
-function displayPersonName(name?: string | null, email?: string | null) {
-  const em = (email || "").trim().toLowerCase();
-  if (em === ADMIN_EMAIL) return ADMIN_DISPLAY_NAME;
-  const n = (name || "").trim();
-  if (/banega\s*brand\s*admin/i.test(n) || /^banegabrand\s*admin$/i.test(n)) return ADMIN_DISPLAY_NAME;
-  return n || email || "";
+function getSubStagesForStage(stage: string | null | undefined) {
+  return SUB_STAGES[stage || ""] || [];
 }
 
-function getStageLabel(value: string) {
-  const stage = PROJECT_STAGES.find(s => s.value === value);
-  return stage?.label || value;
+function formatStageLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  for (const s of LEAD_STAGES)  if (s.value === value) return s.label;
+  for (const arr of Object.values(SUB_STAGES)) for (const s of arr) if (s.value === value) return s.label;
+  for (const s of LEAD_STATUSES) if (s.value === value) return s.label;
+  return value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function getStageIcon(value: string) {
-  const stage = PROJECT_STAGES.find(s => s.value === value);
-  return stage?.icon || "";
+function getStageConfig(stage: string | null | undefined) {
+  return LEAD_STAGES.find(s => s.value === stage) || null;
 }
 
-function getStageColor(value: string) {
-  const stage = PROJECT_STAGES.find(s => s.value === value);
-  return stage?.color || "#64748b";
+function getTemperatureConfig(temp: string | null | undefined) {
+  return LEAD_TEMPERATURE.find(t => t.value === temp) || null;
 }
 
-/** Normalize DB status values: "On Hold", "on-hold", "ON_HOLD" → "on_hold" */
-function normalizeProjectStatus(status: string | null | undefined): string {
-  if (!status) return "";
-  const raw = String(status).trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (raw === "hold" || raw === "onhold") return "on_hold";
-  if (raw === "cancel" || raw === "canceled") return "cancelled";
-  if (raw === "complete" || raw === "done") return "completed";
-  if (raw === "refunded" || raw === "refund_project") return "refund";
-  return raw;
+interface DbLead {
+  id: string; name: string; email: string | null; phone: string | null; company: string | null;
+  source: string | null; status: string; value: number | null; business_status: string | null;
+  assigned_to: string | null; created_at: string; next_call_date: string | null;
+  lead_type: string | null; address: string | null; cx_comment: string | null;
+  budget: string | null; stage: string | null; sub_stage: string | null; remark: string | null;
+  assign_date?: string | null;
+  lost_reason?: string | null;
+  lost_date?: string | null;
+  leegality_document_id?: string | null;
+  leegality_status?: string | null;
+  leegality_signed_at?: string | null;
+  temperature?: string | null;
+  /** true = admin put this lead in Shared Pool (visible to employees until claimed) */
+  in_shared_pool?: boolean | null;
+  /** true = employee claimed this lead from Shared Pool (counts toward the 10 pool limit) */
+  claimed_from_pool?: boolean | null;
 }
 
-function getStatusColor(status: string) {
-  const normalized = normalizeProjectStatus(status);
-  const s = PROJECT_STATUSES.find(ps => ps.value === normalized);
-  return s?.color || "#64748b";
+
+// ── Follow-up urgency config ──
+const FOLLOWUP_BUCKETS = [
+  { value: "overdue", label: "Overdue",   color: "#ef4444", bg: "#fef2f2", icon: "⏰" },
+  { value: "today",   label: "Today",     color: "#f97316", bg: "#fff7ed", icon: "📅" },
+  { value: "upcoming",label: "Upcoming",  color: "#3b82f6", bg: "#eff6ff", icon: "🔜" },
+];
+
+function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" | "today" | "upcoming" | null {
+  if (!nextCallDate) return null;
+  const d = startOfDay(new Date(nextCallDate));
+  const today = startOfDay(new Date());
+  const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  // upcoming = future, today = due today, overdue = 1 or 2 days past only
+  if (diffDays < 0) return "upcoming";
+  if (diffDays === 0) return "today";
+  if (diffDays >= 1 && diffDays <= 2) return "overdue";
+  return null; // 3+ days past → follow-up list se hata do
 }
 
-function getStatusLabel(status: string) {
-  const normalized = normalizeProjectStatus(status);
-  const s = PROJECT_STATUSES.find(ps => ps.value === normalized);
-  return s?.label || status;
+/** Safe merge: never keep two rows with same id */
+function dedupeLeads(rows: DbLead[]): DbLead[] {
+  const seen = new Set<string>();
+  const out: DbLead[] = [];
+  for (const l of rows) {
+    if (!l?.id || seen.has(l.id)) continue;
+    seen.add(l.id);
+    out.push({
+      ...l,
+      stage: l.stage === "New" ? "new" : l.stage,
+    });
+  }
+  return out;
 }
+
+/** Employee ko sirf apni assigned leads dikhne chahiye */
+function isLeadVisibleToEmployee(lead: DbLead, userId: string): boolean {
+  return lead.assigned_to === userId;
+}
+
+function getFollowupBucketConfig(bucket: string | null) {
+  return FOLLOWUP_BUCKETS.find(b => b.value === bucket) || null;
+}
+
+const LEAD_TYPES = ["Herbal & Ayurvedic", "Cosmetics", "Food & Beverage", "Pharma","Perfume", "Nutraceutical", "Other"];
+const BUDGETS    = ["₹5l+", "₹50k - ₹1l", "₹1l - ₹3l", "₹3l - ₹5l", "Below ₹50k"];
+
+const formatCurrency = (val: number) => `₹${(val / 100000).toFixed(1)}L`;
 
 function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 }
 
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0
-  }).format(amount);
+const AVATAR_COLORS = [
+  "#3b82f6","#8b5cf6","#ec4899","#f97316","#10b981","#06b6d4","#f59e0b","#ef4444",
+];
+function avatarColor(name: string) {
+  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[h];
 }
 
-function getPriorityColor(priority: string) {
-  const colors: Record<string, string> = {
-    urgent: "text-red-600 bg-red-100 border-red-200",
-    high: "text-orange-600 bg-orange-100 border-orange-200",
-    medium: "text-blue-600 bg-blue-100 border-blue-200",
-    low: "text-gray-600 bg-gray-100 border-gray-200"
-  };
-  return colors[priority] || colors.medium;
+function getLeadScore(lead: DbLead): number {
+  let score = 0;
+  if (lead.name)    score += 10;
+  if (lead.email)   score += 15;
+  if (lead.phone)   score += 15;
+  if (lead.company) score += 10;
+  if (lead.source)  score += 10;
+  if ((lead.value || 0) > 0) score += 15;
+  if      (lead.status === "converted")  score += 30;
+  else if (lead.status === "qualified")  score += 25;
+  else if (lead.status === "answered")   score += 20;
+  else if (lead.status === "contacted")  score += 15;
+  else if (lead.status === "new")        score += 5;
+  else if (lead.status === "lost")       score = 0;
+  if (lead.sub_stage === "meeting_booked" || lead.sub_stage === "business_generated") score += 10;
+  
+  if (lead.temperature === "hot") score += 15;
+  else if (lead.temperature === "warm") score += 8;
+  
+  return Math.min(score, 100);
 }
 
-function getProjectPriorityMeta(priority: string) {
-  return PROJECT_PRIORITIES.find(p => p.value === priority) || PROJECT_PRIORITIES[1];
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 70 ? "#10b981" : score >= 40 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="flex items-center gap-1">
+      <div className="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-semibold" style={{ borderColor: color, color }}>
+        {score}
+      </div>
+    </div>
+  );
 }
 
-function getDepartmentTypeMeta(value: string | null) {
-  return DEPARTMENT_TYPES.find(d => d.value === value) || DEPARTMENT_TYPES[DEPARTMENT_TYPES.length - 1];
+function TemperatureBadge({ temperature }: { temperature: string | null | undefined }) {
+  const config = getTemperatureConfig(temperature);
+  if (!config) return <span className="text-xs text-muted-foreground">-</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border" style={{ color: config.color, background: config.bg, borderColor: `${config.color}30` }}>
+      {config.label}
+    </span>
+  );
 }
 
-function getDepartmentStatusMeta(status: string) {
-  return DEPARTMENT_STATUSES.find(d => d.value === status) || DEPARTMENT_STATUSES[0];
+function StagePill({ stage, subStage }: { stage: string | null; subStage: string | null }) {
+  const cfg = getStageConfig(stage);
+  if (!cfg) return <span className="text-xs text-muted-foreground">-</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ color: cfg.color, background: cfg.bg, borderColor: `${cfg.color}30` }}>
+        {cfg.label}
+      </span>
+      {subStage && (
+        <span className="text-[10px] text-muted-foreground">{formatStageLabel(subStage)}</span>
+      )}
+    </div>
+  );
 }
 
-function getDueBucket(dueDate: string | null) {
-  if (!dueDate) return "no_date";
-  const d = startOfDay(new Date(dueDate));
-  const today = startOfDay(new Date());
-  if (isBefore(d, today)) return "overdue";
-  if (isToday(d)) return "today";
-  if (isThisWeek(d)) return "this_week";
-  return "later";
+function FollowupPill({ nextCallDate }: { nextCallDate: string | null | undefined }) {
+  const bucket = getFollowupBucket(nextCallDate);
+  const cfg = getFollowupBucketConfig(bucket);
+  if (!cfg || !nextCallDate) return <span className="text-xs text-muted-foreground">-</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ color: cfg.color, background: cfg.bg, borderColor: `${cfg.color}30` }}>
+        <span>{cfg.icon}</span>{cfg.label}
+      </span>
+      <span className="text-[10px] text-muted-foreground">{format(new Date(nextCallDate), "dd MMM yyyy")}</span>
+    </div>
+  );
 }
 
-
-
-export interface ProjectManagerInfo {
-  name: string;
-  email: string;
-  phone: string;
-}
-
-export function parseProjectManagerInfo(raw: string | null | undefined): ProjectManagerInfo {
-  const defaultPM: ProjectManagerInfo = {
-    name: "Pankaj Singh",
-    email: "pankaj@banegabrand.com",
-    phone: "+91 9717943312",
-  };
-  if (!raw || !raw.trim()) {
-    return defaultPM;
-  }
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+// ── Chart Components ──
+function LeadCharts({ leads }: { leads: DbLead[] }) {
+  const stageData = useMemo(() => {
     try {
-      const parsed = JSON.parse(trimmed);
-      return {
-        name: parsed.name?.trim() || defaultPM.name,
-        email: parsed.email?.trim() || defaultPM.email,
-        phone: parsed.phone?.trim() || defaultPM.phone,
-      };
-    } catch {
-      // fallback if JSON parse fails
+      return LEAD_STAGES.map(s => ({
+        name: s.label,
+        value: leads.filter(l => l?.stage === s.value).length,
+        color: s.color
+      }));
+    } catch (e) {
+      console.error("Error processing stage data:", e);
+      return LEAD_STAGES.map(s => ({ name: s.label, value: 0, color: s.color }));
     }
-  }
-  return {
-    name: trimmed,
-    email: defaultPM.email,
-    phone: defaultPM.phone,
-  };
-}
+  }, [leads]);
 
-const STAGE_COMPLETE_FROM_EMAIL = "team@banegabrand.com";
-const STAGE_COMPLETE_FROM_NAME = "Banega Brand";
-
-async function sendStageCompletedEmail(project: Project, stageLabel: string, comment?: string) {
-  const to = (project.client_email || "").trim();
-  if (!to) {
-    toast.warning("Stage updated, but client email is missing so no notification was sent.");
-    return;
-  }
-  const remark = (comment || "").trim();
-  try {
-    const res = await sendStageCompletedEmailService({
-      to,
-      clientName: project.name,
-      brandName: project.brand_name,
-      projectId: project.project_id,
-      stageName: stageLabel,
-      remark,
-    });
-
-    if (res.success) {
-      toast.success(`"${stageLabel}" completion email delivered to ${to}`);
-    } else {
-      toast.error(`Email delivery failed: ${res.error || "Check Resend API Key"}`);
+  const dailyTrend = useMemo(() => {
+    try {
+      const now = new Date();
+      const days = 7;
+      const data = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = subDays(now, i);
+        const count = leads.filter(l => {
+          const created = new Date(l.created_at);
+          return created.toDateString() === d.toDateString();
+        }).length;
+        data.push({
+          date: format(d, "dd MMM"),
+          leads: count
+        });
+      }
+      return data;
+    } catch (e) {
+      console.error("Error processing trend data:", e);
+      return [];
     }
-  } catch (err: any) {
-    console.warn("[StageComplete] Error:", err?.message || err);
-    toast.error(`Stage email failed: ${err.message}`);
+  }, [leads]);
+
+  const hasData = leads && leads.length > 0;
+
+  if (!hasData) {
+    return (
+      <div className="grid grid-cols-1 gap-4 mb-6">
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <BarChart3 className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+            <p>No data available for charts</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
-}
-
-function computeStageCompletionPercent(stages: { stage_name?: string | null; status?: string | null }[]): number {
-  const total = PROJECT_STAGES.length;
-  if (!total) return 0;
-  const done = PROJECT_STAGES.filter((ps) => {
-    const item = stages.find((st) => {
-      const name = (st.stage_name || "").toLowerCase();
-      return name === ps.label.toLowerCase() || name === ps.value.toLowerCase();
-    });
-    return item?.status === "completed";
-  }).length;
-  return Math.round((done / total) * 100);
-}
-
-function serializeBrandKit(fields: Record<string, string>, imageUrl: string | null) {
-  return JSON.stringify({ __type: "brand_kit", image_url: imageUrl || null, fields });
-}
-
-function parseBrandKit(content: string): { fields: Record<string, string>; imageUrl: string | null } | null {
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed && parsed.__type === "brand_kit") {
-      return { fields: parsed.fields || {}, imageUrl: parsed.image_url || null };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function serializeClientTracker(fields: Record<string, string>, imageUrl: string | null) {
-  return JSON.stringify({ __type: "client_tracker", image_url: imageUrl || null, fields });
-}
-
-function parseClientTracker(content: string): { fields: Record<string, string>; imageUrl: string | null } | null {
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed && parsed.__type === "client_tracker") {
-      return { fields: parsed.fields || {}, imageUrl: parsed.image_url || null };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// ============================================================
-// COMPONENTS
-// ============================================================
-
-// ── Stat Card ──────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, color, subtitle, onClick, active }: any) {
-  const colors: any = {
-    blue: "bg-blue-100 text-blue-600",
-    green: "bg-green-100 text-green-600",
-    red: "bg-red-100 text-red-600",
-    purple: "bg-purple-100 text-purple-600",
-    orange: "bg-orange-100 text-orange-600",
-    yellow: "bg-yellow-100 text-yellow-600",
-    indigo: "bg-indigo-100 text-indigo-600",
-    pink: "bg-pink-100 text-pink-600",
-    teal: "bg-teal-100 text-teal-600",
-  };
 
   return (
-    <Card
-      className={`transition-all ${onClick ? "cursor-pointer hover:shadow-md hover:border-primary" : ""} ${
-        active ? "border-primary shadow-md ring-2 ring-primary/30" : ""
-      }`}
-      onClick={onClick}
-    >
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
+    <div className="grid grid-cols-1 gap-4 mb-6">
+   
+    </div>
+  );
+}
+
+// ── Follow-up Section ──────────────────────────────────────────────────────
+function FollowUpSection({
+  leads,
+  onOpenLead,
+}: {
+  leads: DbLead[];
+  onOpenLead: (lead: DbLead) => void;
+}) {
+  const [bucketFilter, setBucketFilter] = useState<"all" | "overdue" | "today" | "upcoming">("all");
+  const [fuDateFrom, setFuDateFrom] = useState("");
+  const [fuDateTo, setFuDateTo] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
+
+  const followupLeads = useMemo(() => {
+    return leads
+      .filter(l => !!l.next_call_date)
+      .filter(l => l.stage !== "converted" && l.stage !== "lost")
+      .filter(l => {
+        const bucket = getFollowupBucket(l.next_call_date);
+        if (!bucket) return false;
+        if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
+        if (fuDateFrom && new Date(l.next_call_date as string) < new Date(fuDateFrom)) return false;
+        if (fuDateTo && new Date(l.next_call_date as string) > new Date(fuDateTo + "T23:59:59")) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(a.next_call_date as string).getTime() - new Date(b.next_call_date as string).getTime());
+  }, [leads, bucketFilter, fuDateFrom, fuDateTo]);
+
+  const counts = useMemo(() => {
+    const base = leads.filter(l => {
+      if (!l.next_call_date || l.stage === "converted" || l.stage === "lost") return false;
+      return !!getFollowupBucket(l.next_call_date);
+    });
+    return {
+      overdue: base.filter(l => getFollowupBucket(l.next_call_date) === "overdue").length,
+      today: base.filter(l => getFollowupBucket(l.next_call_date) === "today").length,
+      upcoming: base.filter(l => getFollowupBucket(l.next_call_date) === "upcoming").length,
+    };
+  }, [leads]);
+
+  return (
+    <Card className="border-orange-200 shadow-md">
+      <CardHeader className="pb-3 bg-gradient-to-r from-orange-50 to-white">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm text-muted-foreground">{label}</p>
-            <p className="text-2xl font-bold mt-1">{value}</p>
-            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <PhoneCall className="h-5 w-5" style={{ color: "#f97316" }} />
+              Follow-ups
+              <Badge className="ml-2 bg-orange-500 text-white">
+                {counts.overdue + counts.today} Due Today/Overdue
+              </Badge>
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {counts.overdue + counts.today} leads need attention today - filter by status or date
+            </p>
           </div>
-          <div className={`p-3 rounded-full ${colors[color]}`}>
-            <Icon className="h-5 w-5" />
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setCollapsed(c => !c)}>
+              {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </Button>
           </div>
         </div>
-      </CardContent>
+
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button
+            onClick={() => setBucketFilter("all")}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all text-sm"
+            style={{ borderColor: bucketFilter === "all" ? "#64748b" : "#e2e8f0", background: bucketFilter === "all" ? "#f8fafc" : "white" }}
+          >
+            <span style={{ color: bucketFilter === "all" ? "#334155" : "#374151" }}>All</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "#64748b" }}>
+              {counts.overdue + counts.today + counts.upcoming}
+            </span>
+          </button>
+          {FOLLOWUP_BUCKETS.map(b => {
+            const active = bucketFilter === b.value;
+            const isUrgent = b.value === "today" || b.value === "overdue";
+            return (
+              <button
+                key={b.value}
+                onClick={() => setBucketFilter(active ? "all" : (b.value as any))}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all text-sm"
+                style={{ 
+                  borderColor: active ? b.color : (isUrgent ? "#f97316" : "#e2e8f0"), 
+                  background: active ? b.bg : (isUrgent ? "#fff7ed" : "white"),
+                }}
+              >
+                <span>{b.icon}</span>
+                <span style={{ color: active ? b.color : (isUrgent ? "#f97316" : "#374151") }}>{b.label}</span>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: b.color }}>
+                  {counts[b.value as keyof typeof counts]}
+                </span>
+                {isUrgent && !active && counts[b.value as keyof typeof counts] > 0 && (
+                  <span className="text-[10px] text-orange-500 animate-pulse">●</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap mt-3">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <Input type="date" value={fuDateFrom} onChange={e => setFuDateFrom(e.target.value)} className="w-36 text-sm" />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input type="date" value={fuDateTo} onChange={e => setFuDateTo(e.target.value)} className="w-36 text-sm" />
+          {(fuDateFrom || fuDateTo || bucketFilter !== "all") && (
+            <Button variant="ghost" size="sm" onClick={() => { setFuDateFrom(""); setFuDateTo(""); setBucketFilter("all"); }}>
+              <X className="h-3 w-3 mr-1" />Clear
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+
+      {!collapsed && (
+        <CardContent className="max-h-[400px] overflow-y-auto">
+          {followupLeads.length === 0 ? (
+            <div className="text-center py-6">
+              <PhoneCall className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No follow-ups match this filter.</p>
+              <p className="text-xs text-muted-foreground mt-1">All caught up! 🎉</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {followupLeads.map(lead => {
+                const bucket = getFollowupBucket(lead.next_call_date);
+                const cfg = getFollowupBucketConfig(bucket);
+                const isUrgent = bucket === "today" || bucket === "overdue";
+                return (
+                  <div
+                    key={lead.id}
+                    onClick={() => onOpenLead(lead)}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/30 transition-colors relative ${isUrgent ? 'bg-orange-50/50 border-orange-200' : ''}`}
+                    style={{ borderLeftWidth: 4, borderLeftColor: cfg?.color || "#e2e8f0" }}
+                  >
+                    {isUrgent && (
+                      <div className="absolute -top-1 -right-1">
+                        <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full">Urgent</span>
+                      </div>
+                    )}
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: avatarColor(lead.name) }}>
+                      {getInitials(lead.name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold truncate">{lead.name}</p>
+                        <StagePill stage={lead.stage} subStage={null} />
+                        <TemperatureBadge temperature={lead.temperature} />
+                        {isUrgent && (
+                          <Badge variant="destructive" className="text-[10px]">Due {bucket === "overdue" ? 'Overdue' : 'Today'}</Badge>
+                        )}
+                      </div>
+                      {lead.remark && <p className="text-xs text-muted-foreground mt-0.5 truncate">{lead.remark}</p>}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      {cfg && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ color: cfg.color, background: cfg.bg, borderColor: `${cfg.color}30` }}>
+                          {cfg.icon} {cfg.label}
+                        </span>
+                      )}
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {format(new Date(lead.next_call_date as string), "dd MMM yyyy")}
+                      </p>
+                    </div>
+                    {lead.phone && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" asChild onClick={e => e.stopPropagation()}>
+                        <a href={`tel:${lead.phone}`}><Phone className="h-3.5 w-3.5" /></a>
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
 
-// ── Status Badge ──────────────────────────────────────────────
-function StatusBadge({ status }: { status: string }) {
-  const color = getStatusColor(status);
-  const label = getStatusLabel(status);
-  
-  return (
-    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
-      style={{
-        color: color,
-        background: `${color}20`,
-        border: `1px solid ${color}30`
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-// ── Stage Badge ──────────────────────────────────────────────
-function StageBadge({ stage }: { stage: string }) {
-  const label = getStageLabel(stage);
-  const icon = getStageIcon(stage);
-  const color = getStageColor(stage);
-  
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-      style={{
-        color: color,
-        background: `${color}20`,
-        border: `1px solid ${color}30`
-      }}
-    >
-      {icon ? <span>{icon}</span> : null} {label}
-    </span>
-  );
-}
-
-// ── Project Priority Badge ──────────────────────────────────
-function ProjectPriorityBadge({ priority }: { priority: string }) {
-  const meta = getProjectPriorityMeta(priority);
-  return (
-    <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-      style={{ color: meta.color, background: `${meta.color}20`, border: `1px solid ${meta.color}30` }}
-    >
-      {meta.icon ? <span>{meta.icon}</span> : null} {meta.label}
-    </span>
-  );
-}
-
-// ── Priority Badge ────────────────────────────────────────────
-function PriorityBadge({ priority }: { priority: string }) {
-  const colors: Record<string, string> = {
-    urgent: "bg-red-100 text-red-700 border-red-200",
-    high: "bg-orange-100 text-orange-700 border-orange-200",
-    medium: "bg-blue-100 text-blue-700 border-blue-200",
-    low: "bg-gray-100 text-gray-700 border-gray-200"
-  };
-  
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${colors[priority] || colors.medium}`}>
-      {priority.charAt(0).toUpperCase() + priority.slice(1)}
-    </span>
-  );
-}
-
-// ── Subtask Tag Badge ─────────────────────────────────────────
-function SubtaskTagBadge({ tag }: { tag: string | null }) {
-  if (!tag) return null;
-  return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 border border-violet-200">
-      <Tag className="h-2.5 w-2.5" /> {tag}
-    </span>
-  );
-}
-
-// ── Project Card ──────────────────────────────────────────────
-const ProjectCard = memo(function ProjectCard({ project, onClick, onImageUpload, uploading, lastNote, lastAssignee, stageProgress, hasOnboardingEmailSent }: { 
-  project: Project; 
-  onClick: () => void;
-  onImageUpload?: (projectId: string, file: File) => Promise<void>;
-  uploading?: boolean;
-  lastNote?: ProjectNote | null;
-  lastAssignee?: { name: string | null; email: string | null; taskName?: string | null; assignedAt?: string | null; status?: string | null } | null;
-  stageProgress?: number;
-  hasOnboardingEmailSent?: boolean;
+// ── Bulk Delete Confirmation Dialog ──
+function BulkDeleteDialog({ 
+  open, 
+  onClose, 
+  onConfirm, 
+  count 
+}: { 
+  open: boolean; 
+  onClose: () => void; 
+  onConfirm: () => void; 
+  count: number;
 }) {
-  const progress = typeof stageProgress === "number" ? stageProgress : (project.completion_percentage || 0);
-  const typeIcon = PROJECT_TYPES.find(t => t.value === project.project_type)?.icon || "";
-  const [isHovering, setIsHovering] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const lastNotePreview = (() => {
-    if (!lastNote) return null;
-    const type = (lastNote.note_type || "").toLowerCase().trim();
-    const title = (lastNote.title || "").toLowerCase().trim();
-    // Exclude documentation, calendar, drive links, and system communications
-    if (
-      type === "documentation" ||
-      type === "content_calendar" ||
-      type === "drive_links" ||
-      type === "communication" ||
-      type === "stage_comment" ||
-      title === "drive links" ||
-      title === "project documentation" ||
-      title.includes("onboarding email")
-    ) {
-      return null;
-    }
-    if (lastNote.note_type === "brand_kit") {
-      const kit = parseBrandKit(lastNote.content);
-      return kit?.fields?.brand_name || kit?.fields?.tagline || lastNote.title || "Brand kit";
-    }
-    if (lastNote.note_type === "client_tracker") {
-      const t = parseClientTracker(lastNote.content);
-      return t?.fields?.client_full_name || lastNote.title || "Client tracker";
-    }
-    const text = (lastNote.content || "").replace(/\n\[image\].*$/s, "").trim();
-    return text || lastNote.title || "Note";
-  })();
-
-  const handleImageClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image size should be less than 5MB");
-      return;
-    }
-    if (onImageUpload) {
-      await onImageUpload(project.id, file);
-    }
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
   return (
-    <div 
-      className="border rounded-lg p-3 sm:p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50 relative group"
-      onClick={onClick}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-    >
-      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <div 
-            className="relative h-14 w-14 rounded-md border shrink-0 overflow-hidden bg-muted flex items-center justify-center"
-            onClick={handleImageClick}
-          >
-            {project.image_url ? (
-              <img
-                src={project.image_url}
-                alt={project.name}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              typeIcon ? (
-                <span className="text-2xl">{typeIcon}</span>
-              ) : (
-                <FolderKanban className="h-6 w-6 text-muted-foreground" />
-              )
-            )}
-            
-            {(isHovering || !project.image_url) && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                {uploading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-white" />
-                ) : (
-                  <div className="flex flex-col items-center">
-                    <ImagePlus className="h-5 w-5 text-white" />
-                    <span className="text-[8px] text-white mt-0.5">Upload</span>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-          
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h4 className="font-semibold text-lg">{project.name}</h4>
-              <Badge variant="outline" className="text-xs font-mono">
-                {project.project_id}
-              </Badge>
-            </div>
-            {project.brand_name && (
-              <p className="text-sm text-muted-foreground">{project.brand_name}</p>
-            )}
-            <div className="flex items-center gap-3 mt-2 flex-wrap">
-              <StageBadge stage={project.current_stage} />
-              <StatusBadge status={project.status} />
-              <ProjectPriorityBadge priority={project.priority || "medium"} />
-              {hasOnboardingEmailSent && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  <CheckCircle className="h-3 w-3 text-emerald-600" />
-                  Already Sent
-                </span>
-              )}
-              {project.project_value && project.project_value > 0 && (
-                <span className="text-sm font-medium text-green-600">
-                  {formatCurrency(project.project_value)}
-                </span>
-              )}
-            </div>
-            {(lastNotePreview || lastAssignee) && (
-              <div className="mt-2 space-y-1.5 max-w-xl">
-                {lastNotePreview && (
-                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5">
-                    <StickyNote className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
-                    <div className="min-w-0">
-                      <p className="line-clamp-2 break-words">{lastNotePreview}</p>
-                      {lastNote?.updated_at || lastNote?.created_at ? (
-                        <p className="text-[10px] mt-0.5 opacity-80">
-                          {format(new Date(lastNote.updated_at || lastNote.created_at), "dd MMM yyyy")}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-                {lastAssignee && lastAssignee.status !== "completed" && (lastAssignee.name || lastAssignee.email) && (
-                  <div className={`flex items-start gap-1.5 text-xs rounded-md px-2 py-1.5 border ${
-                    lastAssignee.status === "completed"
-                      ? "text-green-700 bg-green-50 border-green-200"
-                      : "text-indigo-700 bg-indigo-50 border-indigo-100"
-                  }`}>
-                    <UserCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="font-medium truncate">
-                          Last task → {lastAssignee.name || lastAssignee.email}
-                        </p>
-                        {lastAssignee.status === "completed" && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200">
-                            <CheckCircle className="h-2.5 w-2.5" /> Completed
-                          </span>
-                        )}
-                        {lastAssignee.status && lastAssignee.status !== "completed" && (
-                          <span className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-white/70 border border-current/20 opacity-80">
-                            {String(lastAssignee.status).replace(/_/g, " ")}
-                          </span>
-                        )}
-                      </div>
-                      {lastAssignee.taskName && (
-                        <p className="text-[10px] opacity-80 line-clamp-1">{lastAssignee.taskName}</p>
-                      )}
-                      {lastAssignee.assignedAt && (
-                        <p className="text-[10px] mt-0.5 opacity-70">
-                          {format(new Date(lastAssignee.assignedAt), "dd MMM yyyy, hh:mm a")}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
-          <div className="text-left sm:text-right">
-            <div className="flex items-center gap-2">
-              <Progress value={progress} className="w-20 sm:w-24 h-2" />
-              <span className="text-xs font-medium">{progress}%</span>
-            </div>
-            {project.expected_launch_date && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Launch {format(new Date(project.expected_launch_date), "dd MMM yyyy")}
-              </p>
-            )}
-          </div>
-          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// ── Department Status Badge ────────────────────────────────────
-function DepartmentStatusBadge({ status }: { status: string }) {
-  const meta = getDepartmentStatusMeta(status);
-  return (
-    <span
-      className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
-      style={{ color: meta.color, background: `${meta.color}20`, border: `1px solid ${meta.color}30` }}
-    >
-      {meta.label}
-    </span>
-  );
-}
-
-// ── Department Card ────────────────────────────────────────────
-function DepartmentCard({ department, taskCounts, onClick, onEdit, onDelete }: {
-  department: Department;
-  taskCounts: { total: number; completed: number };
-  onClick: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const typeMeta = getDepartmentTypeMeta(department.department_type);
-  const Icon = typeMeta.icon;
-  const progress = taskCounts.total > 0
-    ? Math.round((taskCounts.completed / taskCounts.total) * 100)
-    : department.progress || 0;
-
-  return (
-    <div
-      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50"
-      onClick={onClick}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <div className="p-2 rounded-md bg-primary/10 text-primary shrink-0">
-            <Icon className="h-4 w-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h4 className="font-semibold truncate">{department.name}</h4>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <DepartmentStatusBadge status={department.status} />
-              {department.manager_name && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <UserCheck className="h-3 w-3" /> {department.manager_name}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
-            <Edit className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-      <div className="mt-3 space-y-1">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">{taskCounts.completed}/{taskCounts.total} tasks completed</span>
-          <span className="font-medium">{progress}%</span>
-        </div>
-        <Progress value={progress} className="h-1.5" />
-      </div>
-      {department.due_date && (
-        <p className="text-xs text-muted-foreground mt-2">
-          Due: {format(new Date(department.due_date), "dd MMM yyyy")}
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ── Payment Card ──────────────────────────────────────────────
-function PaymentCard({ payment, onStatusChange, onDelete }: {
-  payment: Payment;
-  onStatusChange: (id: string, status: string, paidDate?: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [status, setStatus] = useState(payment.status);
-  const [paidDate, setPaidDate] = useState(payment.paid_date || "");
-
-  const statusColors: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
-    paid: "bg-green-100 text-green-700 border-green-200",
-    overdue: "bg-red-100 text-red-700 border-red-200",
-    partial: "bg-orange-100 text-orange-700 border-orange-200",
-  };
-
-  const handleStatusChange = (newStatus: string) => {
-    setStatus(newStatus);
-    if (newStatus === 'paid' && !paidDate) {
-      setPaidDate(new Date().toISOString().split('T')[0]);
-    }
-    onStatusChange(payment.id, newStatus, newStatus === 'paid' ? paidDate : undefined);
-  };
-
-  return (
-    <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="font-medium">{payment.milestone}</span>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[payment.status] || statusColors.pending}`}>
-              {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-            </span>
-            <span className="text-sm font-semibold text-green-600">
-              {formatCurrency(payment.amount)}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
-            <span>💳 {payment.payment_type === 'client' ? 'Client Payment' : 'Manufacturer Payment'}</span>
-            {payment.due_date && (
-              <span>Due: {format(new Date(payment.due_date), "dd MMM yyyy")}</span>
-            )}
-            {payment.paid_date && (
-              <span>Paid: {format(new Date(payment.paid_date), "dd MMM yyyy")}</span>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpanded(!expanded)}>
-            <MoreVertical className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(payment.id)}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="mt-3 pt-3 border-t">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">Status</Label>
-              <Select value={status} onValueChange={handleStatusChange}>
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="overdue">Overdue</SelectItem>
-                  <SelectItem value="partial">Partial</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Paid Date</Label>
-              <Input 
-                type="date" 
-                value={paidDate} 
-                onChange={(e) => {
-                  setPaidDate(e.target.value);
-                  if (status === 'paid') {
-                    onStatusChange(payment.id, status, e.target.value);
-                  }
-                }}
-                className="h-8 text-sm"
-                disabled={status !== 'paid'}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-// ============================================================
-// CONSTANTS - Add these before the BRAND_KIT_FIELDS section
-// ============================================================
-
-// ── Brand Identity Kit field definitions ──
-const BRAND_KIT_FIELDS: { key: string; label: string; type: "input" | "textarea" }[] = [
-  { key: "brand_name", label: "Brand Name", type: "input" },
-  { key: "tagline", label: "Tagline", type: "input" },
-  { key: "brand_introduction", label: "Brand Introduction", type: "textarea" },
-  { key: "brand_story", label: "Brand Story", type: "textarea" },
-  { key: "brand_meaning", label: "Brand Meaning", type: "textarea" },
-  { key: "brand_mission", label: "Brand Mission", type: "textarea" },
-  { key: "brand_vision", label: "Brand Vision", type: "textarea" },
-  { key: "brand_values", label: "Brand Values", type: "textarea" },
-  { key: "target_audience", label: "Target Audience", type: "textarea" },
-  { key: "brand_positioning", label: "Brand Positioning", type: "textarea" },
-  { key: "usp", label: "Unique Selling Proposition (USP)", type: "textarea" },
-  { key: "brand_personality", label: "Brand Personality", type: "input" },
-  { key: "tone_of_voice", label: "Tone of Voice", type: "input" },
-  { key: "brand_keywords", label: "Brand Keywords", type: "input" },
-  { key: "theme", label: "Theme", type: "input" },
-  { key: "mood", label: "Mood", type: "input" },
-  { key: "primary_colors", label: "Primary Colors", type: "input" },
-  { key: "secondary_colors", label: "Secondary Colors", type: "input" },
-  { key: "typography", label: "Typography", type: "input" },
-  { key: "packaging_style", label: "Packaging Style", type: "textarea" },
-  { key: "photography_style", label: "Photography Style", type: "textarea" },
-  { key: "competitor_brands", label: "Competitor Brands", type: "input" },
-  { key: "website", label: "Website", type: "input" },
-  { key: "social_media_links", label: "Social Media Links", type: "input" },
-  { key: "trademark_status", label: "Trademark Status", type: "input" },
-  { key: "brand_notes", label: "Notes", type: "textarea" },
-];
-
-const EMPTY_BRAND_KIT: Record<string, string> = BRAND_KIT_FIELDS.reduce(
-  (acc, f) => ({ ...acc, [f.key]: "" }),
-  {} as Record<string, string>
-);
-
-// ── Client Progress Tracker field definitions ──
-const CLIENT_TRACKER_SECTIONS: {
-  key: string;
-  title: string;
-  emoji: string;
-  fields: { key: string; label: string; type: "input" | "textarea" }[];
-}[] = [
-  {
-    key: "client_details",
-    title: "CLIENT DETAILS",
-    emoji: "🟣",
-    fields: [
-      { key: "client_full_name", label: "Client Full Name", type: "input" },
-      { key: "client_mobile_number", label: "Client Mobile Number", type: "input" },
-      { key: "client_email_address", label: "Client Email Address", type: "input" },
-      { key: "alternative_number", label: "Alternative Number", type: "input" },
-      { key: "client_home_address", label: "Client Home Address", type: "textarea" },
-      { key: "company_name", label: "Company Name if any", type: "input" },
-      { key: "gst_number", label: "GST Number", type: "input" },
-      { key: "pan_number", label: "PAN Number", type: "input" },
-      { key: "aadhaar_number", label: "Aadhaar Number", type: "input" },
-      { key: "city", label: "City", type: "input" },
-      { key: "state", label: "State", type: "input" },
-      { key: "pincode", label: "Pincode", type: "input" },
-      { key: "relationship_manager", label: "Relationship Manager", type: "input" },
-      { key: "sales_person", label: "Sales Person", type: "input" },
-    ],
-  },
-  {
-    key: "project_details",
-    title: "PROJECT DETAILS",
-    emoji: "🟠",
-    fields: [
-      { key: "category", label: "Category", type: "input" },
-      { key: "package_details", label: "Package Details", type: "input" },
-      { key: "project_value", label: "Project Value", type: "input" },
-      { key: "advance_paid", label: "Advance Paid", type: "input" },
-      { key: "pending_amount", label: "Pending Amount", type: "input" },
-      { key: "payment_status", label: "Payment Status", type: "input" },
-      { key: "expected_launch_date", label: "Expected Launch Date", type: "input" },
-      { key: "current_stage", label: "Current Stage", type: "input" },
-      { key: "priority", label: "Priority (High/Medium/Low)", type: "input" },
-    ],
-  },
-  {
-    key: "brand_development",
-    title: "BRAND DEVELOPMENT",
-    emoji: "🔵",
-    fields: [
-      { key: "brand_name_final", label: "Brand Name Final", type: "input" },
-      { key: "domain_available", label: "Domain Available", type: "input" },
-      { key: "domain_purchased", label: "Domain Purchased", type: "input" },
-      { key: "instagram_username", label: "Instagram Username", type: "input" },
-      { key: "facebook_page", label: "Facebook Page", type: "input" },
-      { key: "logo_final", label: "Logo Final", type: "input" },
-      { key: "tagline", label: "Tagline", type: "input" },
-      { key: "brand_story", label: "Brand Story", type: "textarea" },
-      { key: "target_audience", label: "Target Audience", type: "textarea" },
-    ],
-  },
-  {
-    key: "legal",
-    title: "LEGAL",
-    emoji: "🟢",
-    fields: [
-      { key: "agreement_done", label: "Agreement Done", type: "input" },
-      { key: "nda_signed", label: "NDA Signed", type: "input" },
-      { key: "trademark_done", label: "Trademark Done", type: "input" },
-      { key: "gst_done", label: "GST Done", type: "input" },
-      { key: "msme_done", label: "MSME Done", type: "input" },
-      { key: "barcode_done", label: "Barcode Done", type: "input" },
-      { key: "label_compliance", label: "Label Compliance", type: "input" },
-      { key: "ifra_certificate", label: "IFRA Certificate", type: "input" },
-      { key: "msds_available", label: "MSDS Available", type: "input" },
-    ],
-  },
-  {
-    key: "product_development",
-    title: "PRODUCT DEVELOPMENT",
-    emoji: "🟡",
-    fields: [
-      { key: "bottle_selected", label: "Bottle Selected", type: "input" },
-      { key: "bottle_size", label: "Bottle Size", type: "input" },
-      { key: "bottle_color", label: "Bottle Color", type: "input" },
-      { key: "cap_selected", label: "Cap Selected", type: "input" },
-      { key: "pump_selected", label: "Pump Selected", type: "input" },
-      { key: "moq", label: "MOQ", type: "input" },
-      { key: "number_of_total_units", label: "Number of Total Units", type: "input" },
-      { key: "rate_per_unit", label: "Rate per Unit", type: "input" },
-      { key: "fragrance_name", label: "Fragrance Name", type: "input" },
-      { key: "variant_name", label: "Variant Name", type: "input" },
-      { key: "packaging_final", label: "Packaging Final", type: "input" },
-      { key: "label_final", label: "Label Final", type: "input" },
-      { key: "box_final", label: "Box Final", type: "input" },
-    ],
-  },
-  {
-    key: "manufacturing",
-    title: "MANUFACTURING",
-    emoji: "🔴",
-    fields: [
-      { key: "manufacturer_name", label: "Manufacturer Name", type: "input" },
-      { key: "sample_sent", label: "Sample Sent", type: "input" },
-      { key: "sample_approved", label: "Sample Approved", type: "input" },
-      { key: "production_started", label: "Production Started", type: "input" },
-      { key: "qc_completed", label: "QC Completed", type: "input" },
-      { key: "dispatch_date", label: "Dispatch Date", type: "input" },
-      { key: "tracking_number", label: "Tracking Number", type: "input" },
-      { key: "delivery_status", label: "Delivery Status", type: "input" },
-    ],
-  },
-  {
-    key: "marketing",
-    title: "MARKETING",
-    emoji: "🟢",
-    fields: [
-      { key: "product_shoot", label: "Product Shoot", type: "input" },
-      { key: "lifestyle_shoot", label: "Lifestyle Shoot", type: "input" },
-      { key: "website_ready", label: "Website Ready", type: "input" },
-      { key: "landing_page", label: "Landing Page", type: "input" },
-      { key: "social_media_kit", label: "Social Media Kit", type: "input" },
-      { key: "amazon_listing", label: "Amazon Listing", type: "input" },
-      { key: "flipkart_listing", label: "Flipkart Listing", type: "input" },
-      { key: "meta_ads_ready", label: "Meta Ads Ready", type: "input" },
-      { key: "launch_reel_ready", label: "Launch Reel Ready", type: "input" },
-    ],
-  },
-  {
-    key: "file_links",
-    title: "FILE LINKS",
-    emoji: "📂",
-    fields: [
-      { key: "client_folder", label: "Client Folder", type: "input" },
-      { key: "agreement_file", label: "Agreement", type: "input" },
-      { key: "trademark_certificate", label: "Trademark Certificate", type: "input" },
-      { key: "logo_files", label: "Logo Files", type: "input" },
-      { key: "packaging_files", label: "Packaging Files", type: "input" },
-      { key: "product_images", label: "Product Images", type: "input" },
-      { key: "final_deliverables", label: "Final Deliverables", type: "input" },
-    ],
-  },
-  {
-    key: "blocker",
-    title: "BLOCKER",
-    emoji: "🚧",
-    fields: [
-      { key: "blocker", label: "Blocker (What's stopping the project?)", type: "textarea" },
-    ],
-  },
-];
-
-const CLIENT_TRACKER_FIELDS = CLIENT_TRACKER_SECTIONS.flatMap((s) => s.fields);
-const EMPTY_CLIENT_TRACKER: Record<string, string> = CLIENT_TRACKER_FIELDS.reduce(
-  (acc, f) => ({ ...acc, [f.key]: "" }),
-  {} as Record<string, string>
-);
-
-
-// ── Social Media Content Calendar (dynamic posts + dates) ──
-interface ContentDay {
-  /** Stable unique id so date changes / inserts don't break UI keys */
-  id: string;
-  day: number;
-  title: string;
-  caption: string;
-  /** @deprecated kept for old saved calendars — use platforms */
-  platform: string;
-  /** One post can go to multiple platforms (e.g. Instagram + Facebook) */
-  platforms: string[];
-  status: "pending" | "completed";
-  note: string;
-  scheduled_date?: string;
-  social_media_link?: string;
-  other_link?: string;
-}
-
-function normalizeContentPlatforms(d: { platform?: string; platforms?: string[] | string | null }): string[] {
-  if (Array.isArray(d.platforms) && d.platforms.length) {
-    return Array.from(new Set(d.platforms.map((p) => String(p).trim()).filter(Boolean)));
-  }
-  if (typeof d.platforms === "string" && d.platforms.trim()) {
-    return d.platforms.split(/[,|/]+/).map((p) => p.trim()).filter(Boolean);
-  }
-  if (d.platform && String(d.platform).trim()) {
-    return String(d.platform).split(/[,|/]+/).map((p) => p.trim()).filter(Boolean);
-  }
-  return ["Instagram"];
-}
-
-const CONTENT_PLATFORMS = [
-  "Instagram",
-  "Facebook",
-  "YouTube",
-  "WhatsApp Status",
-  "LinkedIn",
-  "Twitter / X",
-  "Reels",
-  "Stories",
-  "Other",
-];
-
-function newContentDayId() {
-  return `post_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-}
-
-const EMPTY_CONTENT_DAY = (day: number, scheduledDate = ""): ContentDay => ({
-  id: newContentDayId(),
-  day,
-  title: "",
-  caption: "",
-  platform: "Instagram",
-  platforms: ["Instagram"],
-  status: "pending",
-  note: "",
-  scheduled_date: scheduledDate,
-  social_media_link: "",
-  other_link: "",
-});
-
-/** Sort posts by scheduled_date (empty dates last), then by day number */
-function sortContentDaysByDate(days: ContentDay[]): ContentDay[] {
-  return [...days].sort((a, b) => {
-    const da = (a.scheduled_date || "").trim();
-    const db = (b.scheduled_date || "").trim();
-    if (da && db) {
-      if (da !== db) return da.localeCompare(db);
-    } else if (da && !db) return -1;
-    else if (!da && db) return 1;
-    return (a.day || 0) - (b.day || 0);
-  }).map((d, i) => ({ ...d, day: i + 1 }));
-}
-
-function createEmptyContentCalendar(_startDate?: string): ContentDay[] {
-  return [];
-}
-
-function createContentDays(count: number, startDate?: string): ContentDay[] {
-  const n = Math.max(0, Math.min(90, Math.floor(count || 0)));
-  const days: ContentDay[] = [];
-  const base = startDate ? startOfDay(new Date(startDate)) : null;
-  for (let i = 1; i <= n; i++) {
-    const scheduled = base ? format(addDays(base, i - 1), "yyyy-MM-dd") : "";
-    days.push(EMPTY_CONTENT_DAY(i, scheduled));
-  }
-  return days;
-}
-
-function serializeContentCalendar(days: ContentDay[], startDate: string | null) {
-  return JSON.stringify({
-    __type: "content_calendar",
-    start_date: startDate || null,
-    days,
-  });
-}
-
-function parseContentCalendar(content: string): { days: ContentDay[]; startDate: string | null } | null {
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed && parsed.__type === "content_calendar") {
-      const days = Array.isArray(parsed.days)
-        ? parsed.days.map((d: any, idx: number) => {
-            const platforms = normalizeContentPlatforms(d);
-            return {
-            id: d.id || `post_legacy_${idx}_${d.day ?? idx + 1}`,
-            day: d.day ?? idx + 1,
-            title: d.title || "",
-            caption: d.caption || "",
-            platform: platforms[0] || "Instagram",
-            platforms,
-            status: d.status === "completed" ? "completed" : "pending",
-            note: d.note || "",
-            scheduled_date: d.scheduled_date || "",
-            social_media_link: d.social_media_link || "",
-            other_link: d.other_link || "",
-          };
-          })
-        : [];
-      return { days, startDate: parsed.start_date || null };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-
-const LINK_CATEGORIES = [
-  "Google Drive",
-  "Instagram",
-  "Facebook",
-  "YouTube",
-  "WhatsApp",
-  "Amazon",
-  "Flipkart",
-  "Website / Admin",
-  "Email",
-  "Domain / Hosting",
-  "Payment Gateway",
-  "Other",
-];
-
-interface ProjectLinkItem {
-  id: string;
-  category: string;
-  title: string;
-  url: string;
-  username: string;
-  password: string;
-  note: string;
-}
-
-function serializeProjectLinks(items: ProjectLinkItem[]) {
-  return JSON.stringify({ __type: "drive_links", items });
-}
-
-function parseProjectLinks(content: string): ProjectLinkItem[] {
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed && parsed.__type === "drive_links" && Array.isArray(parsed.items)) {
-      return parsed.items.map((it: any, i: number) => ({
-        id: it.id || `link_${i}_${Date.now()}`,
-        category: it.category || "Other",
-        title: it.title || "",
-        url: it.url || "",
-        username: it.username || "",
-        password: it.password || "",
-        note: it.note || "",
-      }));
-    }
-  } catch {}
-  return [];
-}
-
-function toClickableUrl(raw: string) {
-  const v = (raw || "").trim();
-  if (!v) return "";
-  if (/^https?:\/\//i.test(v)) return v;
-  if (/^(www\.|drive\.google|docs\.google|instagram\.com|facebook\.com)/i.test(v)) {
-    return `https://${v}`;
-  }
-  return v.startsWith("/") ? v : `https://${v}`;
-}
-
-function isUrlLike(raw: string) {
-  const v = (raw || "").trim();
-  return /^(https?:\/\/|www\.|drive\.google|docs\.google)/i.test(v) || /\.[a-z]{2,}/i.test(v);
-}
-
-
-// Also need to add TaskCard component that's used in the detail view
-// ── Task Card ──────────────────────────────────────────────────
-function TaskCard({
-  task,
-  itTeam,
-  subtasks,
-  subtasksLoading,
-  onStatusChange,
-  onAssign,
-  onDelete,
-  onToggleExpand,
-  onAddSubtask,
-  onToggleSubtask,
-  onDeleteSubtask,
-}: {
-  task: ProjectTask;
-  itTeam: ITTeamMember[];
-  subtasks: TaskSubtask[];
-  subtasksLoading: boolean;
-  onStatusChange: (id: string, status: string) => void;
-  onAssign: (id: string, email: string, name: string) => void;
-  onDelete: (id: string) => void;
-  onToggleExpand: (taskId: string) => void;
-  onAddSubtask: (taskId: string, title: string, tag: string) => void;
-  onToggleSubtask: (subtaskId: string, taskId: string, currentStatus: string) => void;
-  onDeleteSubtask: (subtaskId: string, taskId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [subtaskTitle, setSubtaskTitle] = useState("");
-  const [subtaskTag, setSubtaskTag] = useState("");
-  const subtasksCompleted = subtasks.filter((s) => s.status === "completed").length;
-
-  const handleToggleExpand = () => {
-    const next = !expanded;
-    setExpanded(next);
-    if (next) onToggleExpand(task.id);
-  };
-
-  const handleAddSubtask = () => {
-    if (!subtaskTitle.trim()) return;
-    onAddSubtask(task.id, subtaskTitle.trim(), subtaskTag);
-    setSubtaskTitle("");
-    setSubtaskTag("");
-  };
-
-  return (
-    <div className={`border rounded-lg p-3 hover:bg-muted/30 transition-colors ${task.status === 'completed' ? 'bg-muted/20' : ''}`}>
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <input
-              type="checkbox"
-              checked={task.status === 'completed'}
-              onChange={() => onStatusChange(task.id, task.status === 'completed' ? 'not_started' : 'completed')}
-              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-            />
-            <button
-              type="button"
-              onClick={handleToggleExpand}
-              className="flex items-center gap-2 text-left"
-              title={expanded ? "Collapse" : "Expand task"}
-            >
-              <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
-              <span className={`font-medium ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
-                {task.task_name}
-              </span>
-            </button>
-            <PriorityBadge priority={task.priority} />
-            <StatusBadge status={task.status} />
-            {subtasks.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                Completed {subtasksCompleted}/{subtasks.length} subtasks
-              </span>
-            )}
-          </div>
-          {task.description && (
-            <p className="text-sm text-muted-foreground mt-1 ml-9">{task.description}</p>
-          )}
-          <div className="flex items-center gap-4 mt-1 ml-9 text-xs text-muted-foreground flex-wrap">
-            {task.department && <span>📁 {task.department}</span>}
-            {task.due_date && (
-              <span>Due: {format(new Date(task.due_date), "dd MMM yyyy")}</span>
-            )}
-            {task.assigned_to_name || task.assigned_to_email ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
-                👤 {task.assigned_to_name || task.assigned_to_email}
-              </span>
-            ) : (
-              <span className="text-amber-600">👤 Unassigned</span>
-            )}
-            {(task.assigned_at || task.created_at) && (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                🕒 {format(new Date(task.assigned_at || task.created_at!), "dd MMM yyyy, hh:mm a")}
-              </span>
-            )}
-          </div>
-
-          {task.employee_remarks && (
-            <div className="mt-2 ml-9 bg-blue-50 border border-blue-100 rounded-md p-2 max-w-md">
-              <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
-                💬 {task.assigned_to_name || "Employee"}'s update:
-              </p>
-              <p className="text-xs text-blue-900 mt-0.5 whitespace-pre-wrap">{task.employee_remarks}</p>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggleExpand}>
-            <MoreVertical className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(task.id)}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="mt-3 pt-3 border-t space-y-4">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-muted-foreground">Status: </span>
-              <Select value={task.status} onValueChange={(v) => onStatusChange(task.id, v)}>
-                <SelectTrigger className="h-7 text-xs w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="not_started">Not Started</SelectItem>
-                  <SelectItem value="in_progress">Processing</SelectItem>
-                  <SelectItem value="review">Review</SelectItem>
-                  <SelectItem value="completed">Done</SelectItem>
-                  <SelectItem value="blocked">Blocked</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Assign To: </span>
-              <Select
-                value={task.assigned_to_email || "unassigned"}
-                onValueChange={(v) => {
-                  const member = itTeam.find((m) => m.email === v);
-                  onAssign(task.id, v, member?.name || v);
-                }}
-              >
-                <SelectTrigger className="h-7 text-xs w-44">
-                  <SelectValue placeholder="Unassigned" />
-                </SelectTrigger>
-                <SelectContent>
-                  {itTeam.map((m) => (
-                    <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* ── Subtasks ── */}
-          <div>
-            <p className="text-xs font-semibold flex items-center gap-1.5 mb-2">
-              <ListChecks className="h-3.5 w-3.5 text-violet-600" /> Subtasks
-            </p>
-            {subtasksLoading ? (
-              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
-            ) : (
-              <div className="space-y-1.5">
-                {subtasks.map((st) => (
-                  <div key={st.id} className="border rounded-md px-2 py-1.5 bg-background space-y-1">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={st.status === "completed"}
-                        onChange={() => onToggleSubtask(st.id, task.id, st.status)}
-                        className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                      />
-                      <span className={`text-sm flex-1 ${st.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
-                        {st.title}
-                      </span>
-                      <SubtaskTagBadge tag={st.tag} />
-                      {(st.assigned_to_name || st.assigned_to_email) && (
-                        <span className="text-[10px] text-indigo-600">👤 {st.assigned_to_name || st.assigned_to_email}</span>
-                      )}
-                      {st.created_at && (
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                          {format(new Date(st.created_at), "dd MMM, hh:mm a")}
-                        </span>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => onDeleteSubtask(st.id, task.id)}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                    {st.note && (
-                      <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1 ml-6 whitespace-pre-wrap">
-                        📝 {st.note}
-                      </p>
-                    )}
-                  </div>
-                ))}
-                {subtasks.length === 0 && (
-                  <p className="text-xs text-muted-foreground py-1">No subtasks yet — break this task down below.</p>
-                )}
-              </div>
-            )}
-            <div className="flex gap-2 mt-2">
-              <Input
-                value={subtaskTitle}
-                onChange={(e) => setSubtaskTitle(e.target.value)}
-                placeholder="Add a subtask..."
-                className="h-8 text-sm flex-1"
-                onKeyDown={(e) => { if (e.key === "Enter") handleAddSubtask(); }}
-              />
-              <Select value={subtaskTag} onValueChange={setSubtaskTag}>
-                <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Tag" /></SelectTrigger>
-                <SelectContent>
-                  {SUBTASK_TAGS.map((tag) => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Button size="sm" className="h-8" onClick={handleAddSubtask}>
-                <Plus className="h-3.5 w-3.5 mr-1" />Add
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Task Dashboard ────────────────────────────────────────────
-function TaskDashboard({ tasks, onStatusChange, onDelete }: {
-  tasks: ProjectTask[];
-  onStatusChange: (id: string, status: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const columns: { key: string; label: string; color: string }[] = [
-    { key: "not_started", label: "Not Started", color: "#94a3b8" },
-    { key: "in_progress", label: "Processing", color: "#3b82f6" },
-    { key: "review", label: "Review", color: "#f59e0b" },
-    { key: "completed", label: "Done", color: "#10b981" },
-    { key: "blocked", label: "Blocked", color: "#ef4444" },
-  ];
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-      {columns.map(col => {
-        const colTasks = tasks.filter(t => t.status === col.key);
-        return (
-          <div key={col.key} className="bg-muted/30 rounded-lg p-3 min-h-[200px]">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ background: col.color }} />
-                {col.label}
-              </span>
-              <Badge variant="outline" className="text-[10px] px-1.5">{colTasks.length}</Badge>
-            </div>
-            <div className="space-y-2">
-              {colTasks.map(task => (
-                <TaskKanbanCard key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
-              ))}
-              {colTasks.length === 0 && (
-                <p className="text-[11px] text-muted-foreground text-center py-6">No tasks</p>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Task Kanban Card ──────────────────────────────────────────
-function TaskKanbanCard({ task, onStatusChange, onDelete }: {
-  task: ProjectTask;
-  onStatusChange: (id: string, status: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const bucket = getDueBucket(task.due_date);
-  return (
-    <div className="border rounded-lg p-3 bg-background hover:shadow-sm transition-shadow">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium leading-snug">{task.task_name}</p>
-        <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0 text-destructive" onClick={() => onDelete(task.id)}>
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      </div>
-      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        <PriorityBadge priority={task.priority} />
-        {task.due_date && (
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${bucket === "overdue" && task.status !== "completed" ? "bg-red-50 text-red-600 border-red-200" : "bg-muted text-muted-foreground"}`}>
-            Due {format(new Date(task.due_date), "dd MMM")}
-          </span>
-        )}
-      </div>
-      {(task.assigned_to_name || task.assigned_to_email) && (
-        <p className="text-[11px] text-indigo-600 mt-1.5">👤 {task.assigned_to_name || task.assigned_to_email}</p>
-      )}
-      <Select value={task.status} onValueChange={(v) => onStatusChange(task.id, v)}>
-        <SelectTrigger className="h-6 text-[11px] mt-2 w-full"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="not_started">Not Started</SelectItem>
-          <SelectItem value="in_progress">Processing</SelectItem>
-          <SelectItem value="review">Review</SelectItem>
-          <SelectItem value="completed">Done</SelectItem>
-          <SelectItem value="blocked">Blocked</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-// ── Note Card ──────────────────────────────────────────────────
-function NoteCard({ note, onEdit, onDelete }: {
-  note: ProjectNote;
-  onEdit: (note: ProjectNote) => void;
-  onDelete: (id: string) => void;
-}) {
-  const brandKit = note.note_type === "brand_kit" ? parseBrandKit(note.content) : null;
-  const clientTracker = note.note_type === "client_tracker" ? parseClientTracker(note.content) : null;
-
-  if (clientTracker) {
-    const clientName = clientTracker.fields.client_full_name || note.title || "Client Progress Tracker";
-    return (
-      <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            {clientTracker.imageUrl && (
-              <img
-                src={clientTracker.imageUrl}
-                alt={clientName}
-                className="h-16 w-16 rounded-md object-cover border shrink-0"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <ClipboardList className="h-4 w-4 text-fuchsia-500 shrink-0" />
-                <p className="font-medium">{clientName}</p>
-                <Badge variant="outline" className="text-xs">Client Tracker</Badge>
-              </div>
-              <div className="mt-2 space-y-2">
-                {CLIENT_TRACKER_SECTIONS.map((section) => {
-                  const filled = section.fields.filter((f) => clientTracker.fields[f.key]);
-                  if (filled.length === 0) return null;
-                  return (
-                    <div key={section.key}>
-                      <p className="text-xs font-semibold text-foreground">
-                        {section.emoji} {section.title}
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 mt-0.5">
-                        {filled.map((f) => (
-                          <p key={f.key} className="text-xs text-muted-foreground truncate">
-                            <span className="font-medium text-foreground">{f.label}: </span>
-                            {clientTracker.fields[f.key]}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
-                <span>🕒 {format(new Date(note.created_at), "dd MMM yyyy, hh:mm a")}</span>
-                {note.created_by && <span>👤 {note.created_by}</span>}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(note)}>
-              <Edit className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(note.id)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (brandKit) {
-    const filledFields = BRAND_KIT_FIELDS.filter(f => brandKit.fields[f.key]);
-    return (
-      <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            {brandKit.imageUrl && (
-              <img
-                src={brandKit.imageUrl}
-                alt={brandKit.fields.brand_name || "Brand image"}
-                className="h-16 w-16 rounded-md object-cover border shrink-0"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Palette className="h-4 w-4 text-purple-500 shrink-0" />
-                <p className="font-medium">{brandKit.fields.brand_name || note.title || "Brand Identity Kit"}</p>
-                <Badge variant="outline" className="text-xs">Brand Kit</Badge>
-              </div>
-              {brandKit.fields.tagline && (
-                <p className="text-sm text-muted-foreground italic mt-0.5">"{brandKit.fields.tagline}"</p>
-              )}
-              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                {filledFields.filter(f => !["brand_name", "tagline"].includes(f.key)).slice(0, 6).map(f => (
-                  <p key={f.key} className="text-xs text-muted-foreground truncate">
-                    <span className="font-medium text-foreground">{f.label}: </span>
-                    {brandKit.fields[f.key]}
-                  </p>
-                ))}
-              </div>
-              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
-                <span>🕒 {format(new Date(note.created_at), "dd MMM yyyy, hh:mm a")}</span>
-                {note.created_by && <span>👤 {note.created_by}</span>}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(note)}>
-              <Edit className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(note.id)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="border rounded-lg p-3 hover:bg-muted/30 transition-colors">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          {note.title && <p className="font-medium">{note.title}</p>}
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-0.5">{note.content}</p>
-          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
-            <span>🕒 {format(new Date(note.created_at), "dd MMM yyyy, hh:mm a")}</span>
-            {note.updated_at && note.updated_at !== note.created_at && (
-              <span>✏️ Edited: {format(new Date(note.updated_at), "dd MMM yyyy, hh:mm a")}</span>
-            )}
-            {note.created_by && <span>👤 {note.created_by}</span>}
-          </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(note)}>
-            <Edit className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(note.id)}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// TASK DETAIL DIALOG COMPONENT
-// ============================================================
-interface TaskDetailDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  task: MyTaskRow | null;
-  itTeam: ITTeamMember[];
-  subtasks: TaskSubtask[];
-  remarks: TaskRemark[];
-  projectNote: ProjectNote | null;
-  currentUserEmail: string;
-  onStatusChange: (taskId: string, status: string) => void;
-  onAssign: (taskId: string, email: string, name: string) => void;
-  onAddSubtask: (taskId: string, title: string, tag: string, assigneeEmail: string | null) => void;
-  onToggleSubtask: (subtaskId: string, taskId: string, currentStatus: string) => void;
-  onDeleteSubtask: (subtaskId: string, taskId: string) => void;
-  onUpdateSubtaskNote?: (subtaskId: string, taskId: string, note: string) => void;
-  onAddRemark: (taskId: string, remark: string) => void;
-  onDeleteTask: (taskId: string) => void;
-  onSaveProjectNote: (projectId: string, content: string) => void;
-  onFetchSubtasks: (taskId: string) => void;
-  onFetchRemarks: (taskId: string) => void;
-  subtasksLoading: boolean;
-  remarksLoading: boolean;
-  savingRemark: boolean;
-  projectNoteLoading: boolean;
-}
-
-function TaskDetailDialog({
-  open,
-  onOpenChange,
-  task,
-  itTeam,
-  subtasks,
-  remarks,
-  projectNote,
-  currentUserEmail,
-  onStatusChange,
-  onAssign,
-  onAddSubtask,
-  onToggleSubtask,
-  onDeleteSubtask,
-  onUpdateSubtaskNote,
-  onAddRemark,
-  onDeleteTask,
-  onSaveProjectNote,
-  onFetchSubtasks,
-  onFetchRemarks,
-  subtasksLoading,
-  remarksLoading,
-  savingRemark,
-  projectNoteLoading,
-}: TaskDetailDialogProps) {
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
-  const [newSubtaskTag, setNewSubtaskTag] = useState("");
-  const [newSubtaskAssignee, setNewSubtaskAssignee] = useState("");
-  const [newRemark, setNewRemark] = useState("");
-  const [editingProjectNote, setEditingProjectNote] = useState(false);
-  const [projectNoteContent, setProjectNoteContent] = useState(projectNote?.content || "");
-  const [showRemarksHistory, setShowRemarksHistory] = useState(true);
-  const [showSubtasks, setShowSubtasks] = useState(true);
-  const [editingSubtaskNoteId, setEditingSubtaskNoteId] = useState<string | null>(null);
-  const [subtaskNoteDraft, setSubtaskNoteDraft] = useState("");
-
-  useEffect(() => {
-    if (task) {
-      setProjectNoteContent(projectNote?.content || "");
-      setEditingProjectNote(false);
-      setNewRemark("");
-      setNewSubtaskTitle("");
-      setNewSubtaskTag("");
-      setNewSubtaskAssignee("");
-    }
-  }, [task, projectNote]);
-
-  if (!task) return null;
-
-  const isOverdue = task.due_date && 
-    isBefore(new Date(task.due_date), startOfDay(new Date())) && 
-    task.status !== "completed";
-
-  const priorityColors: Record<string, string> = {
-    urgent: "bg-red-100 text-red-700 border-red-200",
-    high: "bg-orange-100 text-orange-700 border-orange-200",
-    medium: "bg-blue-100 text-blue-700 border-blue-200",
-    low: "bg-gray-100 text-gray-700 border-gray-200"
-  };
-
-  const statusColors: Record<string, string> = {
-    not_started: "bg-gray-100 text-gray-700 border-gray-200",
-    in_progress: "bg-blue-100 text-blue-700 border-blue-200",
-    review: "bg-yellow-100 text-yellow-700 border-yellow-200",
-    completed: "bg-green-100 text-green-700 border-green-200",
-    blocked: "bg-red-100 text-red-700 border-red-200"
-  };
-
-  const statusOptions = [
-    { value: "not_started", label: "Not Started" },
-    { value: "in_progress", label: "In Progress" },
-    { value: "review", label: "Review" },
-    { value: "completed", label: "Completed" },
-    { value: "blocked", label: "Blocked" }
-  ];
-
-  const subtaskTags = [
-    "Design", "Content", "Approval", "Follow-up", "Review",
-    "Blocked", "Urgent", "Research", "Client Input", "Other"
-  ];
-
-  const completedSubtasks = subtasks.filter(s => s.status === "completed").length;
-
-  const handleAddSubtask = () => {
-    if (!newSubtaskTitle.trim()) {
-      toast.error("Please enter subtask title");
-      return;
-    }
-    onAddSubtask(
-      task.id,
-      newSubtaskTitle.trim(),
-      newSubtaskTag,
-      (newSubtaskAssignee && newSubtaskAssignee !== "unassigned") ? newSubtaskAssignee : null
-    );
-    setNewSubtaskTitle("");
-    setNewSubtaskTag("");
-    setNewSubtaskAssignee("");
-  };
-
-  const handleAddRemark = () => {
-    if (!newRemark.trim()) {
-      toast.error("Please enter your update");
-      return;
-    }
-    onAddRemark(task.id, newRemark.trim());
-    setNewRemark("");
-  };
-
-  const handleSaveProjectNote = () => {
-    if (!projectNoteContent.trim()) {
-      toast.error("Please enter project update");
-      return;
-    }
-    onSaveProjectNote(task.project_id, projectNoteContent.trim());
-    setEditingProjectNote(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b shrink-0">
-          <div className="flex items-start justify-between">
-            <div className="flex-1 min-w-0">
-              <DialogTitle className="text-xl font-bold flex items-center gap-3 flex-wrap">
-                {task.task_name}
-                <Badge 
-                  variant="outline" 
-                  className={`${priorityColors[task.priority] || priorityColors.medium} text-xs`}
-                >
-                  {task.priority?.toUpperCase() || "MEDIUM"}
-                </Badge>
-                {isOverdue && (
-                  <Badge variant="destructive" className="text-xs animate-pulse">
-                    ⚠️ OVERDUE
-                  </Badge>
-                )}
-              </DialogTitle>
-              <div className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
-                <span>{task.projects?.name}</span>
-                {task.projects?.brand_name && <span>• {task.projects.brand_name}</span>}
-                {(task.assigned_at || task.created_at) && (
-                  <span className="inline-flex items-center gap-1">
-                    • <ClockIcon className="h-3 w-3" />
-                    Assigned: {format(new Date(task.assigned_at || task.created_at!), "dd MMM yyyy, hh:mm a")}
-                  </span>
-                )}
-              </div>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="shrink-0 text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                if (confirm("Are you sure you want to delete this task?")) {
-                  onDeleteTask(task.id);
-                  onOpenChange(false);
-                }
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <AlertTriangle className="h-5 w-5" />
+            Bulk Delete Leads
+          </DialogTitle>
         </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-          <div className="space-y-6">
-            {/* Task Details Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Status</Label>
-                <Select 
-                  value={task.status} 
-                  onValueChange={(v) => onStatusChange(task.id, v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statusOptions.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[opt.value]}`}>
-                          {opt.label}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                  <UserCog className="h-3 w-3" /> Assign To
-                </Label>
-                <Select 
-                  value={task.assigned_to_email || "unassigned"} 
-                  onValueChange={(v) => {
-                    const member = itTeam.find(m => m.email === v);
-                    if (member) {
-                      onAssign(task.id, member.email, member.name);
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Unassigned" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {itTeam.map(member => (
-                      <SelectItem key={member.id} value={member.email}>
-                        {member.name} ({member.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                  <CalendarIcon className="h-3 w-3" /> Due Date
-                </Label>
-                <div className="flex items-center gap-2">
-                  <span className={`text-sm font-medium ${isOverdue ? "text-red-600" : ""}`}>
-                    {task.due_date ? format(new Date(task.due_date), "dd MMM yyyy") : "No due date"}
-                  </span>
-                  {task.due_date && task.status !== "completed" && (
-                    <Badge variant="outline" className="text-xs">
-                      {differenceInDays(new Date(task.due_date), new Date())} days left
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Description */}
-            {task.description && (
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Description</Label>
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <p className="text-sm whitespace-pre-wrap">{task.description}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Client Details */}
-            {task.projects && (
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground flex items-center gap-2">
-                  <Building2 className="h-4 w-4" />
-                  Client Details
-                </Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="h-4 w-4 text-blue-500" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Client</p>
-                      <p className="text-sm font-medium">{task.projects.name}</p>
-                    </div>
-                  </div>
-                  {task.projects.client_phone && (
-                    <div className="flex items-center gap-2">
-                      <PhoneCall className="h-4 w-4 text-blue-500" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Phone</p>
-                        <p className="text-sm font-medium">{task.projects.client_phone}</p>
-                      </div>
-                    </div>
-                  )}
-                  {task.projects.client_email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-blue-500" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Email</p>
-                        <p className="text-sm font-medium">{task.projects.client_email}</p>
-                      </div>
-                    </div>
-                  )}
-                  {task.projects.client_address && (
-                    <div className="flex items-center gap-2 col-span-full">
-                      <MapPin className="h-4 w-4 text-blue-500" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Address</p>
-                        <p className="text-sm font-medium">{task.projects.client_address}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <Separator />
-
-            {/* Project Note / Update Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground flex items-center gap-2">
-                  <StickyNote className="h-4 w-4" />
-                  Project Update (visible to whole team)
-                </Label>
-                {!editingProjectNote && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-7 text-xs"
-                    onClick={() => setEditingProjectNote(true)}
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    Edit
-                  </Button>
-                )}
-              </div>
-              
-              {projectNoteLoading ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                </div>
-              ) : editingProjectNote ? (
-                <div className="space-y-2">
-                  <Textarea
-                    value={projectNoteContent}
-                    onChange={(e) => setProjectNoteContent(e.target.value)}
-                    rows={3}
-                    placeholder="What's happening in this project? Share updates with the team..."
-                    className="text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={handleSaveProjectNote}>
-                      <Save className="h-3 w-3 mr-1" />
-                      Save
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      onClick={() => {
-                        setEditingProjectNote(false);
-                        setProjectNoteContent(projectNote?.content || "");
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-                  <p className="text-sm whitespace-pre-wrap">
-                    {projectNote?.content || "No project update yet. Click Edit to add one."}
-                  </p>
-                  {projectNote?.updated_at && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Last updated: {format(new Date(projectNote.updated_at), "dd MMM yyyy, hh:mm a")}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            {/* Subtasks Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => setShowSubtasks(!showSubtasks)}
-                    className="flex items-center gap-2 hover:opacity-70"
-                  >
-                    <Label className="text-xs text-muted-foreground flex items-center gap-2 cursor-pointer">
-                      <ListChecks className="h-4 w-4" />
-                      Subtasks
-                    </Label>
-                    <Badge variant="outline" className="text-xs">
-                      {completedSubtasks}/{subtasks.length}
-                    </Badge>
-                    <ChevronDown className={`h-4 w-4 transition-transform ${showSubtasks ? "rotate-180" : ""}`} />
-                  </button>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-7 text-xs"
-                  onClick={() => onFetchSubtasks(task.id)}
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Refresh
-                </Button>
-              </div>
-
-              {showSubtasks && (
-                <>
-                  {subtasksLoading ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {subtasks.map((subtask) => (
-                        <div 
-                          key={subtask.id} 
-                          className="border rounded-lg p-2 hover:bg-muted/30 transition-colors space-y-2"
-                        >
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={subtask.status === "completed"}
-                              onChange={() => onToggleSubtask(subtask.id, task.id, subtask.status)}
-                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer shrink-0"
-                            />
-                            <span className={`text-sm flex-1 ${subtask.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
-                              {subtask.title}
-                            </span>
-                            {subtask.tag && (
-                              <Badge variant="outline" className="text-xs bg-violet-50 border-violet-200 text-violet-700">
-                                {subtask.tag}
-                              </Badge>
-                            )}
-                            {subtask.assigned_to_name && (
-                              <span className="text-xs text-indigo-600 flex items-center gap-1">
-                                <UserCheck className="h-3 w-3" />
-                                {subtask.assigned_to_name}
-                              </span>
-                            )}
-                            {subtask.created_at && (
-                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                {format(new Date(subtask.created_at), "dd MMM, hh:mm a")}
-                              </span>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              title="Add / edit note"
-                              onClick={() => {
-                                setEditingSubtaskNoteId(editingSubtaskNoteId === subtask.id ? null : subtask.id);
-                                setSubtaskNoteDraft(subtask.note || "");
-                              }}
-                            >
-                              <StickyNote className="h-3 w-3 text-amber-600" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-6 w-6 text-destructive hover:bg-destructive/10"
-                              onClick={() => onDeleteSubtask(subtask.id, task.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          {subtask.note && editingSubtaskNoteId !== subtask.id && (
-                            <div className="ml-7 text-xs bg-amber-50 border border-amber-100 rounded-md p-2 text-amber-900 whitespace-pre-wrap">
-                              <span className="font-medium">📝 Note: </span>{subtask.note}
-                            </div>
-                          )}
-                          {editingSubtaskNoteId === subtask.id && (
-                            <div className="ml-7 space-y-2">
-                              <Textarea
-                                value={subtaskNoteDraft}
-                                onChange={(e) => setSubtaskNoteDraft(e.target.value)}
-                                rows={3}
-                                placeholder="Write the history / note for this subtask..."
-                                className="text-sm"
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={() => {
-                                    onUpdateSubtaskNote?.(subtask.id, task.id, subtaskNoteDraft.trim());
-                                    setEditingSubtaskNoteId(null);
-                                    setSubtaskNoteDraft("");
-                                  }}
-                                >
-                                  <Save className="h-3 w-3 mr-1" /> Save Note
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => {
-                                    setEditingSubtaskNoteId(null);
-                                    setSubtaskNoteDraft("");
-                                  }}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      {subtasks.length === 0 && (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          No subtasks yet. Break down this task below.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Add Subtask Form */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-                    <Input
-                      value={newSubtaskTitle}
-                      onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                      placeholder="Subtask title..."
-                      className="text-sm"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleAddSubtask();
-                      }}
-                    />
-                    <Select value={newSubtaskTag} onValueChange={setNewSubtaskTag}>
-                      <SelectTrigger className="text-sm">
-                        <SelectValue placeholder="Tag" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subtaskTags.map(tag => (
-                          <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <div className="flex gap-2">
-                      <Select value={newSubtaskAssignee || "unassigned"} onValueChange={setNewSubtaskAssignee}>
-                        <SelectTrigger className="text-sm flex-1">
-                          <SelectValue placeholder="Assign" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">Unassigned</SelectItem>
-                          {itTeam.map(member => (
-                            <SelectItem key={member.id} value={member.email}>
-                              {member.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button size="sm" onClick={handleAddSubtask} className="shrink-0">
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <Separator />
-
-            {/* Remarks / History Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <button 
-                  onClick={() => setShowRemarksHistory(!showRemarksHistory)}
-                  className="flex items-center gap-2 hover:opacity-70"
-                >
-                  <Label className="text-xs text-muted-foreground flex items-center gap-2 cursor-pointer">
-                    <History className="h-4 w-4" />
-                    Update History
-                  </Label>
-                  <Badge variant="outline" className="text-xs">
-                    {remarks.length}
-                  </Badge>
-                  <ChevronDown className={`h-4 w-4 transition-transform ${showRemarksHistory ? "rotate-180" : ""}`} />
-                </button>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-7 text-xs"
-                  onClick={() => onFetchRemarks(task.id)}
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Refresh
-                </Button>
-              </div>
-
-              {showRemarksHistory && (
-                <>
-                  {remarksLoading ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : (
-                    <div className="space-y-3 max-h-64 overflow-y-auto">
-                      {remarks.map((remark) => (
-                        <div 
-                          key={remark.id} 
-                          className="p-3 bg-muted/30 rounded-lg border border-muted"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm whitespace-pre-wrap flex-1">{remark.remark}</p>
-                            {remark.created_by_email === currentUserEmail && (
-                              <Badge variant="outline" className="text-xs shrink-0">You</Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <UserCheck className="h-3 w-3" />
-                              {remark.created_by_name || remark.created_by_email || "Unknown"}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <ClockIcon className="h-3 w-3" />
-                              {format(new Date(remark.created_at), "dd MMM yyyy, hh:mm a")}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                      {remarks.length === 0 && (
-                        <p className="text-sm text-muted-foreground text-center py-4">
-                          No updates yet. Add your first update below.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Add Remark Form */}
-                  <div className="space-y-2 mt-3">
-                    <Textarea
-                      value={newRemark}
-                      onChange={(e) => setNewRemark(e.target.value)}
-                      rows={2}
-                      placeholder="Add your update/remark... (e.g., Sample sent, waiting for approval)"
-                      className="text-sm"
-                    />
-                    <Button 
-                      onClick={handleAddRemark} 
-                      disabled={savingRemark || !newRemark.trim()}
-                      className="w-full sm:w-auto"
-                    >
-                      {savingRemark ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4 mr-2" />
-                      )}
-                      Add Update
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
+        <div className="py-4">
+          <p className="text-sm mb-2">
+            Are you sure you want to delete <strong>{count}</strong> selected lead{count > 1 ? 's' : ''}?
+          </p>
+          <p className="text-xs text-muted-foreground">
+            This action cannot be undone. All lead data including comments and history will be permanently removed.
+          </p>
+          <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-xs text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              Warning: This will permanently delete all selected leads
+            </p>
           </div>
         </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" onClick={onConfirm}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete {count} Lead{count > 1 ? 's' : ''}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ============================================================
-// TASK ASSIGNMENT PAGE COMPONENT
-// ============================================================
-function TaskAssignmentPage({ 
-  itTeam, 
-  user,
-  onTaskClick 
+// ── Bulk Stage Change Dialog ──
+function BulkStageChangeDialog({ 
+  open, 
+  onClose, 
+  onConfirm, 
+  count,
+  currentStage
 }: { 
-  itTeam: ITTeamMember[]; 
-  user: any;
-  onTaskClick?: (task: MyTaskRow) => void;
+  open: boolean; 
+  onClose: () => void; 
+  onConfirm: (stage: string, subStage: string) => void; 
+  count: number;
+  currentStage: string | null;
 }) {
-  const queryClient = useQueryClient();
-  const [selectedMember, setSelectedMember] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [projectFilter, setProjectFilter] = useState("all");
+  const [selectedStage, setSelectedStage] = useState("");
+  const [selectedSubStage, setSelectedSubStage] = useState("");
 
-  // Fetch all tasks
-  const { data: allTasks = [], isLoading } = useQuery({
-    queryKey: ["all_tasks"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("project_tasks")
-        .select(`
-          *,
-          projects (
-            name,
-            project_id,
-            brand_name,
-            client_phone,
-            client_email,
-            client_address,
-            current_stage,
-            status,
-            image_url
-          )
-        `)
-        .order("due_date", { ascending: true, nullsLast: true });
-
-      if (error) throw error;
-      return data as unknown as MyTaskRow[];
-    },
-  });
-
-  // Get unique projects for filter
-  const projects = Array.from(
-    new Set(allTasks.map(t => t.projects?.name).filter(Boolean))
-  ) as string[];
-
-  // Filter tasks
-  const filteredTasks = allTasks
-    .filter(task => {
-      if (selectedMember && task.assigned_to_email !== selectedMember) return false;
-      // Employee-complete tasks hide from assignment list unless user explicitly filters Completed
-      if (statusFilter === "all" && task.status === "completed") return false;
-      if (statusFilter !== "all" && task.status !== statusFilter) return false;
-      if (priorityFilter !== "all" && task.priority !== priorityFilter) return false;
-      if (projectFilter !== "all" && task.projects?.name !== projectFilter) return false;
-      if (searchTerm) {
-        const q = searchTerm.toLowerCase();
-        const matchTask = task.task_name.toLowerCase().includes(q);
-        const matchProject = task.projects?.name.toLowerCase().includes(q);
-        const matchBrand = task.projects?.brand_name?.toLowerCase().includes(q);
-        return matchTask || matchProject || matchBrand;
-      }
-      return true;
-    });
-
-  // Get task counts per team member
-  const memberTaskCounts = itTeam.map(member => ({
-    ...member,
-    total: allTasks.filter(t => t.assigned_to_email === member.email).length,
-    completed: allTasks.filter(t => t.assigned_to_email === member.email && t.status === "completed").length,
-    overdue: allTasks.filter(t => 
-      t.assigned_to_email === member.email && 
-      t.due_date && 
-      isBefore(new Date(t.due_date), startOfDay(new Date())) && 
-      t.status !== "completed"
-    ).length,
-  }));
-
-  const selectedMemberData = itTeam.find(m => m.email === selectedMember);
-
-  // Update assignment
-  const assignTask = async (taskId: string, email: string, name: string) => {
-    try {
-      const payload: Record<string, any> = {
-        assigned_to_email: email || null,
-        assigned_to_name: name || null,
-        assigned_at: email ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      };
-      let { data, error } = await supabase
-        .from("project_tasks")
-        .update(payload)
-        .eq("id", taskId)
-        .select();
-      if (error && String(error.message || "").toLowerCase().includes("assigned_at")) {
-        const retry = await supabase
-          .from("project_tasks")
-          .update({ assigned_to_email: email || null, assigned_to_name: name || null, updated_at: new Date().toISOString() })
-          .eq("id", taskId)
-          .select();
-        data = retry.data;
-        error = retry.error;
-      }
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        toast.error("Update blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
-        return;
-      }
-
-      toast.success(email ? `Task assigned to ${name}` : "Task unassigned");
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["project_last_assignees"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to assign task");
+  useEffect(() => {
+    if (open) {
+      setSelectedStage("");
+      setSelectedSubStage("");
     }
-  };
+  }, [open]);
 
-  // Bulk assign tasks
-  const [bulkAssignDialogOpen, setBulkAssignDialogOpen] = useState(false);
-  const [bulkAssignMember, setBulkAssignMember] = useState("");
-  const [bulkAssignTasks, setBulkAssignTasks] = useState<string[]>([]);
-
-  const handleBulkAssign = async () => {
-    if (!bulkAssignMember || bulkAssignTasks.length === 0) {
-      toast.error("Select a team member and at least one task");
-      return;
-    }
-
-    const member = itTeam.find(m => m.email === bulkAssignMember);
-    if (!member) return;
-
-    try {
-      const { data, error } = await supabase
-        .from("project_tasks")
-        .update({ assigned_to_email: member.email, assigned_to_name: member.name })
-        .in("id", bulkAssignTasks)
-        .select();
-
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        toast.error("Bulk assign blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
-        return;
-      }
-
-      toast.success(`${data.length} tasks assigned to ${member.name}`);
-      setBulkAssignDialogOpen(false);
-      setBulkAssignTasks([]);
-      setBulkAssignMember("");
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to assign tasks");
-    }
-  };
+  const subStages = getSubStagesForStage(selectedStage);
 
   return (
-    <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard 
-          icon={ClipboardList} 
-          label="Total Tasks" 
-          value={allTasks.length} 
-          color="blue" 
-        />
-        <StatCard 
-          icon={UsersIcon} 
-          label="Team Members" 
-          value={itTeam.length} 
-          color="purple" 
-        />
-        <StatCard 
-          icon={CheckCircle} 
-          label="Completed" 
-          value={allTasks.filter(t => t.status === "completed").length} 
-          color="green" 
-        />
-        <StatCard 
-          icon={AlertTriangle} 
-          label="Overdue" 
-          value={allTasks.filter(t => 
-            t.due_date && 
-            isBefore(new Date(t.due_date), startOfDay(new Date())) && 
-            t.status !== "completed"
-          ).length} 
-          color="red" 
-        />
-      </div>
-
-      {/* Team Member Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {memberTaskCounts.map(member => (
-          <Card 
-            key={member.id}
-            className={`cursor-pointer hover:shadow-md transition-all ${selectedMember === member.email ? "border-primary shadow-md" : ""}`}
-            onClick={() => setSelectedMember(selectedMember === member.email ? null : member.email)}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{member.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{member.email}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 mt-3">
-                <div className="text-center">
-                  <p className="text-lg font-bold">{member.total}</p>
-                  <p className="text-[10px] text-muted-foreground">Total</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-green-600">{member.completed}</p>
-                  <p className="text-[10px] text-muted-foreground">Done</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-red-600">{member.overdue}</p>
-                  <p className="text-[10px] text-muted-foreground">Overdue</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex flex-wrap gap-2">
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search tasks..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="not_started">Not Started</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="review">Review</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="blocked">Blocked</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Priority</SelectItem>
-                  <SelectItem value="urgent">🔴 Urgent</SelectItem>
-                  <SelectItem value="high">🟠 High</SelectItem>
-                  <SelectItem value="medium">🟡 Medium</SelectItem>
-                  <SelectItem value="low">🟢 Low</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={projectFilter} onValueChange={setProjectFilter}>
-                <SelectTrigger className="w-44">
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Projects</SelectItem>
-                  {projects.map(p => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  setSelectedMember(null);
-                  setSearchTerm("");
-                  setStatusFilter("all");
-                  setPriorityFilter("all");
-                  setProjectFilter("all");
-                }}
-              >
-                <X className="h-4 w-4 mr-1" /> Clear
-              </Button>
-              <Button 
-                size="sm"
-                onClick={() => setBulkAssignDialogOpen(true)}
-                disabled={filteredTasks.length === 0}
-              >
-                <UsersIcon className="h-4 w-4 mr-2" />
-                Bulk Assign
-              </Button>
-            </div>
-          </div>
-          {selectedMemberData && (
-            <div className="mt-2 text-sm text-muted-foreground">
-              Showing tasks for <strong>{selectedMemberData.name}</strong>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-6 px-2 text-xs ml-2"
-                onClick={() => setSelectedMember(null)}
-              >
-                <X className="h-3 w-3 mr-1" /> Clear
-              </Button>
-            </div>
-          )}
-        </CardHeader>
-      </Card>
-
-      {/* Task Table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8">
-                    <input
-                      type="checkbox"
-                      checked={bulkAssignTasks.length === filteredTasks.length && filteredTasks.length > 0}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setBulkAssignTasks(filteredTasks.map(t => t.id));
-                        } else {
-                          setBulkAssignTasks([]);
-                        }
-                      }}
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                    />
-                  </TableHead>
-                  <TableHead>Task Name</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Assigned To</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                    </TableCell>
-                  </TableRow>
-                ) : filteredTasks.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      No tasks found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredTasks.map(task => {
-                    const isOverdue = task.due_date && 
-                      isBefore(new Date(task.due_date), startOfDay(new Date())) && 
-                      task.status !== "completed";
-                    return (
-                      <TableRow key={task.id} className="hover:bg-muted/30">
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            checked={bulkAssignTasks.includes(task.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setBulkAssignTasks([...bulkAssignTasks, task.id]);
-                              } else {
-                                setBulkAssignTasks(bulkAssignTasks.filter(id => id !== task.id));
-                              }
-                            }}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                          />
-                        </TableCell>
-                        <TableCell 
-                          className="font-medium cursor-pointer hover:text-primary"
-                          onClick={() => onTaskClick?.(task)}
-                        >
-                          {task.task_name}
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm">{task.projects?.name || "—"}</span>
-                          {task.projects?.brand_name && (
-                            <span className="text-xs text-muted-foreground block">{task.projects.brand_name}</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Select
-                            value={task.assigned_to_email || "unassigned"}
-                            onValueChange={(v) => {
-                              if (v === "unassigned") {
-                                assignTask(task.id, "", "");
-                                setBulkAssignTasks(bulkAssignTasks.filter(id => id !== task.id));
-                                return;
-                              }
-                              const member = itTeam.find(m => m.email === v);
-                              if (member) {
-                                assignTask(task.id, member.email, member.name);
-                                setBulkAssignTasks(bulkAssignTasks.filter(id => id !== task.id));
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="h-8 w-48">
-                              <SelectValue placeholder="Unassigned" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="unassigned">Unassigned</SelectItem>
-                              {itTeam.map(m => (
-                                <SelectItem key={m.id} value={m.email}>
-                                  {m.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-xs ${getStatusColor(task.status)}`}>
-                            {task.status?.replace("_", " ").toUpperCase() || "NOT STARTED"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-xs ${getPriorityColor(task.priority)}`}>
-                            {task.priority?.toUpperCase() || "MEDIUM"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className={`text-sm ${isOverdue ? "text-red-600 font-medium" : ""}`}>
-                            {task.due_date ? format(new Date(task.due_date), "dd MMM yyyy") : "—"}
-                          </span>
-                          {isOverdue && (
-                            <Badge variant="destructive" className="ml-2 text-[10px]">Overdue</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8"
-                            onClick={() => onTaskClick?.(task)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Bulk Assign Dialog */}
-      <Dialog open={bulkAssignDialogOpen} onOpenChange={setBulkAssignDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Bulk Assign Tasks</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              {bulkAssignTasks.length} tasks selected for assignment
-            </p>
-            <div className="grid gap-2">
-              <Label>Assign to Team Member</Label>
-              <Select value={bulkAssignMember} onValueChange={setBulkAssignMember}>
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-blue-600">
+            <Layers className="h-5 w-5" />
+            Bulk Change Stage
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4 space-y-4">
+          <p className="text-sm">
+            Change stage for <strong>{count}</strong> selected lead{count > 1 ? 's' : ''}.
+            {currentStage && (
+              <span className="text-muted-foreground block mt-1">
+                Current stage: <Badge variant="outline">{formatStageLabel(currentStage)}</Badge>
+              </span>
+            )}
+          </p>
+          
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>New Stage</Label>
+              <Select value={selectedStage} onValueChange={(v) => {
+                setSelectedStage(v);
+                setSelectedSubStage("");
+              }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select team member" />
+                  <SelectValue placeholder="Select stage..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {itTeam.map(m => (
-                    <SelectItem key={m.id} value={m.email}>
-                      {m.name} ({m.email})
+                  {LEAD_STAGES.map(s => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.icon} {s.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+
+            {subStages.length > 0 && (
+              <div className="space-y-2">
+                <Label>Sub Stage (Optional)</Label>
+                <Select value={selectedSubStage} onValueChange={setSelectedSubStage}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select sub stage..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {subStages.map(s => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkAssignDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleBulkAssign} disabled={!bulkAssignMember || bulkAssignTasks.length === 0}>
-              <UsersIcon className="h-4 w-4 mr-2" />
-              Assign {bulkAssignTasks.length} Tasks
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-xs text-blue-600 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              This will update the stage for all selected leads
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button 
+            onClick={() => onConfirm(selectedStage, selectedSubStage)}
+            disabled={!selectedStage}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Layers className="mr-2 h-4 w-4" />
+            Update {count} Lead{count > 1 ? 's' : ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-// ============================================================
-// TASK CALENDAR VIEW COMPONENT (Fixed + Add Task support)
-// ============================================================
-function TaskCalendarView({ 
-  tasks, 
-  onTaskClick,
-  itTeam = [],
-  projects = [],
-  onAddTask,
-  onUpdateDueDate,
-}: { 
-  tasks: MyTaskRow[]; 
-  onTaskClick?: (task: MyTaskRow) => void;
-  itTeam?: ITTeamMember[];
-  projects?: Project[];
-  onAddTask?: (data: {
-    task_name: string;
-    due_date: string;
-    priority: string;
-    assigned_to_email?: string | null;
-    assigned_to_name?: string | null;
-    project_id?: string;
-    description?: string;
-  }) => Promise<void> | void;
-  onUpdateDueDate?: (taskId: string, dueDate: string) => Promise<void> | void;
-}) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(() => startOfDay(new Date()));
-  const [selectedClientId, setSelectedClientId] = useState<string>("all");
-  const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [newTaskName, setNewTaskName] = useState("");
-  const [newTaskPriority, setNewTaskPriority] = useState("medium");
-  const [newTaskAssignee, setNewTaskAssignee] = useState("unassigned");
-  const [newTaskProjectId, setNewTaskProjectId] = useState("");
-  const [newTaskDescription, setNewTaskDescription] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null);
-  const [dueDateDraft, setDueDateDraft] = useState("");
-  const [savingDueDate, setSavingDueDate] = useState(false);
-  const dayClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Per-project calendar: selected project ke tasks hi dikhenge
-  const filteredCalendarTasks = selectedClientId === "all"
-    ? tasks
-    : tasks.filter(t => t.project_id === selectedClientId);
-
-  // Task counts per project (for separate calendar cards)
-  const projectCalendarList = (() => {
-    const map = new Map<string, {
-      id: string;
-      name: string;
-      brand: string | null;
-      total: number;
-      overdue: number;
-      completed: number;
-    }>();
-    projects.forEach(p => {
-      map.set(p.id, {
-        id: p.id,
-        name: p.name,
-        brand: p.brand_name,
-        total: 0,
-        overdue: 0,
-        completed: 0,
-      });
+// ── Main Component ───────────────────────────────────────────────────────────
+export default function Leads() {
+  const { user } = useAuth();
+  const canAssign = useCanAssignTasks();
+  const { data: profiles = [] } = useAllProfiles();
+  const logActivity = useLeadActivityLogger();
+  
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => ["global_leads_cache", user?.id], [user?.id]);
+  
+  // ── State ──
+  const [leads, _setLeads] = useState<DbLead[]>(() => {
+    return queryClient.getQueryData<DbLead[]>(queryKey) || [];
+  });
+  
+  const setLeads = useCallback((updater: React.SetStateAction<DbLead[]>) => {
+    _setLeads((prev) => {
+      const next = typeof updater === "function" ? (updater as any)(prev) : updater;
+      queryClient.setQueryData(queryKey, next);
+      return next;
     });
-    tasks.forEach(t => {
-      if (!t.project_id) return;
-      if (!map.has(t.project_id)) {
-        map.set(t.project_id, {
-          id: t.project_id,
-          name: t.projects?.name || "Unknown Project",
-          brand: t.projects?.brand_name || null,
-          total: 0,
-          overdue: 0,
-          completed: 0,
+  }, [queryClient, queryKey]);
+
+  // If we have cached leads, start with isLoading = false so it renders instantly
+  const [isLoading, setIsLoading] = useState(() => !queryClient.getQueryData(queryKey));
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(50);
+  const [isInitialFetch, setIsInitialFetch] = useState(true);
+  const [showAllLeads, setShowAllLeads] = useState(true);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [bulkStageDialogOpen, setBulkStageDialogOpen] = useState(false);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchInput]);
+
+  const fetchLeads = useCallback(async (silent = false) => {
+    try {
+      const hasCachedData = !!queryClient.getQueryData(queryKey);
+      
+      // If not specifically silent, but we already have data, just do a background sync
+      if (!silent && !hasCachedData) {
+        setIsLoading(true);
+      }
+      
+      console.log("🔄 Fetching leads for user:", user?.id);
+      
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user?.id)
+        .single();
+      
+      if (profileError) {
+        console.error("❌ Profile fetch error:", profileError);
+      }
+      
+      const isAdmin = profile?.role === "admin" || !!canAssign;
+      console.log("👑 Is Admin:", isAdmin, "| role:", profile?.role, "| canAssign:", canAssign);
+      
+      const PAGE_SIZE = 1000;
+      let allRows: DbLead[] = [];
+
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let query = supabase
+          .from("leads")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+
+        // Employees: only their assigned leads
+        if (!isAdmin && user?.id) {
+          query = query.eq("assigned_to", user.id);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error("❌ Supabase error:", error);
+          throw error;
+        }
+
+        const batch = (data as DbLead[]) || [];
+        allRows = allRows.concat(batch);
+        console.log(`📦 Batch ${from / PAGE_SIZE + 1}: ${batch.length} rows (total so far: ${allRows.length})`);
+
+        if (batch.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
+      }
+
+      allRows = dedupeLeads(allRows);
+      
+      console.log("✅ Fetched leads TOTAL (deduped):", allRows.length);
+      setLeads(allRows);
+      return allRows;
+    } catch (error) {
+      console.error("❌ Error fetching leads:", error);
+      toast.error("Failed to fetch leads");
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id, canAssign]);
+
+  useEffect(() => {
+    if (isInitialFetch) {
+      fetchLeads();
+      setIsInitialFetch(false);
+    }
+  }, [fetchLeads, isInitialFetch]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channelName = `leads-changes-${user.id}`;
+    let cancelled = false;
+
+    // Remove leftover channels with this topic (React Strict Mode / canAssign flip)
+    supabase
+      .getChannels()
+      .filter((c) => c.topic === `realtime:${channelName}`)
+      .forEach((c) => {
+        supabase.removeChannel(c);
+      });
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "leads",
+        },
+        (payload) => {
+          if (cancelled) return;
+
+          const isAdmin = !!canAssign;
+
+          setLeads((prev) => {
+            switch (payload.eventType) {
+              case "INSERT": {
+                const row = payload.new as DbLead;
+                if (!row?.id) return prev;
+                if (prev.some((l) => l.id === row.id)) return prev;
+                if (!isAdmin && !isLeadVisibleToEmployee(row, user.id)) {
+                  return prev;
+                }
+                return dedupeLeads([
+                  { ...row, stage: row.stage === "New" ? "new" : row.stage },
+                  ...prev,
+                ]);
+              }
+              case "UPDATE": {
+                const row = payload.new as DbLead;
+                if (!row?.id) return prev;
+                const normalized = {
+                  ...row,
+                  stage: row.stage === "New" ? "new" : row.stage,
+                };
+                if (!isAdmin && !isLeadVisibleToEmployee(normalized, user.id)) {
+                  return prev.filter((l) => l.id !== normalized.id);
+                }
+                if (prev.some((l) => l.id === normalized.id)) {
+                  return prev.map((l) =>
+                    l.id === normalized.id ? normalized : l
+                  );
+                }
+                return dedupeLeads([normalized, ...prev]);
+              }
+              case "DELETE":
+                return prev.filter((l) => l.id !== (payload.old as any)?.id);
+              default:
+                return prev;
+            }
+          });
+        }
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("Leads realtime status:", status);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, canAssign]);
+
+  const [filterStatus, setFilterStatus]     = useState("all");
+  const [filterStage, setFilterStage]       = useState("all");
+  const [filterAssignment, setFilterAssignment] = useState("all");
+  const [filterLeadType, setFilterLeadType] = useState("all");
+  const [filterBudget, setFilterBudget]     = useState("all");
+  const [filterTemperature, setFilterTemperature] = useState("all");
+  const [dateFrom, setDateFrom]             = useState("");
+  const [dateTo, setDateTo]                 = useState("");
+  const [dialogOpen, setDialogOpen]         = useState(false);
+  const [uploadOpen, setUploadOpen]         = useState(false);
+  const [detailLead, setDetailLead]         = useState<DbLead | null>(null);
+  const [editLead, setEditLead]             = useState<DbLead | null>(null);
+  const [filterPreset, setFilterPreset]     = useState("all");
+  const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set());
+  const [bulkAssignTo, setBulkAssignTo]     = useState("");
+  const [empModalOpen, setEmpModalOpen]     = useState(false);
+  const [uploadPreview, setUploadPreview]   = useState<any[]>([]);
+  const [uploading, setUploading]           = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  
+  const [lostLeadDialog, setLostLeadDialog] = useState<DbLead | null>(null);
+
+  const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
+  const [exportStage, setExportStage] = useState("all");
+  const [importSummary, setImportSummary] = useState<{ imported: number } | null>(null);
+  const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
+  const [liveCountPulsing, setLiveCountPulsing] = useState(false);
+
+  type StatsFilter = "all" | "today" | "followup" | "hot" | "warm" | "cold" | "converted";
+  const [statsFilter, setStatsFilter] = useState<StatsFilter>("all");
+
+  const statsFilterLabels: Record<StatsFilter, string> = {
+    all: "All Leads",
+    today: "Today's Leads",
+    followup: "Follow-ups Due",
+    hot: "🔥 Hot Leads",
+    warm: "☀️ Warm Leads",
+    cold: "❄️ Cold Leads",
+    converted: "✅ Converted Leads",
+  };
+
+  const fetchLiveTotalCount = useCallback(async () => {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user?.id)
+        .single();
+      const isAdmin = profile?.role === "admin" || !!canAssign;
+
+      let query = supabase.from("leads").select("*", { count: "exact", head: true });
+      if (!isAdmin && user?.id) {
+        query = query.eq("assigned_to", user.id);
+      }
+      const { count, error } = await query;
+      if (error) throw error;
+      setLiveTotalCount(count ?? 0);
+      setLiveCountPulsing(true);
+      setTimeout(() => setLiveCountPulsing(false), 700);
+    } catch (error) {
+      console.error("Live count fetch error:", error);
+    }
+  }, [user?.id, canAssign]);
+
+  useEffect(() => {
+    fetchLiveTotalCount();
+    const interval = setInterval(fetchLiveTotalCount, 20000);
+    return () => clearInterval(interval);
+  }, [fetchLiveTotalCount]);
+
+  const emptyForm = {
+    name: "", email: "", phone: "", company: "", source: "Website", value: "",
+    lead_type: "Herbal & Ayurvedic", address: "", cx_comment: "",
+    budget: "₹50k - ₹1l", stage: DEFAULT_LEAD_STAGE, sub_stage: "", remark: "",
+    temperature: "warm",
+  };
+  const [form, setForm] = useState(emptyForm);
+
+
+  const markLeadAsLost = useCallback(async (leadId: string, reason: string) => {
+    const lostDate = new Date().toISOString();
+    const patch = {
+      stage: "lost",
+      status: "lost",
+      lost_reason: reason,
+      lost_date: lostDate,
+      business_status: "no-go",
+    };
+
+    setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, ...patch } : l)));
+    if (detailLead && detailLead.id === leadId) {
+      setDetailLead(null);
+    }
+    setLostLeadDialog(null);
+
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update(patch)
+        .eq("id", leadId);
+
+      if (error) throw error;
+
+      logActivity(leadId, "updated", `Marked as lost - Reason: ${reason}`);
+      toast.success("Lead marked as lost");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to mark lead as lost");
+      await fetchLeads(true);
+    }
+  }, [detailLead, logActivity, fetchLeads]);
+
+  const assignLead = useMutation({
+    mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string }) => {
+      const finalAssignedTo = assigned_to === "unassigned" ? null : assigned_to;
+      const assign_date = finalAssignedTo ? new Date().toISOString() : null;
+
+      const patch: Partial<DbLead> = {
+        assigned_to: finalAssignedTo,
+        assign_date,
+        in_shared_pool: false,
+        claimed_from_pool: false,
+      };
+
+      setLeads(prev => prev.map(l => (l.id === id ? { ...l, ...patch } : l)));
+      if (detailLead && detailLead.id === id) {
+        setDetailLead(prev => (prev ? { ...prev, ...patch } : prev));
+      }
+
+      const { error } = await supabase
+        .from("leads")
+        .update(patch)
+        .eq("id", id);
+        
+      if (error) throw error;
+      
+      return { id, assigned_to: finalAssignedTo };
+    },
+    onSuccess: () => {
+      toast.success("Lead assigned successfully");
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || "Failed to assign lead");
+      fetchLeads(true);
+    },
+  });
+
+  const getProfileName = useCallback((userId: string | null) => {
+    if (!userId) return "Unassigned";
+    const p = (profiles as {
+      user_id: string;
+      display_name: string | null;
+      email?: string | null;
+    }[]).find((p) => p.user_id === userId);
+    if (!p) return "Unknown";
+    const displayName = p.display_name != null ? String(p.display_name).trim() : "";
+    if (displayName) return displayName;
+    const email = p.email != null ? String(p.email).trim() : "";
+    if (email) return email;
+    return "Unnamed User";
+  }, [profiles]);
+
+  const handleUpdateStageFromDetail = useCallback(async (id: string, stage: string, subStage: string) => {
+    const updateData: any = { 
+      stage, 
+      sub_stage: subStage,
+    };
+    
+    const existingLead = leads.find(l => l.id === id);
+    
+    if (stage === "converted") {
+      updateData.status = "converted";
+      updateData.business_status = "done";
+    } else if (stage === "lost") {
+      updateData.status = "lost";
+      updateData.business_status = "no-go";
+    } else if (existingLead) {
+      updateData.status = existingLead.status || stage;
+    }
+
+    setLeads(prev => prev.map(l => (l.id === id ? { ...l, ...updateData } : l)));
+    if (detailLead && detailLead.id === id) {
+      setDetailLead(prev => (prev ? { ...prev, ...updateData } : prev));
+    }
+
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update(updateData)
+        .eq("id", id);
+      
+      if (error) throw error;
+      
+      toast.success(`Stage updated to ${formatStageLabel(stage)}`);
+      logActivity(id, "updated", `Stage: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
+    } catch (error: any) {
+      console.error("Stage update error:", error);
+      toast.error(error.message || "Failed to update stage");
+      await fetchLeads(true);
+    }
+  }, [leads, detailLead, logActivity, fetchLeads]);
+
+  const openLeadDetail = useCallback((lead: DbLead) => {
+    setDetailLead(lead);
+    logActivity(lead.id, "viewed", `Opened ${lead.name}`);
+  }, [logActivity]);
+
+  const handleAddLead = useCallback(async () => {
+    if (!form.name || !form.email) { 
+      toast.error("Name and Email are required"); 
+      return; 
+    }
+    
+    try {
+      const assign_date = user?.id ? new Date().toISOString() : null;
+
+      const payload = {
+        name: form.name, 
+        email: form.email, 
+        phone: form.phone || null, 
+        company: form.company || null,
+        source: form.source, 
+        value: Number(form.value) || 0, 
+        status: "new",
+        lead_type: form.lead_type, 
+        address: form.address || null, 
+        cx_comment: form.cx_comment || null,
+        budget: form.budget, 
+        stage: form.stage, 
+        sub_stage: form.sub_stage || null, 
+        remark: form.remark || null,
+        temperature: form.temperature,
+        assigned_to: user?.id || null,
+        assign_date,
+      };
+
+      const { data, error } = await supabase
+        .from("leads")
+        .insert(payload)
+        .select("*")
+        .single();
+      
+      if (error) throw error;
+
+      // Instant UI update (no full reload)
+      if (data) {
+        setLeads(prev => dedupeLeads([{ ...data, stage: data.stage === "New" ? "new" : data.stage }, ...prev]));
+      }
+      
+      setForm(emptyForm);
+      setDialogOpen(false);
+      toast.success("Lead added & assigned to you");
+      fetchLiveTotalCount();
+    } catch (error: any) {
+      console.error("Add lead error:", error);
+      toast.error(error.message || "Failed to add lead");
+      await fetchLeads(true);
+    }
+  }, [form, fetchLeads, emptyForm, user?.id, fetchLiveTotalCount]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    
+    setBulkDeleteDialogOpen(false);
+    
+    const previousLeads = leads;
+    
+    setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+    setSelectedIds(new Set());
+    
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .delete()
+        .in("id", ids);
+      
+      if (error) throw error;
+      
+      await fetchLiveTotalCount();
+      
+      toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted successfully`);
+      
+      ids.forEach(id => {
+        logActivity(id, "deleted", `Bulk deleted lead`);
+      });
+    } catch (error: any) {
+      setLeads(previousLeads);
+      console.error("Bulk delete error:", error);
+      toast.error(error.message || "Failed to delete leads");
+      await fetchLeads(true);
+    }
+  }, [selectedIds, leads, fetchLiveTotalCount, logActivity, fetchLeads]);
+
+  const handleBulkStageChange = useCallback(async (stage: string, subStage: string) => {
+    if (selectedIds.size === 0 || !stage) return;
+    const ids = Array.from(selectedIds);
+    
+    setBulkStageDialogOpen(false);
+    
+    const updateData: any = { 
+      stage: stage,
+      sub_stage: subStage || null,
+    };
+    
+    if (stage === "converted") {
+      updateData.status = "converted";
+      updateData.business_status = "done";
+    } else if (stage === "lost") {
+      updateData.status = "lost";
+      updateData.business_status = "no-go";
+    }
+    
+    setLeads(prev => prev.map(l => {
+      if (ids.includes(l.id)) {
+        const updated = { ...l, ...updateData };
+        if (stage === "converted") {
+          updated.status = "converted";
+          updated.business_status = "done";
+        } else if (stage === "lost") {
+          updated.status = "lost";
+          updated.business_status = "no-go";
+        }
+        return updated;
+      }
+      return l;
+    }));
+    
+    setSelectedIds(new Set());
+    
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update(updateData)
+        .in("id", ids);
+      
+      if (error) throw error;
+      
+      toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} stage updated to ${formatStageLabel(stage)}`);
+      
+      ids.forEach(id => {
+        logActivity(id, "updated", `Bulk stage changed to: ${stage}${subStage ? `, Sub-Stage: ${subStage}` : ''}`);
+      });
+    } catch (error: any) {
+      console.error("Bulk stage change error:", error);
+      toast.error(error.message || "Failed to update stages");
+      await fetchLeads(true);
+    }
+  }, [selectedIds, logActivity, fetchLeads]);
+
+  const filterPresetOptions = useMemo(() => ({
+    all: () => true,
+    today: (l: DbLead) => isToday(new Date(l.created_at)),
+    fresh: (l: DbLead) => 
+      (l.status === "new" || l.stage === "ringing") && 
+      new Date(l.created_at) >= subDays(new Date(), 3),
+    followup: (l: DbLead) => 
+      l.next_call_date && new Date(l.next_call_date) <= new Date()
+  }), []);
+
+  const filtered = useMemo(() => {
+    const presetFn = filterPresetOptions[filterPreset as keyof typeof filterPresetOptions] || (() => true);
+    
+    return leads.filter(l => {
+      const matchSearch =
+        l.name.toLowerCase().includes(search.toLowerCase()) ||
+        (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
+        (l.phone || "").includes(search) ||
+        (l.email || "").toLowerCase().includes(search.toLowerCase());
+      const matchStatus     = filterStatus === "all"     || l.status === filterStatus;
+      const matchStage      = filterStage === "all"      || l.stage === filterStage;
+      const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
+      const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
+      const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature;
+      const matchAssignment =
+        filterAssignment === "all" ||
+        (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
+        (filterAssignment === "unassigned" && !l.assigned_to);
+      const matchEmployee =
+        employeeFilter === null ||
+        (employeeFilter === "unassigned" && !l.assigned_to) ||
+        l.assigned_to === employeeFilter;
+      const createdAt = new Date(l.created_at);
+      const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
+      const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
+      return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
+             matchAssignment && matchEmployee && presetFn(l) && 
+             matchDateFrom && matchDateTo && matchTemperature;
+    });
+  }, [leads, search, filterStatus, filterStage, filterAssignment, 
+      filterLeadType, filterBudget, filterTemperature, dateFrom, dateTo, 
+      filterPreset, employeeFilter, user, filterPresetOptions]);
+
+  const dashboardLeads = useMemo(() => {
+    let base: DbLead[];
+    switch (statsFilter) {
+      case "today":
+        base = filtered.filter(l => isToday(new Date(l.created_at)));
+        break;
+      case "followup":
+        base = filtered.filter(l => {
+          const b = getFollowupBucket(l.next_call_date);
+          return (b === "overdue" || b === "today" || b === "upcoming") &&
+            l.stage !== "converted" && l.stage !== "lost";
         });
-      }
-      const row = map.get(t.project_id)!;
-      row.total += 1;
-      if (t.status === "completed") row.completed += 1;
-      if (
-        t.due_date &&
-        isBefore(new Date(t.due_date), startOfDay(new Date())) &&
-        t.status !== "completed"
-      ) {
-        row.overdue += 1;
-      }
-    });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  })();
-
-  const selectedProjectMeta = selectedClientId === "all"
-    ? null
-    : projectCalendarList.find(p => p.id === selectedClientId) || null;
-
-  const clientOptions = projectCalendarList.map(p => ({
-    id: p.id,
-    name: p.name + (p.brand ? ` (${p.brand})` : ""),
-  }));
-
-  const handleDaySingleClick = (day: Date) => {
-    if (dayClickTimerRef.current) {
-      clearTimeout(dayClickTimerRef.current);
-      dayClickTimerRef.current = null;
-    }
-    // Delay so double-click can cancel single-click action
-    dayClickTimerRef.current = setTimeout(() => {
-      dayClickTimerRef.current = null;
-      setSelectedDate(startOfDay(day));
-      setCurrentMonth(day);
-      setNewTaskName("");
-      setNewTaskPriority("medium");
-      setNewTaskAssignee("unassigned");
-      setNewTaskProjectId(selectedClientId !== "all" ? selectedClientId : (projects[0]?.id || ""));
-      setNewTaskDescription("");
-      setAddTaskOpen(true);
-    }, 250);
-  };
-
-  const handleDayDoubleClick = (day: Date) => {
-    if (dayClickTimerRef.current) {
-      clearTimeout(dayClickTimerRef.current);
-      dayClickTimerRef.current = null;
-    }
-    setSelectedDate(startOfDay(day));
-    setCurrentMonth(day);
-    setAddTaskOpen(false);
-  };
-
-  const startEditDueDate = (task: MyTaskRow, day?: Date) => {
-    if (day) {
-      setSelectedDate(startOfDay(day));
-      setCurrentMonth(day);
-    } else if (task.due_date) {
-      const d = startOfDay(new Date(task.due_date));
-      setSelectedDate(d);
-      setCurrentMonth(d);
-    }
-    setEditingDueDateId(task.id);
-    setDueDateDraft(task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd") : "");
-  };
-
-  const saveDueDate = async (taskId: string) => {
-    if (!dueDateDraft || !onUpdateDueDate) {
-      toast.error("Please select a due date");
-      return;
-    }
-    setSavingDueDate(true);
-    try {
-      await onUpdateDueDate(taskId, dueDateDraft);
-      setEditingDueDateId(null);
-      setDueDateDraft("");
-      const next = startOfDay(new Date(dueDateDraft));
-      setSelectedDate(next);
-      setCurrentMonth(next);
-      toast.success(`Due date → ${format(next, "dd MMM yyyy")} ✓`);
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to update due date");
-    } finally {
-      setSavingDueDate(false);
-    }
-  };
-
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const days = eachDayOfInterval({ start: startOfDay(monthStart), end: startOfDay(monthEnd) });
-  const firstDayOfMonth = getDay(monthStart);
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  const getTasksForDay = (date: Date) =>
-    filteredCalendarTasks.filter(t => t.due_date && isSameDay(new Date(t.due_date), date));
-
-  const selectedDateTasks = selectedDate ? getTasksForDay(selectedDate) : [];
-
-  const previousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
-  const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
-  const goToToday = () => {
-    setCurrentMonth(new Date());
-    setSelectedDate(new Date());
-  };
-
-  const openAddTask = () => {
-    if (!selectedDate) {
-      toast.error("Please select a date first");
-      return;
-    }
-    setNewTaskName("");
-    setNewTaskPriority("medium");
-    setNewTaskAssignee("unassigned");
-    setNewTaskProjectId(selectedClientId !== "all" ? selectedClientId : (projects[0]?.id || ""));
-    setNewTaskDescription("");
-    setAddTaskOpen(true);
-  };
-
-  const handleAddTask = async () => {
-    if (!newTaskName.trim()) {
-      toast.error("Task name is required");
-      return;
-    }
-    if (!selectedDate) return;
-    if (!newTaskProjectId) {
-      toast.error("Please select a project");
-      return;
+        break;
+      case "hot":
+      case "warm":
+      case "cold":
+        base = filtered.filter(l => l.temperature === statsFilter);
+        break;
+      case "converted":
+        base = filtered.filter(l => l.stage === "converted");
+        break;
+      case "all":
+      default:
+        base = filtered;
+        break;
     }
 
-    setAdding(true);
-    try {
-      const member = itTeam.find(m => m.email === newTaskAssignee);
-      await onAddTask?.({
-        task_name: newTaskName.trim(),
-        due_date: format(selectedDate, "yyyy-MM-dd"),
-        priority: newTaskPriority,
-        assigned_to_email: (newTaskAssignee && newTaskAssignee !== "unassigned") ? newTaskAssignee : null,
-        assigned_to_name: member?.name || null,
-        project_id: newTaskProjectId,
-        description: newTaskDescription.trim() || undefined,
+    // Employees: table shows only their assigned leads (pool is a separate section)
+    if (!canAssign && user?.id) {
+      base = base.filter(l => l.assigned_to === user.id);
+    }
+
+    if (!showAllLeads && statsFilter === "all") {
+      return base.filter(l => {
+        const isTodayLead = isToday(new Date(l.created_at));
+        const bucket = getFollowupBucket(l.next_call_date);
+        const isActiveFollowup =
+          !!bucket && l.stage !== "converted" && l.stage !== "lost";
+        return isTodayLead || isActiveFollowup;
       });
-      setAddTaskOpen(false);
-      toast.success("Task added from calendar");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to add task");
-    } finally {
-      setAdding(false);
     }
-  };
+    return base;
+  }, [filtered, statsFilter, showAllLeads, canAssign, user?.id]);
+
+  const totalPages = Math.ceil(dashboardLeads.length / itemsPerPage);
+  const currentItems = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return dashboardLeads.slice(start, end);
+  }, [dashboardLeads, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dashboardLeads.length]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleBulkAssign = useCallback(async () => {
+    if (selectedIds.size === 0 || !bulkAssignTo) return;
+    const assign_date = new Date().toISOString();
+    const ids = Array.from(selectedIds);
+
+    const patch = {
+      assigned_to: bulkAssignTo,
+      assign_date,
+      in_shared_pool: false,
+      claimed_from_pool: false,
+    };
+
+    setLeads(prev => prev.map(l => (ids.includes(l.id) ? { ...l, ...patch } : l)));
+
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update(patch)
+        .in("id", ids);
+      
+      if (error) throw error;
+      
+      toast.success(`${selectedIds.size} leads assigned successfully`);
+      setSelectedIds(new Set());
+      setBulkAssignTo("");
+    } catch (e: unknown) { 
+      toast.error(e instanceof Error ? e.message : "Assign failed"); 
+      await fetchLeads(true);
+    }
+  }, [selectedIds, bulkAssignTo, fetchLeads]);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportSummary(null);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+        const mapped = jsonData.map((row: any) => ({
+          name:       row.Name || row.name || row["Full Name"] || row["Lead Name"] || "",
+          email:      row.Email || row.email || row["Email Address"] || "",
+          phone:      String(row.Number || row.Phone || row.phone || row["Mobile"] || row["Phone Number"] || ""),
+          company:    row.Company || row.company || row["Company Name"] || row["Organization"] || "",
+          source:     row.Source || row.source || row["Lead Source"] || "Excel Import",
+          value:      Number(row.Value || row.value || row["Deal Value"] || 0),
+          lead_type:  row["Lead Type"] || row["Lead type"] || row.lead_type || "",
+          address:    row.Address || row.address || "",
+          cx_comment: row["CX Comment"] || row.cx_comment || row.Comment || "",
+          budget:     row.Budget || row.budget || "",
+          stage:      "new",
+          sub_stage:  "",
+          remark:     row.Remark || row.remark || row.Remarks || "",
+          temperature: row.Temperature || row.temperature || row["Lead Temperature"] || "warm",
+        })).filter((r: any) => r.name);
+        setUploadPreview(mapped);
+        if (mapped.length === 0)
+          toast.error("No valid leads found");
+      } catch (error) {
+        toast.error("Failed to parse file");
+      }
+    };
+    reader.readAsBinaryString(file);
+  }, []);
+
+  const handleBulkImport = useCallback(async () => {
+    if (uploadPreview.length === 0) return;
+    setUploading(true);
+    let success = 0;
+    let skipped = 0;
+
+    const normEmail = (e: string | null | undefined) =>
+      String(e ?? "").toLowerCase().trim();
+    const normPhone = (p: string | null | undefined) =>
+      String(p ?? "").replace(/\D/g, "");
+    const isFakeEmail = (e: string) =>
+      !e ||
+      ["no mail", "nomail", "n/a", "na", "none", "-", "null"].includes(e);
+
+    const emailsInFile = [
+      ...new Set(
+        uploadPreview
+          .map((l: any) => normEmail(l.email))
+          .filter((e: string) => e && !isFakeEmail(e))
+      ),
+    ];
+    const phonesInFile = [
+      ...new Set(
+        uploadPreview
+          .map((l: any) => normPhone(l.phone))
+          .filter((p: string) => p.length >= 8)
+      ),
+    ];
+
+    const existingEmails = new Set<string>();
+    const existingPhones = new Set<string>();
+
+    try {
+      if (emailsInFile.length > 0) {
+        for (let i = 0; i < emailsInFile.length; i += 100) {
+          const chunk = emailsInFile.slice(i, i + 100);
+          const { data } = await supabase
+            .from("leads")
+            .select("email")
+            .in("email", chunk);
+          (data || []).forEach((r: any) => {
+            const e = normEmail(r.email);
+            if (e && !isFakeEmail(e)) existingEmails.add(e);
+          });
+        }
+      }
+      if (phonesInFile.length > 0) {
+        for (let i = 0; i < phonesInFile.length; i += 100) {
+          const chunk = phonesInFile.slice(i, i + 100);
+          const { data } = await supabase
+            .from("leads")
+            .select("phone")
+            .in("phone", chunk);
+          (data || []).forEach((r: any) => {
+            const p = normPhone(r.phone);
+            if (p.length >= 8) existingPhones.add(p);
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Duplicate pre-check failed:", err);
+    }
+
+    const seenInFile = new Set<string>();
+    const toInsert: any[] = [];
+
+    for (const lead of uploadPreview) {
+      const leadName = String(lead.name ?? "").trim();
+      if (!leadName) {
+        skipped++;
+        continue;
+      }
+
+      const emailKey = normEmail(lead.email);
+      const phoneKey = normPhone(lead.phone);
+      const hasRealEmail = !!(emailKey && !isFakeEmail(emailKey));
+      const hasRealPhone = phoneKey.length >= 8;
+
+      const fileKey = hasRealEmail
+        ? `e:${emailKey}`
+        : hasRealPhone
+        ? `p:${phoneKey}`
+        : `n:${leadName.toLowerCase()}`;
+
+      if (seenInFile.has(fileKey)) {
+        skipped++;
+        continue;
+      }
+      seenInFile.add(fileKey);
+
+      if (hasRealEmail && existingEmails.has(emailKey)) {
+        skipped++;
+        continue;
+      }
+      if (hasRealPhone && existingPhones.has(phoneKey)) {
+        skipped++;
+        continue;
+      }
+
+      if (hasRealEmail) existingEmails.add(emailKey);
+      if (hasRealPhone) existingPhones.add(phoneKey);
+
+      toInsert.push({
+        name: leadName,
+        email: hasRealEmail ? String(lead.email ?? "").trim() : null,
+        phone: lead.phone || null,
+        company: lead.company || null,
+        source: lead.source || "Excel Import",
+        value: Number(lead.value) || 0,
+        status: "new",
+        lead_type: lead.lead_type || null,
+        address: lead.address || null,
+        cx_comment: lead.cx_comment || null,
+        budget: lead.budget || null,
+        stage: "new",
+        sub_stage: "",
+        remark: lead.remark || null,
+        temperature: lead.temperature || "warm",
+        assigned_to: null,
+        assign_date: null,
+        in_shared_pool: false,
+        claimed_from_pool: false,
+      });
+    }
+
+    // Batch insert in chunks of 50 (fast + avoids payload limits)
+    const CHUNK = 50;
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const chunk = toInsert.slice(i, i + CHUNK);
+      try {
+        const { error, data } = await supabase.from("leads").insert(chunk).select("id");
+        if (error) {
+          console.error("Batch insert error:", error.message);
+          // fallback: try one-by-one for this chunk
+          for (const row of chunk) {
+            try {
+              const { error: e2 } = await supabase.from("leads").insert(row);
+              if (e2) { skipped++; } else { success++; }
+            } catch { skipped++; }
+          }
+        } else {
+          success += (data?.length ?? chunk.length);
+        }
+      } catch (err) {
+        console.error("Batch import error:", err);
+        skipped += chunk.length;
+      }
+    }
+
+    setUploading(false);
+    setUploadPreview([]);
+    if (fileRef.current) fileRef.current.value = "";
+
+    await fetchLeads(true);
+    await fetchLiveTotalCount();
+
+    setImportSummary({ imported: success });
+
+    if (skipped > 0) {
+      toast.success(
+        `${success} leads imported · ${skipped} duplicates skipped`
+      );
+    } else {
+      toast.success(`${success} leads imported`);
+    }
+    setUploadOpen(false);
+  }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
+
+  const handleUpdate = useCallback(async () => {
+    if (!editLead) return;
+    
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          name: editLead.name, 
+          email: editLead.email, 
+          phone: editLead.phone,
+          company: editLead.company, 
+          source: editLead.source, 
+          value: editLead.value,
+          status: editLead.status, 
+          business_status: editLead.business_status,
+          lead_type: editLead.lead_type, 
+          address: editLead.address, 
+          cx_comment: editLead.cx_comment,
+          budget: editLead.budget, 
+          stage: editLead.stage, 
+          sub_stage: editLead.sub_stage,
+          remark: editLead.remark, 
+          temperature: editLead.temperature,
+          next_call_date: editLead.next_call_date,
+        })
+        .eq("id", editLead.id);
+      
+      if (error) throw error;
+      
+      setLeads(prev => prev.map(l => (l.id === editLead.id ? { ...l, ...editLead } : l)));
+      logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
+      setEditLead(null);
+      toast.success("Lead updated");
+    } catch (error: any) {
+      console.error("Update error:", error);
+      toast.error(error.message || "Failed to update lead");
+    }
+  }, [editLead, logActivity]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    if (!confirm("Delete this lead?")) return;
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .delete()
+        .eq("id", id);
+      
+      if (error) throw error;
+      
+      setLeads(prev => prev.filter(l => l.id !== id));
+      setDetailLead(null);
+      toast.success("Lead deleted");
+      await fetchLiveTotalCount();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete lead");
+    }
+  }, [fetchLiveTotalCount]);
+
+  const buildExportRows = useCallback((rows: DbLead[]) => {
+    return rows.map(l => ({
+      Name: l.name, Email: l.email, Number: l.phone, Company: l.company,
+      "Lead Type": l.lead_type, Address: l.address, "CX Comment": l.cx_comment,
+      Budget: l.budget, Stage: formatStageLabel(l.stage), "Sub Stage": formatStageLabel(l.sub_stage), Remark: l.remark,
+      Source: l.source, Status: l.status, Value: l.value,
+      "Business Status": l.business_status,
+      "Assigned To": getProfileName(l.assigned_to),
+      "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
+      "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
+      "Lost Reason": l.lost_reason || "",
+      "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
+      "Temperature": l.temperature || "Warm",
+    }));
+  }, [getProfileName]);
+
+  const handleExport = useCallback(() => {
+    const exportData = buildExportRows(leads);
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Leads");
+    XLSX.writeFile(wb, "leads_export.xlsx");
+    toast.success("Leads exported!");
+  }, [leads, buildExportRows]);
+
+  const handleExportByStage = useCallback((stage: string) => {
+    const source = stage === "all" ? leads : leads.filter(l => l.stage === stage);
+    if (source.length === 0) {
+      toast.error(`No leads found for stage "${stage === "all" ? "All" : formatStageLabel(stage)}"`);
+      return;
+    }
+    const exportData = buildExportRows(source);
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    const stageLabel = stage === "all" ? "All Leads" : formatStageLabel(stage);
+    XLSX.utils.book_append_sheet(wb, ws, stageLabel.slice(0, 31));
+    XLSX.writeFile(wb, `leads_export_${stage === "all" ? "all" : stage}.xlsx`);
+    toast.success(`${source.length} ${stageLabel} lead(s) exported!`);
+  }, [leads, buildExportRows]);
+
+  const clearFilters = useCallback(() => {
+    setSearchInput(""); setSearch(""); setFilterStatus("all"); setFilterStage("all");
+    setFilterAssignment("all");
+    setFilterLeadType("all"); setFilterBudget("all");
+    setFilterTemperature("all");
+    setDateFrom(""); setDateTo(""); setFilterPreset("all");
+    setEmployeeFilter(null);
+    setCurrentPage(1);
+  }, []);
+
+  const handleTemperatureUpdate = useCallback(async (leadId: string, temperature: string) => {
+    setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, temperature } : l)));
+    if (detailLead && detailLead.id === leadId) {
+      setDetailLead(prev => (prev ? { ...prev, temperature } : prev));
+    }
+
+    try {
+      const { error } = await supabase
+        .from("leads")
+        .update({ temperature })
+        .eq("id", leadId);
+      
+      if (error) throw error;
+      
+      logActivity(leadId, "updated", `Temperature changed to: ${temperature}`);
+      toast.success(`Temperature updated to ${temperature.toUpperCase()}`);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update temperature");
+      await fetchLeads(true);
+    }
+  }, [detailLead, logActivity, fetchLeads]);
+
+  const stats = useMemo(() => {
+    const visible = canAssign ? leads : leads.filter(l => l.assigned_to === user?.id);
+    const totalLeads = visible.length;
+    const totalValue = visible.reduce((s, l) => s + (l.value || 0), 0);
+    const convertedCount = visible.filter(l => l.status === "converted" || l.stage === "converted").length;
+    const lostCount = visible.filter(l => l.stage === "lost").length;
+    const hotCount = visible.filter(l => l.temperature === "hot").length;
+    const warmCount = visible.filter(l => l.temperature === "warm").length;
+    const coldCount = visible.filter(l => l.temperature === "cold").length;
+    const todayCount = visible.filter(l => isToday(new Date(l.created_at))).length;
+    const followupCount = visible.filter(l => {
+      const b = getFollowupBucket(l.next_call_date);
+      return (b === "overdue" || b === "today") && l.stage !== "converted" && l.stage !== "lost";
+    }).length;
+    return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount, todayCount, followupCount };
+  }, [leads, canAssign, user?.id]);
+
+  useEffect(() => {
+    console.log("📊 Leads in state:", leads.length);
+    console.log("📊 Filtered leads:", filtered.length);
+  }, [leads, filtered]);
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+
+  const typedProfiles = profiles as { user_id: string; display_name: string | null }[];
 
   return (
-    <div className="space-y-4">
-      {/* Project filter — dropdown */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 min-w-[260px] flex-1">
-          <FolderKanban className="h-4 w-4 text-primary shrink-0" />
-          <Label className="text-sm whitespace-nowrap">Project</Label>
-          <Select
-            value={selectedClientId}
-            onValueChange={(v) => {
-              setSelectedClientId(v);
-              if (v !== "all") setNewTaskProjectId(v);
-            }}
-          >
-            <SelectTrigger className="w-full max-w-md h-9">
-              <SelectValue placeholder="Select project" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Projects ({tasks.length} tasks)</SelectItem>
-              {projectCalendarList.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                  {p.brand ? ` (${p.brand})` : ""} — {p.total} tasks
-                  {p.overdue > 0 ? ` · ${p.overdue} overdue` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+    <div className="space-y-5 p-4 md:p-6">
+      <LostLeadDialog
+        lead={lostLeadDialog}
+        open={!!lostLeadDialog}
+        onClose={() => setLostLeadDialog(null)}
+        onConfirm={markLeadAsLost}
+      />
+
+      <BulkDeleteDialog
+        open={bulkDeleteDialogOpen}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+        onConfirm={handleBulkDelete}
+        count={selectedIds.size}
+      />
+
+      <BulkStageChangeDialog
+        open={bulkStageDialogOpen}
+        onClose={() => setBulkStageDialogOpen(false)}
+        onConfirm={handleBulkStageChange}
+        count={selectedIds.size}
+        currentStage={selectedIds.size === 1 ? leads.find(l => l.id === Array.from(selectedIds)[0])?.stage || null : null}
+      />
+
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Leads</h1>
+          <p className="text-muted-foreground text-sm">Manage and track all your leads in one place.</p>
         </div>
-        {selectedProjectMeta && (
-          <Badge variant="outline" className="text-xs">
-            Showing: {selectedProjectMeta.name}
-            {selectedProjectMeta.brand ? ` (${selectedProjectMeta.brand})` : ""} — {selectedProjectMeta.total} tasks
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1.5">
+            <Select value={exportStage} onValueChange={setExportStage}>
+              <SelectTrigger className="w-36 h-9"><SelectValue placeholder="Export Stage" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Stages</SelectItem>
+                {LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.icon} {s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={() => handleExportByStage(exportStage)}>
+              <Download className="mr-2 h-4 w-4" />
+              Export {exportStage === "all" ? "All" : formatStageLabel(exportStage)}
+            </Button>
+          </div>
+          <Dialog open={uploadOpen} onOpenChange={(open) => { setUploadOpen(open); if (!open) { setUploadPreview([]); setImportSummary(null); if (fileRef.current) fileRef.current.value = ""; } }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="flex-1 sm:flex-none"><Upload className="mr-2 h-4 w-4" />Import Excel</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex items-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5" />
+                    Import Leads from Excel/CSV
+                  </span>
+                  <Button variant="outline" size="sm" onClick={downloadExcelTemplate}>
+                    <Download className="mr-2 h-3 w-3" />
+                    Download Template
+                  </Button>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                  <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground mb-1">Upload Excel (.xlsx, .xls) or CSV file</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Required columns: Name, Email, Phone, Company, Source, Value, Lead Type, Budget, Remark, Temperature
+                  </p>
+                  <p className="text-xs text-violet-600 mb-2 flex items-center justify-center gap-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    Imported leads are added as unassigned New leads
+                  </p>
+                  <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="max-w-xs mx-auto" />
+                </div>
+
+                {uploadPreview.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+                        {uploadPreview.length} leads found in file
+                      </p>
+                      <Button variant="ghost" size="sm" onClick={() => { setUploadPreview([]); if (fileRef.current) fileRef.current.value = ""; }}><X className="h-4 w-4" /></Button>
+                    </div>
+                    <div className="max-h-60 overflow-auto rounded border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Phone</TableHead><TableHead>Company</TableHead><TableHead>Temperature</TableHead></TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {uploadPreview.slice(0, 10).map((r, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="text-sm">{r.name}</TableCell>
+                              <TableCell className="text-sm">{r.email}</TableCell>
+                              <TableCell className="text-sm">{r.phone}</TableCell>
+                              <TableCell className="text-sm">{r.company}</TableCell>
+                              <TableCell className="text-sm">{r.temperature || "Warm"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {uploadPreview.length > 10 && <p className="text-xs text-muted-foreground text-center py-2">...and {uploadPreview.length - 10} more</p>}
+                    </div>
+                  </div>
+                )}
+
+                {importSummary && (
+                  <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-green-700">
+                      <CheckCircle2 className="h-4 w-4" /> {importSummary.imported} imported
+                    </span>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                {uploadPreview.length > 0 && (
+                  <Button onClick={handleBulkImport} disabled={uploading || uploadPreview.length === 0}>
+                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : `Import ${uploadPreview.length} Leads`}
+                  </Button>
+                )}
+                {uploadPreview.length === 0 && importSummary && (
+                  <Button variant="outline" onClick={() => { setUploadOpen(false); }}>Done</Button>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="flex-1 sm:flex-none"><Plus className="mr-2 h-4 w-4" />+ Add Lead</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Add New Lead</DialogTitle></DialogHeader>
+              <div className="grid gap-4 py-4 sm:grid-cols-2">
+                {[
+                  { label: "Name *",    key: "name"    },
+                  { label: "Email *",   key: "email"   },
+                  { label: "Number",    key: "phone"   },
+                  { label: "Company",   key: "company" },
+                  { label: "Address",   key: "address" },
+                  { label: "Value (₹)", key: "value"   },
+                ].map(f => (
+                  <div key={f.key} className="grid gap-2">
+                    <Label>{f.label}</Label>
+                    <Input value={(form as any)[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
+                  </div>
+                ))}
+                <div className="grid gap-2">
+                  <Label>Lead Type</Label>
+                  <Select value={form.lead_type} onValueChange={v => setForm({ ...form, lead_type: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Budget</Label>
+                  <Select value={form.budget} onValueChange={v => setForm({ ...form, budget: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Lead Temperature</Label>
+                  <Select value={form.temperature} onValueChange={v => setForm({ ...form, temperature: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select temperature" /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_TEMPERATURE.map(t => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Brand Stage</Label>
+                  <Select value={form.stage} onValueChange={v => setForm({ ...form, stage: v, sub_stage: "" })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Sub Stage</Label>
+                  <Select value={form.sub_stage || "none"} onValueChange={v => setForm({ ...form, sub_stage: v === "none" ? "" : v })}>
+                    <SelectTrigger><SelectValue placeholder="Select sub stage" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">-- None --</SelectItem>
+                      {getSubStagesForStage(form.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Source</Label>
+                  <Select value={form.source} onValueChange={v => setForm({ ...form, source: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["Website","Referral","LinkedIn","Cold Call","Trade Show","Excel Import","WhatsApp","Facebook Ads","Google Ads"].map(s =>
+                        <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>Remark (for call scheduling, e.g., "call at 2:30 PM")</Label>
+                  <Textarea 
+                    value={form.remark} 
+                    onChange={e => setForm({ ...form, remark: e.target.value })} 
+                    placeholder="Add remarks or schedule calls (e.g., call at 2:30 PM)..." 
+                  />
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label>CX Comment</Label>
+                  <Textarea value={form.cx_comment} onChange={e => setForm({ ...form, cx_comment: e.target.value })} placeholder="Customer interaction notes..." />
+                </div>
+                <Button onClick={handleAddLead} className="mt-2 sm:col-span-2">Add Lead</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      {/* ── Stats Cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+        <button
+          type="button"
+          onClick={() => setStatsFilter("all")}
+          className={`text-left col-span-2 sm:col-span-1 lg:col-span-1 rounded-xl border-2 transition-all ${statsFilter === "all" ? "border-primary ring-2 ring-primary/20" : "border-primary/20 hover:border-primary/40"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <Users style={{ color: "#3b82f6", width: 24, height: 24 }} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-2xl font-bold leading-none">
+                    {liveTotalCount !== null ? liveTotalCount : stats.totalLeads}
+                  </p>
+                  <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Radio className="h-3 w-3" /> Total Leads (Live)
+                </p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "today" ? "all" : "today")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "today" ? "border-emerald-500 ring-2 ring-emerald-200 bg-emerald-50/50" : "border-emerald-200 hover:border-emerald-400"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                <Calendar style={{ color: "#10b981", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#10b981" }}>{stats.todayCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Today's Leads</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "followup" ? "all" : "followup")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "followup" ? "border-orange-500 ring-2 ring-orange-200 bg-orange-50/50" : "border-orange-200 hover:border-orange-400"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+                <PhoneCall style={{ color: "#f97316", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#f97316" }}>{stats.followupCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Follow-ups Due</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "hot" ? "all" : "hot")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "hot" ? "border-red-500 ring-2 ring-red-200 bg-red-50/50" : "border-transparent hover:border-red-300"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                <Flame style={{ color: "#ef4444", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#ef4444" }}>{stats.hotCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Hot Leads</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "warm" ? "all" : "warm")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "warm" ? "border-orange-500 ring-2 ring-orange-200 bg-orange-50/50" : "border-transparent hover:border-orange-300"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+                <Sun style={{ color: "#f97316", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#f97316" }}>{stats.warmCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Warm Leads</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "cold" ? "all" : "cold")}
+          className={`text-left rounded-xl border-2 transition-all ${statsFilter === "cold" ? "border-blue-500 ring-2 ring-blue-200 bg-blue-50/50" : "border-transparent hover:border-blue-300"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <Snowflake style={{ color: "#3b82f6", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none" style={{ color: "#3b82f6" }}>{stats.coldCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Cold Leads</p>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatsFilter(statsFilter === "converted" ? "all" : "converted")}
+          className={`text-left col-span-2 sm:col-span-1 rounded-xl border-2 transition-all ${statsFilter === "converted" ? "border-emerald-500 ring-2 ring-emerald-200 bg-emerald-50/50" : "border-transparent hover:border-emerald-300"}`}
+        >
+          <div className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                <TrendingUp style={{ color: "#10b981", width: 24, height: 24 }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold leading-none">{stats.convertedCount}</p>
+                <p className="text-xs text-muted-foreground mt-1">Converted</p>
+                <p className="text-[11px] text-muted-foreground/70">
+                  {stats.totalLeads > 0 ? ((stats.convertedCount / stats.totalLeads) * 100).toFixed(1) : 0}% rate
+                </p>
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      {statsFilter !== "all" && (
+        <div className="flex items-center gap-2 -mt-2">
+          <Badge className="bg-primary/10 text-primary border border-primary/30">
+            Filtering by: {statsFilterLabels[statsFilter]}
           </Badge>
-        )}
-      </div>
-
-      {/* Month nav + legend */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={previousMonth}>
-            <ChevronRight className="h-4 w-4 rotate-180" />
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setStatsFilter("all")}>
+            <X className="h-3 w-3 mr-1" />Clear
           </Button>
-          <h2 className="text-xl font-bold min-w-[180px] text-center">
-            {format(currentMonth, "MMMM yyyy")}
-          </h2>
-          <Button variant="outline" size="sm" onClick={nextMonth}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={goToToday}>Today</Button>
         </div>
+      )}
 
-        <div className="flex items-center gap-3 text-sm flex-wrap">
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-red-500" /> Overdue</span>
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-yellow-500" /> Today</span>
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-blue-500" /> This Week</span>
-          <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-green-500" /> Later</span>
-        </div>
-      </div>
+      <LeadCharts leads={leads} />
 
-      <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-        Select a project to filter tasks. Single click a date = Add Task · Double click a date = Open day · Double click a task = Open details
-      </div>
+      {canAssign && typedProfiles.length > 0 && (
+        <Card className="mb-4 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <Users className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">Employee Leads</h2>
+                <Badge variant="outline" className="text-sm">
+                  Total: {liveTotalCount !== null ? liveTotalCount : leads.length}
+                </Badge>
+                <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
+                {employeeFilter && (
+                  <Badge 
+                    variant="default" 
+                    className="bg-primary/10 text-primary border-primary/30 cursor-pointer hover:bg-primary/20"
+                    onClick={() => setEmployeeFilter(null)}
+                  >
+                    {employeeFilter === "unassigned" 
+                      ? "Unassigned" 
+                      : typedProfiles.find(p => p.user_id === employeeFilter)?.display_name || "Selected"}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {typedProfiles
+                    .sort((a, b) => {
+                      const aCount = leads.filter(l => l.assigned_to === a.user_id).length;
+                      const bCount = leads.filter(l => l.assigned_to === b.user_id).length;
+                      return bCount - aCount;
+                    })
+                    .slice(0, 4)
+                    .map(emp => {
+                      const count = leads.filter(l => l.assigned_to === emp.user_id).length;
+                      const isActive = employeeFilter === emp.user_id;
+                      if (count === 0) return null;
+                      return (
+                        <Button
+                          key={emp.user_id}
+                          variant={isActive ? "default" : "outline"}
+                          size="sm"
+                          className={`text-xs h-7 ${isActive ? "bg-primary" : ""}`}
+                          onClick={() => setEmployeeFilter(isActive ? null : emp.user_id)}
+                        >
+                          <span className="truncate max-w-[60px]">{emp.display_name || "Unknown"}</span>
+                          <Badge variant={isActive ? "secondary" : "outline"} className="ml-1 text-[9px] h-4 px-1">
+                            {count}
+                          </Badge>
+                        </Button>
+                      );
+                    })}
+                </div>
+                
+                {leads.filter(l => !l.assigned_to).length > 0 && (
+                  <Button
+                    variant={employeeFilter === "unassigned" ? "default" : "outline"}
+                    size="sm"
+                    className={`text-xs h-7 ${employeeFilter === "unassigned" ? "bg-primary" : ""}`}
+                    onClick={() => setEmployeeFilter(employeeFilter === "unassigned" ? null : "unassigned")}
+                  >
+                    Unassigned
+                    <Badge variant={employeeFilter === "unassigned" ? "secondary" : "outline"} className="ml-1 text-[9px] h-4 px-1">
+                      {leads.filter(l => !l.assigned_to).length}
+                    </Badge>
+                  </Button>
+                )}
+                
+                <Select 
+                  value={employeeFilter || "all"} 
+                  onValueChange={(v) => setEmployeeFilter(v === "all" ? null : v)}
+                >
+                  <SelectTrigger className="w-44 h-7 text-xs">
+                    <SelectValue placeholder="All Employees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">📋 All Employees</SelectItem>
+                    <SelectItem value="unassigned">❓ Unassigned ({leads.filter(l => !l.assigned_to).length})</SelectItem>
+                    {typedProfiles
+                      .sort((a, b) => {
+                        const aCount = leads.filter(l => l.assigned_to === a.user_id).length;
+                        const bCount = leads.filter(l => l.assigned_to === b.user_id).length;
+                        return bCount - aCount;
+                      })
+                      .map(emp => {
+                        const count = leads.filter(l => l.assigned_to === emp.user_id).length;
+                        const converted = leads.filter(l => l.assigned_to === emp.user_id && l.stage === "converted").length;
+                        return (
+                          <SelectItem key={emp.user_id} value={emp.user_id}>
+                            <span className="flex items-center justify-between w-full gap-4">
+                              <span className="truncate">{emp.display_name || "Unknown"}</span>
+                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{count} leads</span>
+                                {converted > 0 && <span className="text-green-600">✓{converted}</span>}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1 border-t">
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.assigned_to).length}</span> Assigned
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> Unassigned
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.stage === "converted").length}</span> Converted
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "hot").length}</span> 🔥 Hot
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "warm").length}</span> ☀️ Warm
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "cold").length}</span> ❄️ Cold
+              </span>
+              {employeeFilter && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setEmployeeFilter(null)}
+                  className="h-6 text-xs text-primary hover:text-primary/80"
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Clear Filter
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-4">
-          <div className="grid grid-cols-7 gap-1">
-            {dayNames.map(d => (
-              <div key={d} className="text-center text-sm font-medium text-muted-foreground py-2">{d}</div>
-            ))}
-            {Array.from({ length: firstDayOfMonth }).map((_, i) => (
-              <div key={`empty-${i}`} className="h-28 bg-muted/20 rounded-lg" />
-            ))}
-            {days.map(day => {
-              const dayTasks = getTasksForDay(day);
-              const isCurrentDay = isToday(day);
-              const isSelected = selectedDate && isSameDay(day, selectedDate);
-              const hasOverdue = dayTasks.some(t =>
-                t.due_date && isBefore(new Date(t.due_date), startOfDay(new Date())) && t.status !== "completed"
-              );
-
-              let bg = "bg-background";
-              if (hasOverdue) bg = "bg-red-50 border-red-200";
-              else if (isCurrentDay && dayTasks.length) bg = "bg-yellow-50 border-yellow-200";
-              else if (dayTasks.length) bg = "bg-green-50 border-green-200";
-
+          <p className="font-semibold text-sm mb-3 text-foreground">Stages</p>
+          <div className="flex flex-wrap gap-2">
+            {LEAD_STAGES.map(s => {
+              const count = leads.filter(l => l.stage === s.value).length;
+              const active = filterStage === s.value;
               return (
-                <div
-                  key={day.toISOString()}
-                  className={`h-28 p-1 border rounded-lg cursor-pointer hover:shadow-md transition-all ${bg} ${
-                    isSelected ? "ring-2 ring-primary" : ""
-                  } ${isCurrentDay ? "ring-2 ring-primary/40" : ""}`}
-                  onClick={() => handleDaySingleClick(day)}
-                  onDoubleClick={(e) => {
-                    e.preventDefault();
-                    handleDayDoubleClick(day);
+                <button
+                  key={s.value}
+                  onClick={() => setFilterStage(active ? "all" : s.value)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all text-sm"
+                  style={{
+                    borderColor: active ? s.color : "#e2e8f0",
+                    background: active ? s.bg : "white",
                   }}
-                  title="Single click: Add Task · Double click: Open day"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-sm font-medium ${isCurrentDay ? "text-primary" : ""}`}>
-                      {format(day, "d")}
-                    </span>
-                    {dayTasks.length > 0 && (
-                      <Badge variant="outline" className="text-[10px] px-1.5">{dayTasks.length}</Badge>
-                    )}
-                  </div>
-                  <div className="mt-1 space-y-0.5 overflow-y-auto max-h-16">
-                    {dayTasks.slice(0, 3).map(task => {
-                      const overdue = task.due_date &&
-                        isBefore(new Date(task.due_date), startOfDay(new Date())) &&
-                        task.status !== "completed";
-                      return (
-                        <div
-                          key={task.id}
-                          className="text-[10px] truncate px-1 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-primary flex items-center gap-0.5"
-                          style={{
-                            backgroundColor: overdue ? "#fecaca" :
-                              task.priority === "urgent" ? "#fca5a5" :
-                              task.priority === "high" ? "#fdba74" :
-                              task.priority === "medium" ? "#93c5fd" : "#d1d5db"
-                          }}
-                          onClick={e => {
-                            e.stopPropagation();
-                            // Single click task → edit due date
-                            startEditDueDate(task, day);
-                          }}
-                          onDoubleClick={e => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            // Double click task → open task detail
-                            setSelectedDate(startOfDay(day));
-                            onTaskClick?.(task);
-                          }}
-                          title="Single click: Edit due date · Double click: Open task"
-                        >
-                          <Edit className="h-2.5 w-2.5 shrink-0 opacity-70" />
-                          <span className="truncate">{task.task_name}</span>
-                        </div>
-                      );
-                    })}
-                    {dayTasks.length > 3 && (
-                      <div className="text-[10px] text-muted-foreground text-center">
-                        +{dayTasks.length - 3} more
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  <span>{s.icon}</span>
+                  <span style={{ color: active ? s.color : "#374151" }}>{s.label}</span>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: s.color }}>
+                    {count}
+                  </span>
+                </button>
               );
             })}
           </div>
         </CardContent>
       </Card>
 
-      {/* Selected Date Panel */}
-      {selectedDate && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <CalendarIcon className="h-5 w-5" />
-                Tasks for {format(selectedDate, "dd MMM yyyy")}
-                <Badge variant="outline">{selectedDateTasks.length}</Badge>
-              </CardTitle>
-              <Button size="sm" onClick={openAddTask}>
-                <Plus className="h-4 w-4 mr-1" /> Add Task
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {selectedDateTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No tasks on this date. Click “Add Task”.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {selectedDateTasks.map(task => {
-                  const isOverdue = task.due_date &&
-                    isBefore(new Date(task.due_date), startOfDay(new Date())) &&
-                    task.status !== "completed";
-                  const isEditingDue = editingDueDateId === task.id;
-                  return (
-                    <div
-                      key={task.id}
-                      className="border rounded-lg hover:bg-muted/30 overflow-hidden"
-                    >
-                      <div className="flex items-center justify-between gap-3 p-3">
-                        <div
-                          className="flex-1 min-w-0 cursor-pointer"
-                          onClick={() => onTaskClick?.(task)}
-                        >
-                          <p className="font-medium">{task.task_name}</p>
-                          <p className="text-sm text-muted-foreground">{task.projects?.name}</p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap shrink-0">
-                          {task.assigned_to_name && (
-                            <span className="text-xs text-indigo-600 flex items-center gap-1">
-                              <UserCheck className="h-3 w-3" /> {task.assigned_to_name}
-                            </span>
-                          )}
-                          <Badge variant="outline" className={`text-xs ${getPriorityColor(task.priority)}`}>
-                            {task.priority?.toUpperCase() || "MEDIUM"}
-                          </Badge>
-                          {isOverdue && <Badge variant="destructive" className="text-xs">Overdue</Badge>}
-                          <Button
-                            size="sm"
-                            variant={isEditingDue ? "default" : "outline"}
-                            className="h-8 text-xs border-primary text-primary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isEditingDue) {
-                                setEditingDueDateId(null);
-                                setDueDateDraft("");
-                              } else {
-                                startEditDueDate(task);
-                              }
-                            }}
-                            title="Edit due date"
-                          >
-                            <Edit className="h-3 w-3 mr-1" />
-                            Edit Due Date
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onTaskClick?.(task);
-                            }}
-                            title="Task detail"
-                          >
-                            <Eye className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </div>
-                      {isEditingDue && (
-                        <div
-                          className="px-3 pb-3 pt-0 border-t bg-primary/5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex flex-wrap items-end gap-2 pt-3">
-                            <div className="grid gap-1">
-                              <Label className="text-xs font-medium">New Due Date *</Label>
-                              <Input
-                                type="date"
-                                value={dueDateDraft}
-                                onChange={(e) => setDueDateDraft(e.target.value)}
-                                className="h-9 w-44 text-sm"
-                                autoFocus
-                              />
-                            </div>
-                            <Button
-                              size="sm"
-                              className="h-9"
-                              disabled={savingDueDate || !dueDateDraft}
-                              onClick={() => saveDueDate(task.id)}
-                            >
-                              {savingDueDate ? (
-                                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                              ) : (
-                                <Save className="h-3.5 w-3.5 mr-1" />
-                              )}
-                              Save Due Date
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-9"
-                              onClick={() => {
-                                setEditingDueDateId(null);
-                                setDueDateDraft("");
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-2">
-                            Pick a new date and click <strong>Save Due Date</strong>. The task will move to that date.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <FollowUpSection leads={canAssign ? leads : leads.filter(l => l.assigned_to === user?.id)} onOpenLead={openLeadDetail} />
 
-      {/* Add Task Dialog */}
-      <Dialog open={addTaskOpen} onOpenChange={setAddTaskOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-primary" />
-              Add Task — {selectedDate && format(selectedDate, "dd MMM yyyy")}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid gap-2">
-              <Label>Task Name *</Label>
+      <Card className="shadow-md">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap gap-2">
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                value={newTaskName}
-                onChange={e => setNewTaskName(e.target.value)}
-                placeholder="Task ka naam..."
-                onKeyDown={e => e.key === "Enter" && handleAddTask()}
+                placeholder="Search leads..."
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                className="pl-9"
               />
             </div>
-            <div className="grid gap-2">
-              <Label>Project *</Label>
-              <Select value={newTaskProjectId} onValueChange={setNewTaskProjectId}>
-                <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+            <Select value={filterAssignment} onValueChange={setFilterAssignment}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Assigned To" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Employees</SelectItem>
+                <SelectItem value="mine">Assigned to Me</SelectItem>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterTemperature} onValueChange={setFilterTemperature}>
+              <SelectTrigger className="w-32"><SelectValue placeholder="Temperature" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Temperatures</SelectItem>
+                {LEAD_TEMPERATURE.map(t => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterLeadType} onValueChange={setFilterLeadType}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Lead Type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                {LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterBudget} onValueChange={setFilterBudget}>
+              <SelectTrigger className="w-32"><SelectValue placeholder="Budget" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Budgets</SelectItem>
+                {BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-36 text-sm" />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-36 text-sm" />
+            </div>
+            <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
+            <Select value={filterPreset} onValueChange={setFilterPreset}>
+              <SelectTrigger className="w-32"><SelectValue placeholder="Quick Filter" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Time</SelectItem>
+                <SelectItem value="today">Today's Leads</SelectItem>
+                <SelectItem value="fresh">Fresh Leads</SelectItem>
+                <SelectItem value="followup">Follow-up Due</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {selectedIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 mt-3 p-3 rounded-lg border bg-primary/5">
+              <Badge variant="default"><CheckSquare className="h-3 w-3 mr-1" />{selectedIds.size} selected</Badge>
+              <Select value={bulkAssignTo} onValueChange={setBulkAssignTo}>
+                <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Assign to..." /></SelectTrigger>
                 <SelectContent>
-                  {projects.map(p => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name} {p.brand_name ? `(${p.brand_name})` : ""}
-                    </SelectItem>
+                  {typedProfiles.map(p => (
+                    <SelectItem key={p.user_id} value={p.user_id}>{p.display_name || "Unknown"}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2">
-                <Label>Priority</Label>
-                <Select value={newTaskPriority} onValueChange={setNewTaskPriority}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">🟢 Low</SelectItem>
-                    <SelectItem value="medium">🟡 Medium</SelectItem>
-                    <SelectItem value="high">🟠 High</SelectItem>
-                    <SelectItem value="urgent">🔴 Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Assign To</Label>
-                <Select value={newTaskAssignee} onValueChange={setNewTaskAssignee}>
-                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {itTeam.map(m => (
-                      <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Description (optional)</Label>
-              <Textarea
-                rows={2}
-                value={newTaskDescription}
-                onChange={e => setNewTaskDescription(e.target.value)}
-                placeholder="Extra details..."
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddTaskOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddTask} disabled={adding || !newTaskName.trim() || !newTaskProjectId}>
-              {adding ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
-              Add Task
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-// ============================================================
-// MAIN COMPONENT - Updated with new tabs
-// ============================================================
-export default function Projects() {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const excelInputRef = useRef<HTMLInputElement>(null);
-  const noteImageInputRef = useRef<HTMLInputElement>(null);
-  const projectImageInputRef = useRef<HTMLInputElement>(null);
-  const editProjectImageInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Top-level page switcher ──
-  const [mainView, setMainView] = useState<"projects" | "my_tasks" | "chat" | "task_calendar" | "task_assignment">("projects");
-  
-  // ── States ──────────────────────────────────────────────────
-  const navigate = useNavigate();
-  const { projectId: routeProjectId, tabName: routeTabName } = useParams<{ projectId?: string; tabName?: string }>();
-  const [searchParams] = useSearchParams();
-
-  // Project ID from route params (:projectId) or query string (?id=... / ?projectId=...)
-  const activeProjectId = routeProjectId || searchParams.get("id") || searchParams.get("projectId") || null;
-  const activeTabFromUrl = routeTabName || searchParams.get("tab") || (searchParams.get("task") ? "tasks" : null);
-
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterStage, setFilterStage] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all");
-  const [sortBy, setSortBy] = useState<"newest" | "date_asc" | "date_desc" | "priority">("newest");
-  const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [activeTab, setActiveTab] = useState("overview");
-  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState("all");
-  const [taskViewMode, setTaskViewMode] = useState<"list" | "dashboard">("list");
-  
-  // Import/Export states
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importPreview, setImportPreview] = useState<any[]>([]);
-  
-  // Dialog states
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [stageDialogOpen, setStageDialogOpen] = useState(false);
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [agreementDialogOpen, setAgreementDialogOpen] = useState(false);
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [manufacturingDialogOpen, setManufacturingDialogOpen] = useState(false);
-  const [documentDialogOpen, setDocumentDialogOpen] = useState(false);
-  const [communicationDialogOpen, setCommunicationDialogOpen] = useState(false);
-  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
-  const [docNoteEditing, setDocNoteEditing] = useState(false);
-  const [folderViewOpen, setFolderViewOpen] = useState(false);
-  const [activeFolderView, setActiveFolderView] = useState<string | null>(null);
-
-  // Drive / Social links & logins
-  const [projectLinks, setProjectLinks] = useState<ProjectLinkItem[]>([]);
-  const [projectLinksNoteId, setProjectLinksNoteId] = useState<string | null>(null);
-  const [linkSaving, setLinkSaving] = useState(false);
-  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
-  const [newLink, setNewLink] = useState<Omit<ProjectLinkItem, "id">>({
-    category: "Google Drive",
-    title: "",
-    url: "",
-    username: "",
-    password: "",
-    note: "",
-  });
-  
-  // Data states
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
-  const [departmentDialogOpen, setDepartmentDialogOpen] = useState(false);
-  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
-  const [projectStages, setProjectStages] = useState<ProjectStage[]>([]);
-  const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
-  const [agreements, setAgreements] = useState<Agreement[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [manufacturing, setManufacturing] = useState<Manufacturing[]>([]);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [communications, setCommunications] = useState<Communication[]>([]);
-  const [notes, setNotes] = useState<ProjectNote[]>([]);
-  const [docNoteContent, setDocNoteContent] = useState("");
-  const [loadingDetail, setLoadingDetail] = useState(false);
-
-
-  // ── Social Content Calendar ──
-  const [contentCalendarDays, setContentCalendarDays] = useState<ContentDay[]>([]);
-  const [contentCalendarStartDate, setContentCalendarStartDate] = useState<string>("");
-  const [contentCalendarNoteId, setContentCalendarNoteId] = useState<string | null>(null);
-  const [contentCalendarSaving, setContentCalendarSaving] = useState(false);
-  const [contentCalendarFilter, setContentCalendarFilter] = useState<"all" | "pending" | "completed">("all");
-  /** Optional date when adding a single post (for forgotten days) */
-  const [contentCalendarNewPostDate, setContentCalendarNewPostDate] = useState<string>("");
-  const [stageCommentDrafts, setStageCommentDrafts] = useState<Record<string, string>>({});
-  const [stageCommentSaving, setStageCommentSaving] = useState<string | null>(null);
-  const [openStageComment, setOpenStageComment] = useState<string | null>(null);
-
-  // ── Image upload state ──
-  const [uploadingImage, setUploadingImage] = useState<string | null>(null);
-
-  // ── IT Team ──
-  const { data: itTeam = [], error, isLoading: itLoading } = useQuery({
-    queryKey: ["it_team_members"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("it_team_members")
-        .select("*")
-        .eq("active", true)
-        .order("name");
-      
-      if (error) throw error;
-      return ((data || []) as ITTeamMember[]).map((m) => ({
-        ...m,
-        name: displayPersonName(m.name, m.email) || m.name,
-      }));
-    },
-    staleTime: 5 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
-
-  // ── Current user's role ──
-  const currentTeamMember = itTeam.find(m => m.email === user?.email);
-  const isAdmin =
-    (user as any)?.role === "admin" ||
-    (user as any)?.is_admin === true ||
-    currentTeamMember?.role === "Admin" ||
-    currentTeamMember?.role === "Super Admin" ||
-    currentTeamMember?.role?.toLowerCase() === "admin" ||
-    currentTeamMember?.role?.toLowerCase() === "owner" ||
-    currentTeamMember?.role?.toLowerCase() === "super admin";
-
-  const BRAND_ADMIN_NAME = "Mayank Sir";
-  const displayUserName = isAdmin
-    ? (currentTeamMember?.name && currentTeamMember.name.toLowerCase() !== "admin"
-        ? currentTeamMember.name
-        : BRAND_ADMIN_NAME)
-    : ((user as any)?.name || currentTeamMember?.name || user?.email || "");
-
-  // ── Departments Lookup ──
-  const { data: departmentOptions = [] } = useQuery({
-    queryKey: ["departments_lookup"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("departments")
-        .select("id, name")
-        .order("name");
-      if (error) throw error;
-      return data as DepartmentLookup[];
-    },
-  });
-
-  // ── MY TASKS ──
-  const [myTaskPriorityFilter, setMyTaskPriorityFilter] = useState("all");
-  const [myTaskStatusFilter, setMyTaskStatusFilter] = useState("all");
-  const [myTaskDueFilter, setMyTaskDueFilter] = useState("all");
-  const [myTaskClientFilter, setMyTaskClientFilter] = useState("all");
-
-  // ── My Tasks: inline expand + subtasks + project note ──
-  const [expandedMyTaskId, setExpandedMyTaskId] = useState<string | null>(null);
-  const [myTaskSubtasks, setMyTaskSubtasks] = useState<Record<string, TaskSubtask[]>>({});
-  const [myTaskRemarksHistory, setMyTaskRemarksHistory] = useState<Record<string, TaskRemark[]>>({});
-  const [remarksHistoryLoadingFor, setRemarksHistoryLoadingFor] = useState<string | null>(null);
-  const [newRemarkDraft, setNewRemarkDraft] = useState<Record<string, string>>({});
-  const [remarkSavingFor, setRemarkSavingFor] = useState<string | null>(null);
-  const [subtaskLoadingFor, setSubtaskLoadingFor] = useState<string | null>(null);
-  const [newSubtaskDraft, setNewSubtaskDraft] = useState<Record<string, { title: string; tag: string }>>({});
-  const [projectNoteByProject, setProjectNoteByProject] = useState<Record<string, ProjectNote | null>>({});
-  const [projectNoteDraft, setProjectNoteDraft] = useState<Record<string, string>>({});
-  const [projectNoteEditing, setProjectNoteEditing] = useState<Record<string, boolean>>({});
-  const [projectNoteLoadingFor, setProjectNoteLoadingFor] = useState<string | null>(null);
-  const [projectNoteSaving, setProjectNoteSaving] = useState<string | null>(null);
-
-  // ── Task Detail Dialog States ──
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [taskDetailDialogOpen, setTaskDetailDialogOpen] = useState(false);
-  const [dialogSubtasks, setDialogSubtasks] = useState<Record<string, TaskSubtask[]>>({});
-  const [dialogRemarks, setDialogRemarks] = useState<Record<string, TaskRemark[]>>({});
-  const [dialogSubtasksLoading, setDialogSubtasksLoading] = useState<Record<string, boolean>>({});
-  const [dialogRemarksLoading, setDialogRemarksLoading] = useState<Record<string, boolean>>({});
-  const [dialogSavingRemark, setDialogSavingRemark] = useState<string | null>(null);
-  const [dialogProjectNotes, setDialogProjectNotes] = useState<Record<string, ProjectNote | null>>({});
-  const [dialogProjectNotesLoading, setDialogProjectNotesLoading] = useState<Record<string, boolean>>({});
-
-  const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
-    queryKey: ["my_tasks", user?.email],
-    enabled: !!user?.email,
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("project_tasks")
-        .select(`
-          id, project_id, stage_id, task_name, description, department,
-          assigned_to, assigned_to_email, assigned_to_name, assigned_by,
-          priority, status, start_date, due_date, completion_date, employee_remarks,
-          created_at, updated_at,
-          projects ( name, project_id, brand_name, client_phone, client_email, client_address, current_stage, status )
-        `)
-        .eq("assigned_to_email", user?.email)
-        .order("due_date", { ascending: true });
-
-      if (error) throw error;
-      return data as unknown as MyTaskRow[];
-    },
-  });
-
-  // ── All Tasks for Calendar and Assignment ──
-  const { data: allTasks = [] } = useQuery({
-    queryKey: ["all_tasks_for_views"],
-    enabled: mainView === "task_calendar" || mainView === "task_assignment",
-    staleTime: 2 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("project_tasks")
-        .select(`
-          id, project_id, stage_id, department_id, task_name, description, department,
-          assigned_to, assigned_to_email, assigned_to_name, assigned_by,
-          priority, status, start_date, due_date, completion_date, employee_remarks,
-          created_at, assigned_at, updated_at,
-          projects (
-            name,
-            project_id,
-            brand_name,
-            client_phone,
-            client_email,
-            client_address,
-            current_stage,
-            status,
-            image_url
-          )
-        `)
-        .neq("status", "completed")
-        .order("due_date", { ascending: true, nullsLast: true })
-        .limit(1500);
-
-      if (error) throw error;
-      return data as unknown as MyTaskRow[];
-    },
-  });
-
-  const assignedProjectIds = new Set(myTasks.map(t => t.project_id));
-  const MY_TASK_PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
-
-  const myTaskClients = Array.from(
-    new Map(
-      myTasks.filter(t => t.projects).map(t => [t.projects!.name, t.projects!.name])
-    ).values()
-  );
-
-  const filteredMyTasks = myTasks
-    .filter(t => myTaskPriorityFilter === "all" || t.priority === myTaskPriorityFilter)
-    .filter(t => myTaskStatusFilter === "all" || t.status === myTaskStatusFilter)
-    .filter(t => myTaskDueFilter === "all" || getDueBucket(t.due_date) === myTaskDueFilter)
-    .filter(t => myTaskClientFilter === "all" || t.projects?.name === myTaskClientFilter)
-    .sort((a, b) => {
-      const pa = MY_TASK_PRIORITY_ORDER[a.priority] ?? 2;
-      const pb = MY_TASK_PRIORITY_ORDER[b.priority] ?? 2;
-      if (pa !== pb) return pa - pb;
-      if (!a.due_date) return 1;
-      if (!b.due_date) return -1;
-      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-    });
-
-  const myTaskStats = {
-    total: myTasks.length,
-    active: myTasks.filter(t => t.status === "in_progress").length,
-    pending: myTasks.filter(t => t.status === "not_started" || t.status === "pending").length,
-    overdue: myTasks.filter(t => getDueBucket(t.due_date) === "overdue" && t.status !== "completed").length,
-    completed: myTasks.filter(t => t.status === "completed").length,
-    today: myTasks.filter(t => getDueBucket(t.due_date) === "today" && t.status !== "completed").length,
-  };
-
-  const applyMyTaskStatFilter = (key: "all" | "active" | "pending" | "overdue" | "completed" | "today") => {
-    setMyTaskPriorityFilter("all");
-    setMyTaskClientFilter("all");
-    if (key === "all") {
-      setMyTaskStatusFilter("all");
-      setMyTaskDueFilter("all");
-    } else if (key === "active") {
-      setMyTaskStatusFilter("in_progress");
-      setMyTaskDueFilter("all");
-    } else if (key === "pending") {
-      setMyTaskStatusFilter("not_started");
-      setMyTaskDueFilter("all");
-    } else if (key === "overdue") {
-      setMyTaskStatusFilter("all");
-      setMyTaskDueFilter("overdue");
-    } else if (key === "completed") {
-      setMyTaskStatusFilter("completed");
-      setMyTaskDueFilter("all");
-    } else if (key === "today") {
-      setMyTaskStatusFilter("all");
-      setMyTaskDueFilter("today");
-    }
-  };
-
-  const updateMyTaskStatus = async (taskId: string, status: string) => {
-    try {
-      const payload: Record<string, any> = { status };
-      if (status === "completed") payload.completion_date = new Date().toISOString();
-      const { error } = await supabase.from("project_tasks").update(payload).eq("id", taskId);
-      if (error) throw error;
-      toast.success("Task updated");
-      if (status === "completed") {
-        notifyTaskCompleted({
-          taskId,
-          explicitRemark: (newRemarkDraft[taskId] || "").trim() || undefined,
-          completedByName: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email),
-        }).then((res) => {
-          if (res?.success) {
-            toast.success("Completion email delivered from team@banegabrand.com");
-          }
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const fetchRemarksHistory = async (taskId: string) => {
-    setRemarksHistoryLoadingFor(taskId);
-    try {
-      const { data, error } = await supabase
-        .from("task_remarks")
-        .select("*")
-        .eq("task_id", taskId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      setMyTaskRemarksHistory((prev) => ({ ...prev, [taskId]: (data || []) as TaskRemark[] }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load update history");
-    } finally {
-      setRemarksHistoryLoadingFor(null);
-    }
-  };
-
-  const addRemarkToHistory = async (taskId: string) => {
-    const text = (newRemarkDraft[taskId] || "").trim();
-    if (!text) return;
-    setRemarkSavingFor(taskId);
-    try {
-      const { error: insertError } = await supabase.from("task_remarks").insert({
-        task_id: taskId,
-        remark: text,
-        created_by_email: user?.email || null,
-        created_by_name: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email) || null,
-      });
-      if (insertError) throw insertError;
-
-      await supabase.from("project_tasks").update({ employee_remarks: text }).eq("id", taskId);
-
-      setNewRemarkDraft((prev) => ({ ...prev, [taskId]: "" }));
-      toast.success("Update added");
-      fetchRemarksHistory(taskId);
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add update");
-    } finally {
-      setRemarkSavingFor(null);
-    }
-  };
-
-  // ── Subtasks (per task, stored in task_subtasks table) ──
-  const fetchSubtasksForTask = async (taskId: string) => {
-    setSubtaskLoadingFor(taskId);
-    try {
-      const { data, error } = await supabase
-        .from("task_subtasks")
-        .select("*")
-        .eq("task_id", taskId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      setMyTaskSubtasks(prev => ({ ...prev, [taskId]: (data || []) as TaskSubtask[] }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load subtasks");
-    } finally {
-      setSubtaskLoadingFor(null);
-    }
-  };
-
-  const addSubtask = async (taskId: string) => {
-    const draft = newSubtaskDraft[taskId];
-    if (!draft || !draft.title?.trim()) {
-      toast.error("Subtask title is required");
-      return;
-    }
-    try {
-      const { error } = await supabase.from("task_subtasks").insert({
-        task_id: taskId,
-        title: draft.title.trim(),
-        tag: draft.tag || null,
-        status: "not_started",
-        assigned_to_email: user?.email || null,
-        assigned_to_name: (user as any)?.name || user?.email || null,
-      });
-      if (error) throw error;
-      setNewSubtaskDraft(prev => ({ ...prev, [taskId]: { title: "", tag: "" } }));
-      toast.success("Subtask added");
-      fetchSubtasksForTask(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add subtask");
-    }
-  };
-
-  const toggleSubtaskStatus = async (subtaskId: string, taskId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
-    try {
-      const { error } = await supabase
-        .from("task_subtasks")
-        .update({ status: nextStatus })
-        .eq("id", subtaskId);
-      if (error) throw error;
-      fetchSubtasksForTask(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update subtask");
-    }
-  };
-
-  const deleteSubtask = async (subtaskId: string, taskId: string) => {
-    try {
-      const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
-      if (error) throw error;
-      fetchSubtasksForTask(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete subtask");
-    }
-  };
-
-  // ── Subtasks for project-detail Tasks / Departments views ──
-  const [projectTaskSubtasks, setProjectTaskSubtasks] = useState<Record<string, TaskSubtask[]>>({});
-  const [projectSubtaskLoadingFor, setProjectSubtaskLoadingFor] = useState<string | null>(null);
-
-  const fetchProjectTaskSubtasks = async (taskId: string) => {
-    setProjectSubtaskLoadingFor(taskId);
-    try {
-      const { data, error } = await supabase
-        .from("task_subtasks")
-        .select("*")
-        .eq("task_id", taskId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      setProjectTaskSubtasks((prev) => ({ ...prev, [taskId]: (data || []) as TaskSubtask[] }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load subtasks");
-    } finally {
-      setProjectSubtaskLoadingFor(null);
-    }
-  };
-
-  const handleExpandProjectTask = (taskId: string) => {
-    if (!projectTaskSubtasks[taskId]) {
-      fetchProjectTaskSubtasks(taskId);
-    }
-  };
-
-  const addProjectTaskSubtask = async (taskId: string, title: string, tag: string) => {
-    const tempId = `temp-${Date.now()}`;
-    const optimistic: TaskSubtask = {
-      id: tempId,
-      task_id: taskId,
-      title,
-      tag: tag || null,
-      status: "not_started",
-      assigned_to_email: user?.email || null,
-      assigned_to_name: (user as any)?.name || user?.email || null,
-      note: null,
-      created_at: new Date().toISOString(),
-    };
-    setProjectTaskSubtasks((prev) => ({
-      ...prev,
-      [taskId]: [...(prev[taskId] || []), optimistic],
-    }));
-    try {
-      const { data, error } = await supabase.from("task_subtasks").insert({
-        task_id: taskId,
-        title,
-        tag: tag || null,
-        status: "not_started",
-        assigned_to_email: user?.email || null,
-        assigned_to_name: (user as any)?.name || user?.email || null,
-      }).select().single();
-      if (error) throw error;
-      setProjectTaskSubtasks((prev) => ({
-        ...prev,
-        [taskId]: (prev[taskId] || []).map((s) => (s.id === tempId ? (data as TaskSubtask) : s)),
-      }));
-      toast.success("Subtask added");
-    } catch (error: any) {
-      setProjectTaskSubtasks((prev) => ({
-        ...prev,
-        [taskId]: (prev[taskId] || []).filter((s) => s.id !== tempId),
-      }));
-      toast.error(error.message || "Failed to add subtask");
-    }
-  };
-
-  const toggleProjectTaskSubtask = async (subtaskId: string, taskId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
-    setProjectTaskSubtasks((prev) => ({
-      ...prev,
-      [taskId]: (prev[taskId] || []).map((s) =>
-        s.id === subtaskId ? { ...s, status: nextStatus } : s
-      ),
-    }));
-    try {
-      const { error } = await supabase.from("task_subtasks").update({ status: nextStatus }).eq("id", subtaskId);
-      if (error) throw error;
-    } catch (error: any) {
-      setProjectTaskSubtasks((prev) => ({
-        ...prev,
-        [taskId]: (prev[taskId] || []).map((s) =>
-          s.id === subtaskId ? { ...s, status: currentStatus } : s
-        ),
-      }));
-      toast.error(error.message || "Failed to update subtask");
-    }
-  };
-
-  const deleteProjectTaskSubtask = async (subtaskId: string, taskId: string) => {
-    const prevList = projectTaskSubtasks[taskId] || [];
-    setProjectTaskSubtasks((prev) => ({
-      ...prev,
-      [taskId]: (prev[taskId] || []).filter((s) => s.id !== subtaskId),
-    }));
-    try {
-      const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
-      if (error) throw error;
-    } catch (error: any) {
-      setProjectTaskSubtasks((prev) => ({ ...prev, [taskId]: prevList }));
-      toast.error(error.message || "Failed to delete subtask");
-    }
-  };
-
-  // ── Project-wide "what's happening" note ──
-  const fetchProjectTeamNote = async (projectId: string) => {
-    setProjectNoteLoadingFor(projectId);
-    try {
-      const { data, error } = await supabase
-        .from("project_notes")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("note_type", "team_update")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      setProjectNoteByProject(prev => ({ ...prev, [projectId]: (data as ProjectNote) || null }));
-      setProjectNoteDraft(prev => ({ ...prev, [projectId]: data?.content || "" }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load project note");
-    } finally {
-      setProjectNoteLoadingFor(null);
-    }
-  };
-
-  const saveProjectTeamNote = async (projectId: string) => {
-    const content = projectNoteDraft[projectId] || "";
-    setProjectNoteSaving(projectId);
-    try {
-      const existing = projectNoteByProject[projectId];
-      if (existing) {
-        const { error } = await supabase
-          .from("project_notes")
-          .update({ content })
-          .eq("id", existing.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("project_notes").insert({
-          project_id: projectId,
-          note_type: "team_update",
-          title: "What's happening in this project",
-          content,
-          created_by: user?.email || null,
-          created_by_email: user?.email || null,
-        });
-        if (error) throw error;
-      }
-      toast.success("Project update saved");
-      setProjectNoteEditing(prev => ({ ...prev, [projectId]: false }));
-      fetchProjectTeamNote(projectId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save project update");
-    } finally {
-      setProjectNoteSaving(null);
-    }
-  };
-
-  const toggleExpandMyTask = (taskId: string, projectId: string) => {
-    if (expandedMyTaskId === taskId) {
-      setExpandedMyTaskId(null);
-      return;
-    }
-    setExpandedMyTaskId(taskId);
-    if (!myTaskSubtasks[taskId]) {
-      fetchSubtasksForTask(taskId);
-    }
-    if (!myTaskRemarksHistory[taskId]) {
-      fetchRemarksHistory(taskId);
-    }
-    if (!(projectId in projectNoteByProject)) {
-      fetchProjectTeamNote(projectId);
-    }
-  };
-
-  // ── TASK DETAIL DIALOG FUNCTIONS ──
-  const fetchDialogSubtasks = async (taskId: string) => {
-    if (dialogSubtasks[taskId]) return;
-    setDialogSubtasksLoading(prev => ({ ...prev, [taskId]: true }));
-    try {
-      const { data, error } = await supabase
-        .from("task_subtasks")
-        .select("*")
-        .eq("task_id", taskId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      setDialogSubtasks(prev => ({ ...prev, [taskId]: data || [] }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load subtasks");
-    } finally {
-      setDialogSubtasksLoading(prev => ({ ...prev, [taskId]: false }));
-    }
-  };
-
-  const fetchDialogRemarks = async (taskId: string) => {
-    if (dialogRemarks[taskId]) return;
-    setDialogRemarksLoading(prev => ({ ...prev, [taskId]: true }));
-    try {
-      const { data, error } = await supabase
-        .from("task_remarks")
-        .select("*")
-        .eq("task_id", taskId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      setDialogRemarks(prev => ({ ...prev, [taskId]: data || [] }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load remarks");
-    } finally {
-      setDialogRemarksLoading(prev => ({ ...prev, [taskId]: false }));
-    }
-  };
-
-  const fetchDialogProjectNote = async (projectId: string) => {
-    if (dialogProjectNotes[projectId] !== undefined) return;
-    setDialogProjectNotesLoading(prev => ({ ...prev, [projectId]: true }));
-    try {
-      const { data, error } = await supabase
-        .from("project_notes")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("note_type", "team_update")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      setDialogProjectNotes(prev => ({ ...prev, [projectId]: data || null }));
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load project note");
-    } finally {
-      setDialogProjectNotesLoading(prev => ({ ...prev, [projectId]: false }));
-    }
-  };
-
-  const handleTaskClick = async (task: MyTaskRow) => {
-    setSelectedTaskId(task.id);
-    setTaskDetailDialogOpen(true);
-    await Promise.all([
-      fetchDialogSubtasks(task.id),
-      fetchDialogRemarks(task.id),
-      fetchDialogProjectNote(task.project_id)
-    ]);
-  };
-
-  const handleDialogAddSubtask = async (taskId: string, title: string, tag: string, assigneeEmail: string | null) => {
-    try {
-      const assignee = itTeam.find(m => m.email === assigneeEmail);
-      const { error } = await supabase.from("task_subtasks").insert({
-        task_id: taskId,
-        title,
-        tag: tag || null,
-        status: "not_started",
-        assigned_to_email: assigneeEmail || null,
-        assigned_to_name: assignee?.name || null,
-      });
-      if (error) throw error;
-      toast.success("Subtask added");
-      fetchDialogSubtasks(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add subtask");
-    }
-  };
-
-  const handleDialogToggleSubtask = async (subtaskId: string, taskId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
-    try {
-      const existing = (dialogSubtasks[taskId] || []).find(s => s.id === subtaskId);
-      const stamp = format(new Date(), "dd MMM yyyy, hh:mm a");
-      const historyLine = `[${stamp}] Status → ${nextStatus === "completed" ? "Completed" : "Not Started"}`;
-      const nextNote = existing?.note
-        ? `${existing.note}\n${historyLine}`
-        : historyLine;
-      const { error } = await supabase
-        .from("task_subtasks")
-        .update({ status: nextStatus, note: nextNote, updated_at: new Date().toISOString() })
-        .eq("id", subtaskId);
-      if (error) {
-        // Fallback without note if column missing
-        const { error: err2 } = await supabase
-          .from("task_subtasks")
-          .update({ status: nextStatus })
-          .eq("id", subtaskId);
-        if (err2) throw err2;
-      }
-      fetchDialogSubtasks(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update subtask");
-    }
-  };
-
-  const handleDialogDeleteSubtask = async (subtaskId: string, taskId: string) => {
-    try {
-      const { error } = await supabase.from("task_subtasks").delete().eq("id", subtaskId);
-      if (error) throw error;
-      toast.success("Subtask deleted");
-      fetchDialogSubtasks(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete subtask");
-    }
-  };
-
-  const handleDialogUpdateSubtaskNote = async (subtaskId: string, taskId: string, note: string) => {
-    try {
-      const { error } = await supabase
-        .from("task_subtasks")
-        .update({ note: note || null, updated_at: new Date().toISOString() })
-        .eq("id", subtaskId);
-      if (error) throw error;
-      toast.success("Subtask note saved");
-      fetchDialogSubtasks(taskId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save subtask note. Ensure 'note' column exists on task_subtasks.");
-    }
-  };
-
-  const handleDialogAddRemark = async (taskId: string, remark: string) => {
-    setDialogSavingRemark(taskId);
-    try {
-      const { error: insertError } = await supabase.from("task_remarks").insert({
-        task_id: taskId,
-        remark,
-        created_by_email: user?.email || null,
-        created_by_name: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email) || null,
-      });
-      if (insertError) throw insertError;
-      
-      await supabase.from("project_tasks").update({ employee_remarks: remark }).eq("id", taskId);
-      
-      toast.success("Update added");
-      fetchDialogRemarks(taskId);
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add remark");
-    } finally {
-      setDialogSavingRemark(null);
-    }
-  };
-
-  const handleDialogDeleteTask = async (taskId: string) => {
-    try {
-      const { error } = await supabase.from("project_tasks").delete().eq("id", taskId);
-      if (error) throw error;
-      toast.success("Task deleted");
-      setTaskDetailDialogOpen(false);
-      setSelectedTaskId(null);
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete task");
-    }
-  };
-
-  const handleDialogSaveProjectNote = async (projectId: string, content: string) => {
-    try {
-      const existing = dialogProjectNotes[projectId];
-      if (existing) {
-        const { error } = await supabase
-          .from("project_notes")
-          .update({ content })
-          .eq("id", existing.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("project_notes").insert({
-          project_id: projectId,
-          note_type: "team_update",
-          title: "Team Update",
-          content,
-          created_by: user?.email || null,
-          created_by_email: user?.email || null,
-        });
-        if (error) throw error;
-      }
-      toast.success("Project update saved");
-      fetchDialogProjectNote(projectId);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save project note");
-    }
-  };
-
-  const handleDialogAssign = async (taskId: string, email: string, name: string) => {
-    try {
-      const payload: Record<string, any> = {
-        assigned_to_email: email,
-        assigned_to_name: name,
-        assigned_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      let { data, error } = await supabase
-        .from("project_tasks")
-        .update(payload)
-        .eq("id", taskId)
-        .select();
-      // Fallback if assigned_at column does not exist yet
-      if (error && String(error.message || "").toLowerCase().includes("assigned_at")) {
-        const retry = await supabase
-          .from("project_tasks")
-          .update({ assigned_to_email: email, assigned_to_name: name, updated_at: new Date().toISOString() })
-          .eq("id", taskId)
-          .select();
-        data = retry.data;
-        error = retry.error;
-      }
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        toast.error("Update blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
-        return;
-      }
-      toast.success(`Assigned to ${name}`);
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["project_last_assignees"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to assign task");
-    }
-  };
-
-  const handleDialogStatusChange = async (taskId: string, status: string) => {
-    try {
-      const payload: Record<string, any> = { status };
-      if (status === "completed") payload.completion_date = new Date().toISOString();
-      const { error } = await supabase.from("project_tasks").update(payload).eq("id", taskId);
-      if (error) throw error;
-      toast.success("Status updated");
-      if (status === "completed") {
-        notifyTaskCompleted({
-          taskId,
-          completedByName: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email),
-        }).then((res) => {
-          if (res?.success) {
-            toast.success("Completion email delivered from team@banegabrand.com");
-          }
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["my_tasks", user?.email] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update status");
-    }
-  };
-
-  // ── INTERNAL CHAT ──
-  const myEmail = user?.email || "";
-  const chatScrollRef = useRef<HTMLDivElement>(null);
-  const [activeChatMember, setActiveChatMember] = useState<ITTeamMember | null>(null);
-  const [chatDraft, setChatDraft] = useState("");
-  const [chatMessages, setChatMessages] = useState<InternalMessage[]>([]);
-  const [chatMessagesLoading, setChatMessagesLoading] = useState(false);
-
-  const chatTeamList = itTeam.filter(m => m.email !== myEmail);
-
-  const { data: chatUnread = [] } = useQuery({
-    queryKey: ["internal_unread", myEmail],
-    enabled: !!myEmail && mainView === "chat",
-    refetchInterval: 15000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("internal_messages")
-        .select("sender_email")
-        .eq("receiver_email", myEmail)
-        .eq("is_read", false);
-      if (error) throw error;
-      return data.map((d: any) => d.sender_email) as string[];
-    },
-  });
-
-  const loadChatConversation = async (otherEmail: string) => {
-    setChatMessagesLoading(true);
-    try {
-      const isGroup = otherEmail === TEAM_GROUP_EMAIL;
-      const query = supabase.from("internal_messages").select("*");
-      const { data, error } = isGroup
-        ? await query.eq("receiver_email", TEAM_GROUP_EMAIL).order("created_at", { ascending: true })
-        : await query
-            .or(
-              `and(sender_email.eq.${myEmail},receiver_email.eq.${otherEmail}),and(sender_email.eq.${otherEmail},receiver_email.eq.${myEmail})`
-            )
-            .order("created_at", { ascending: true });
-      if (error) throw error;
-      setChatMessages(data as InternalMessage[]);
-
-      if (!isGroup) {
-        await supabase
-          .from("internal_messages")
-          .update({ is_read: true })
-          .eq("sender_email", otherEmail)
-          .eq("receiver_email", myEmail)
-          .eq("is_read", false);
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["internal_unread", myEmail] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to load messages");
-    } finally {
-      setChatMessagesLoading(false);
-    }
-  };
-
-  const selectChatMember = (member: ITTeamMember) => {
-    setActiveChatMember(member);
-    loadChatConversation(member.email);
-  };
-
-  useEffect(() => {
-    if (!myEmail || mainView !== "chat") return;
-    const channel = supabase
-      .channel("internal_messages_realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "internal_messages" },
-        (payload) => {
-          const msg = payload.new as InternalMessage;
-          const isGroupMsg = msg.receiver_email === TEAM_GROUP_EMAIL;
-          const involvesMe = msg.sender_email === myEmail || msg.receiver_email === myEmail || isGroupMsg;
-          if (!involvesMe) return;
-
-          if (
-            activeChatMember &&
-            (
-              (activeChatMember.email === TEAM_GROUP_EMAIL && isGroupMsg) ||
-              (activeChatMember.email !== TEAM_GROUP_EMAIL &&
-                (msg.sender_email === activeChatMember.email || msg.receiver_email === activeChatMember.email) &&
-                !isGroupMsg)
-            )
-          ) {
-            setChatMessages((prev) => [...prev, msg]);
-            if (msg.receiver_email === myEmail) {
-              supabase.from("internal_messages").update({ is_read: true }).eq("id", msg.id).then();
-            }
-          } else {
-            queryClient.invalidateQueries({ queryKey: ["internal_unread", myEmail] });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [myEmail, activeChatMember, mainView]);
-
-  useEffect(() => {
-    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [chatMessages]);
-
-  const sendChatMessage = async () => {
-    if (!chatDraft.trim() || !activeChatMember || !myEmail) return;
-    const text = chatDraft.trim();
-    setChatDraft("");
-    try {
-      const { error } = await supabase.from("internal_messages").insert({
-        sender_email: myEmail,
-        receiver_email: activeChatMember.email,
-        message: text,
-      });
-      if (error) throw error;
-    } catch (error: any) {
-      toast.error(error.message || "Failed to send message");
-      setChatDraft(text);
-    }
-  };
-
-  // ── Form States ──
-  const [newStage, setNewStage] = useState({
-    stage_name: "",
-    status: "pending"
-  });
-
-  const [newDepartment, setNewDepartment] = useState({
-    name: "",
-    department_id: "",
-    department_type: "custom",
-    manager_email: "",
-    status: "active",
-    start_date: "",
-    due_date: "",
-    notes: "",
-  });
-
-  const [newTask, setNewTask] = useState({
-    task_name: "",
-    description: "",
-    department: "",
-    department_id: "",
-    priority: "medium",
-    due_date: "",
-    stage_id: "",
-    assigned_to_email: "",
-  });
-
-  const [newManufacturing, setNewManufacturing] = useState({
-    stage: "",
-    status: "pending",
-    remarks: "",
-    responsible_person: "",
-    start_date: "",
-  });
-
-  const [newDocument, setNewDocument] = useState({
-    folder: "",
-    file_name: "",
-    file: null as File | null,
-  });
-  const [folderLinkDrafts, setFolderLinkDrafts] = useState<Record<string, { title: string; url: string }>>({});
-  const [folderLinkSaving, setFolderLinkSaving] = useState<string | null>(null);
-  
-  const [multipleFiles, setMultipleFiles] = useState<File[]>([]);
-  const [uploadingMultiple, setUploadingMultiple] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-  const [uploadType, setUploadType] = useState<"single" | "multiple">("single");
-
-  const [newCommunication, setNewCommunication] = useState({
-    type: "comment",
-    subject: "",
-    message: "",
-    next_followup: "",
-  });
-
-  const [noteMode, setNoteMode] = useState<"quick" | "brand_kit" | "client_tracker">("quick");
-  const [newNote, setNewNote] = useState({
-    title: "",
-    content: "",
-  });
-  const [editingNote, setEditingNote] = useState<ProjectNote | null>(null);
-  const [brandKitFields, setBrandKitFields] = useState<Record<string, string>>(EMPTY_BRAND_KIT);
-  const [clientTrackerFields, setClientTrackerFields] = useState<Record<string, string>>(EMPTY_CLIENT_TRACKER);
-  const [noteImageFile, setNoteImageFile] = useState<File | null>(null);
-  const [noteImagePreview, setNoteImagePreview] = useState<string | null>(null);
-  const [existingNoteImageUrl, setExistingNoteImageUrl] = useState<string | null>(null);
-  const [noteSaving, setNoteSaving] = useState(false);
-
-  const [newProjectImageFile, setNewProjectImageFile] = useState<File | null>(null);
-  const [newProjectImagePreview, setNewProjectImagePreview] = useState<string | null>(null);
-  const [editProjectImageFile, setEditProjectImageFile] = useState<File | null>(null);
-  const [editProjectImagePreview, setEditProjectImagePreview] = useState<string | null>(null);
-  const [projectSaving, setProjectSaving] = useState(false);
-
-  const handleDashboardImageUpload = async (projectId: string, file: File) => {
-    setUploadingImage(projectId);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error('Please login first');
-        return;
-      }
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = `cover_${Date.now()}.${fileExt}`;
-      const filePath = `projects/${projectId}/cover/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('project_files')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error('Upload Error:', uploadError);
-        toast.error('Upload failed: ' + uploadError.message);
-        return;
-      }
-
-      const { data: urlData } = supabase.storage
-        .from('project_files')
-        .getPublicUrl(filePath);
-
-      const { error: updateError } = await supabase
-        .from('projects')
-        .update({ image_url: urlData.publicUrl })
-        .eq('id', projectId);
-
-      if (updateError) {
-        console.error('Update Error:', updateError);
-        toast.error('Update failed: ' + updateError.message);
-        return;
-      }
-
-      toast.success('Image updated successfully!');
-      refetch();
-    } catch (error: any) {
-      console.error('Error:', error);
-      toast.error(error.message || 'Failed to upload image');
-    } finally {
-      setUploadingImage(null);
-    }
-  };
-
-  const { data: allProjects = [], isLoading, refetch } = useQuery({
-    queryKey: ["projects"],
-    staleTime: 2 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
-        .order("created_at", { ascending: false });
-      
-      if (error) throw error;
-      return data as Project[];
-    },
-  });
-
-  // Latest note per project (for project list cards)
-  const { data: lastNotesByProject = {} } = useQuery({
-    queryKey: ["project_last_notes"],
-    staleTime: 3 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("project_notes")
-        .select("id, project_id, note_type, title, content, created_by, created_by_email, created_at, updated_at")
-        .not("note_type", "in", '("documentation","content_calendar","drive_links","communication","stage_comment")')
-        .order("updated_at", { ascending: false })
-        .limit(1000);
-      
-      if (error) throw error;
-      
-      const isExcluded = (note: ProjectNote) => {
-        const type = (note.note_type || "").toLowerCase().trim();
-        const title = (note.title || "").toLowerCase().trim();
-        return (
-          type === "documentation" ||
-          type === "content_calendar" ||
-          type === "drive_links" ||
-          type === "communication" ||
-          type === "stage_comment" ||
-          title === "drive links" ||
-          title === "project documentation" ||
-          title.includes("onboarding email")
-        );
-      };
-
-      const result: Record<string, ProjectNote> = {};
-      for (const note of (data || []) as ProjectNote[]) {
-        if (!isExcluded(note) && !result[note.project_id]) {
-          result[note.project_id] = note;
-        }
-      }
-      return result;
-    },
-  });
-
-  // Track projects where onboarding email has been dispatched
-  const { data: onboardingEmailSentProjects = new Set<string>() } = useQuery({
-    queryKey: ["onboarding_email_sent_projects"],
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("project_notes")
-        .select("project_id, title")
-        .ilike("title", "%Onboarding Email%");
-      if (error) {
-        console.error("Error fetching onboarding email status:", error);
-        return new Set<string>();
-      }
-      return new Set<string>(
-        (data || [])
-          .map((row: any) => row.project_id)
-          .filter((id): id is string => Boolean(id))
-      );
-    },
-  });
-
-  const { data: lastAssigneeByProject = {} } = useQuery({
-    queryKey: ["project_last_assignees"],
-    staleTime: 3 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      // Latest activity per project (updated_at / assigned_at / created_at).
-      // In-progress tasks surface over older completed ones when touched more recently.
-      const { data, error } = await supabase
-        .from("project_tasks")
-        .select("id, project_id, task_name, assigned_to_name, assigned_to_email, assigned_at, created_at, updated_at, status")
-        .not("assigned_to_email", "is", null)
-        .neq("status", "completed")
-        .order("updated_at", { ascending: false })
-        .limit(800);
-      if (error) throw error;
-
-      const activityTs = (t: {
-        updated_at?: string | null;
-        assigned_at?: string | null;
-        created_at?: string | null;
-      }) => {
-        const candidates = [t.updated_at, t.assigned_at, t.created_at]
-          .filter(Boolean)
-          .map((d) => new Date(d as string).getTime())
-          .filter((n) => !Number.isNaN(n));
-        return candidates.length ? Math.max(...candidates) : 0;
-      };
-
-      const map: Record<
-        string,
-        {
-          name: string | null;
-          email: string | null;
-          taskName: string | null;
-          assignedAt: string | null;
-          status: string | null;
-          _ts: number;
-        }
-      > = {};
-
-      for (const t of data || []) {
-        if (!t.project_id) continue;
-        const ts = activityTs(t);
-        const existing = map[t.project_id];
-        const isCompleted = (t.status || "") === "completed";
-        // Prefer higher activity time; on tie prefer non-completed (in progress)
-        if (
-          !existing ||
-          ts > existing._ts ||
-          (ts === existing._ts && existing.status === "completed" && !isCompleted)
-        ) {
-          map[t.project_id] = {
-            name: t.assigned_to_name || null,
-            email: t.assigned_to_email || null,
-            taskName: t.task_name || null,
-            assignedAt: t.assigned_at || t.updated_at || t.created_at || null,
-            status: t.status || null,
-            _ts: ts,
-          };
-        }
-      }
-
-      const result: Record<
-        string,
-        {
-          name: string | null;
-          email: string | null;
-          taskName: string | null;
-          assignedAt: string | null;
-          status: string | null;
-        }
-      > = {};
-      for (const [pid, row] of Object.entries(map)) {
-        const { _ts, ...rest } = row;
-        result[pid] = rest;
-      }
-      return result;
-    },
-  });
-
-
-
-  const isITEmployee = !!itTeam.some((m) => (m.email || "").toLowerCase() === (user?.email || "").toLowerCase());
-
-  // Internal Projects page: every logged-in team member can open all projects
-  const projects = allProjects;
-
-  const stats = useMemo(() => ({
-    total: projects.length,
-    active: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "active").length,
-    onHold: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "on_hold").length,
-    cancelled: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "cancelled").length,
-    completed: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "completed").length,
-    refund: projects.filter((p: Project) => normalizeProjectStatus(p.status) === "refund").length,
-    totalValue: projects.reduce((sum: number, p: Project) => sum + (p.project_value || 0), 0),
-  }), [projects]);
-
-  const PROJECT_PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
-
-  const filteredProjects = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return projects
-      .filter((project: Project) => {
-        const matchSearch = 
-          !q ||
-          project.name.toLowerCase().includes(q) ||
-          (project.brand_name || "").toLowerCase().includes(q) ||
-          project.project_id.toLowerCase().includes(q);
-        
-        const matchStatus =
-          filterStatus === "all" || normalizeProjectStatus(project.status) === filterStatus;
-        const matchStage = filterStage === "all" || project.current_stage === filterStage;
-        const matchPriority = filterPriority === "all" || project.priority === filterPriority;
-        
-        return matchSearch && matchStatus && matchStage && matchPriority;
-      })
-      .sort((a, b) => {
-        if (sortBy === "newest") {
-          const da = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const db = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return db - da; // Newest first
-        }
-        if (sortBy === "priority") {
-          return (PROJECT_PRIORITY_RANK[a.priority] ?? 1) - (PROJECT_PRIORITY_RANK[b.priority] ?? 1);
-        }
-        const da = a.expected_launch_date ? new Date(a.expected_launch_date).getTime() : Infinity;
-        const db = b.expected_launch_date ? new Date(b.expected_launch_date).getTime() : Infinity;
-        return sortBy === "date_asc" ? da - db : db - da;
-      });
-  }, [projects, search, filterStatus, filterStage, filterPriority, sortBy]);
-
-  const filteredTasks = projectTasks.filter(task => {
-    if (taskAssigneeFilter === "all") return true;
-    if (taskAssigneeFilter === "mine") return task.assigned_to_email === user?.email;
-    return task.assigned_to_email === taskAssigneeFilter;
-  });
-
-  const documentationNote = notes.find(n => n.note_type === "documentation") || null;
-  // Last Note & Notes tab: only real project notes (never content_calendar / documentation / communication)
-  const generalNotes = notes
-    .filter(n => {
-      const type = (n.note_type || "").toLowerCase().trim();
-      const title = (n.title || "").toLowerCase().trim();
-      if (
-        type === "documentation" ||
-        type === "content_calendar" ||
-        type === "drive_links" ||
-        type === "communication" ||
-        type === "stage_comment" ||
-        title === "drive links" ||
-        title === "project documentation" ||
-        title.includes("onboarding email")
-      ) {
-        return false;
-      }
-      return (
-        type === "general" ||
-        type === "brand_kit" ||
-        type === "client_tracker" ||
-        type === "team_update" ||
-        type === "quick" ||
-        !type
-      );
-    })
-    .sort((a, b) => {
-      const ta = new Date(a.updated_at || a.created_at).getTime();
-      const tb = new Date(b.updated_at || b.created_at).getTime();
-      return tb - ta;
-    });
-  const lastNote = generalNotes[0] || null;
-
-  const fetchProjectDetails = async (projectId: string) => {
-    setLoadingDetail(true);
-    try {
-      const { data: departmentsData, error: departmentsError } = await supabase
-        .from("project_departments")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("created_at");
-      if (departmentsError) {
-        console.error("Error fetching departments:", departmentsError);
-        setDepartments([]);
-      } else {
-        setDepartments(departmentsData || []);
-      }
-
-      const { data: stagesData } = await supabase
-        .from("project_stages")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("stage_order");
-      if (stagesData) setProjectStages(stagesData);
-
-      const { data: tasksData } = await supabase
-        .from("project_tasks")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("due_date");
-      if (tasksData) setProjectTasks(tasksData);
-
-      const { data: agreementsData } = await supabase
-        .from("agreements")
-        .select("*")
-        .eq("project_id", projectId);
-      if (agreementsData) setAgreements(agreementsData);
-
-      const { data: paymentsData } = await supabase
-        .from("payments")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("due_date");
-      if (paymentsData) setPayments(paymentsData);
-
-      const { data: manufacturingData } = await supabase
-        .from("manufacturing_tracker")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("stage");
-      if (manufacturingData) setManufacturing(manufacturingData);
-
-      const { data: documentsData } = await supabase
-        .from("project_documents")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("created_at", { ascending: false });
-      if (documentsData) setDocuments(documentsData);
-
-      const { data: communicationsData } = await supabase
-        .from("client_communications")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("communication_date", { ascending: false });
-      if (communicationsData) setCommunications(communicationsData);
-
-      const { data: notesData, error: notesError } = await supabase
-        .from("project_notes")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("updated_at", { ascending: false, nullsFirst: false });
-      if (notesError) {
-        // Fallback if updated_at sort fails
-        const { data: notesFallback } = await supabase
-          .from("project_notes")
-          .select("*")
-          .eq("project_id", projectId)
-          .order("created_at", { ascending: false });
-        setNotes(notesFallback || []);
-        const docNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "documentation");
-        setDocNoteContent(docNote?.content || "");
-        const calNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "content_calendar");
-        if (calNote) {
-          const parsed = parseContentCalendar(calNote.content);
-          if (parsed) {
-            setContentCalendarDays(sortContentDaysByDate(parsed.days));
-            setContentCalendarStartDate(parsed.startDate || "");
-            setContentCalendarNoteId(calNote.id);
-          } else {
-            setContentCalendarDays(createEmptyContentCalendar());
-            setContentCalendarStartDate("");
-            setContentCalendarNoteId(calNote.id);
-          }
-        } else {
-          setContentCalendarDays(createEmptyContentCalendar());
-          setContentCalendarStartDate("");
-          setContentCalendarNoteId(null);
-        }
-
-        const linksNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
-        if (linksNote) {
-          setProjectLinksNoteId(linksNote.id);
-          setProjectLinks(parseProjectLinks(linksNote.content));
-        } else {
-          setProjectLinksNoteId(null);
-          setProjectLinks([]);
-        }
-      } else if (notesData) {
-        // Client-side sort: prefer updated_at, else created_at
-        const sorted = [...notesData].sort((a, b) => {
-          const ta = new Date(a.updated_at || a.created_at).getTime();
-          const tb = new Date(b.updated_at || b.created_at).getTime();
-          return tb - ta;
-        });
-        setNotes(sorted);
-        const docNote = sorted.find((n: ProjectNote) => n.note_type === "documentation");
-        setDocNoteContent(docNote?.content || "");
-        // Load content calendar
-        const calNote = sorted.find((n: ProjectNote) => n.note_type === "content_calendar");
-        if (calNote) {
-          const parsed = parseContentCalendar(calNote.content);
-          if (parsed) {
-            setContentCalendarDays(sortContentDaysByDate(parsed.days));
-            setContentCalendarStartDate(parsed.startDate || "");
-            setContentCalendarNoteId(calNote.id);
-          } else {
-            setContentCalendarDays(createEmptyContentCalendar());
-            setContentCalendarStartDate("");
-            setContentCalendarNoteId(calNote.id);
-          }
-        } else {
-          setContentCalendarDays(createEmptyContentCalendar());
-          setContentCalendarStartDate("");
-          setContentCalendarNoteId(null);
-        }
-
-        const linksNote = (sorted || []).find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
-        if (linksNote) {
-          setProjectLinksNoteId(linksNote.id);
-          setProjectLinks(parseProjectLinks(linksNote.content));
-        } else {
-          setProjectLinksNoteId(null);
-          setProjectLinks([]);
-        }
-      } else {
-        setNotes([]);
-        setDocNoteContent("");
-        setContentCalendarDays(createEmptyContentCalendar());
-        setContentCalendarStartDate("");
-        setContentCalendarNoteId(null);
-        setProjectLinks([]);
-        setProjectLinksNoteId(null);
-      }
-
-    } catch (error) {
-      console.error("Error fetching project details:", error);
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
-
-  // ── Sync URL Route -> Project Detail State ──
-  useEffect(() => {
-    if (activeProjectId) {
-      if (mainView !== "projects") {
-        setMainView("projects");
-      }
-
-      // If already viewing this project, just sync tab if needed
-      if (selectedProject && (selectedProject.id === activeProjectId || selectedProject.project_id === activeProjectId)) {
-        if (viewMode !== "detail") setViewMode("detail");
-        if (activeTabFromUrl && activeTab !== activeTabFromUrl) {
-          setActiveTab(activeTabFromUrl);
-        }
-        return;
-      }
-
-      // Look up in loaded projects list
-      const matched = projects.find(
-        (p) => p.id === activeProjectId || p.project_id === activeProjectId
-      );
-
-      if (matched) {
-        setSelectedProject(matched);
-        setViewMode("detail");
-        if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
-        setTaskAssigneeFilter("all");
-        setSelectedDepartment(null);
-        fetchProjectDetails(matched.id);
-      } else if (!isLoading) {
-        // Fallback: fetch project directly from Supabase (for direct link / fresh page load)
-        supabase
-          .from("projects")
-          .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
-          .or(`id.eq.${activeProjectId},project_id.eq.${activeProjectId}`)
-          .maybeSingle()
-          .then(({ data, error }) => {
-            if (data && !error) {
-              const proj = data as Project;
-              setSelectedProject(proj);
-              setViewMode("detail");
-              if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
-              setTaskAssigneeFilter("all");
-              setSelectedDepartment(null);
-              fetchProjectDetails(proj.id);
-            } else {
-              toast.error("Project not found");
-              navigate("/projects", { replace: true });
-            }
-          });
-      }
-    } else {
-      // URL has no project ID -> ensure dashboard view (e.g. browser back button hit)
-      if (viewMode === "detail" || selectedProject !== null) {
-        setViewMode("dashboard");
-        setSelectedProject(null);
-        setDepartments([]);
-        setSelectedDepartment(null);
-        setProjectStages([]);
-        setProjectTasks([]);
-        setAgreements([]);
-        setPayments([]);
-        setManufacturing([]);
-        setDocuments([]);
-        setCommunications([]);
-        setNotes([]);
-        setDocNoteContent("");
-      }
-    }
-  }, [activeProjectId, activeTabFromUrl, projects, isLoading]);
-
-  const handleProjectClick = (project: Project) => {
-    setSelectedProject(project);
-    setViewMode("detail");
-    setActiveTab("overview");
-    setTaskAssigneeFilter("all");
-    setSelectedDepartment(null);
-    fetchProjectDetails(project.id);
-    navigate(`/projects/${project.id}`);
-  };
-
-  const handleBack = () => {
-    navigate("/projects");
-  };
-
-  const handleTabChange = (newTab: string) => {
-    setActiveTab(newTab);
-    if (selectedProject) {
-      navigate(`/projects/${selectedProject.id}/${newTab}`, { replace: true });
-    }
-  };
-
-  const [newProject, setNewProject] = useState({
-    name: "",
-    brand_name: "",
-    project_type: "perfume",
-    project_value: "",
-    priority: "medium",
-    start_date: "",
-    expected_launch_date: "",
-    client_address: "",
-    client_phone: "",
-    client_email: "",
-    product_category: "perfume",
-    products_to_launch: "1",
-    product_category_note: "",
-    project_manager_name: "Pankaj Singh",
-    project_manager_email: "pankaj@banegabrand.com",
-    project_manager_phone: "+91 9717943312",
-  });
-
-  const [editPmInfo, setEditPmInfo] = useState({
-    name: "Pankaj Singh",
-    email: "pankaj@banegabrand.com",
-    phone: "+91 9717943312",
-  });
-
-  const handleNewProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
-    }
-    setNewProjectImageFile(file);
-    setNewProjectImagePreview(URL.createObjectURL(file));
-  };
-
-  const clearNewProjectImage = () => {
-    setNewProjectImageFile(null);
-    setNewProjectImagePreview(null);
-    if (projectImageInputRef.current) projectImageInputRef.current.value = "";
-  };
-
-  const uploadProjectImage = async (projectId: string, file: File): Promise<string | null> => {
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `cover_${Date.now()}.${fileExt}`;
-      const filePath = `projects/${projectId}/cover/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('project_files')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from('project_files')
-        .getPublicUrl(filePath);
-
-      return urlData.publicUrl;
-    } catch (error: any) {
-      toast.error(error.message || "Failed to upload image");
-      return null;
-    }
-  };
-
-  const createProject = async () => {
-    if (!newProject.name) {
-      toast.error("Client name is required");
-      return;
-    }
-
-    setProjectSaving(true);
-    try {
-      const projectId = `PRJ-${Date.now().toString().slice(-6)}`;
-      const pmData = JSON.stringify({
-        name: newProject.project_manager_name?.trim() || "Pankaj Singh",
-        email: newProject.project_manager_email?.trim() || "pankaj@banegabrand.com",
-        phone: newProject.project_manager_phone?.trim() || "+91 9717943312",
-      });
-      
-      const { data, error } = await supabase
-        .from("projects")
-        .insert({
-          project_id: projectId,
-          name: newProject.name,
-          brand_name: newProject.brand_name || null,
-          project_type: newProject.project_type || "perfume",
-          project_value: Number(newProject.project_value) || 0,
-          priority: newProject.priority || "medium",
-          start_date: newProject.start_date || null,
-          expected_launch_date: newProject.expected_launch_date || null,
-          client_address: newProject.client_address || null,
-          client_phone: newProject.client_phone || null,
-          client_email: newProject.client_email || null,
-          product_category: newProject.product_category || null,
-          products_to_launch: Number(newProject.products_to_launch) || 1,
-          product_category_note: newProject.product_category_note || null,
-          project_manager: pmData,
-          current_stage: "brand_identity",
-          status: "active",
-          completion_percentage: 0,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      if (newProjectImageFile) {
-        const imageUrl = await uploadProjectImage(data.id, newProjectImageFile);
-        if (imageUrl) {
-          await supabase.from("projects").update({ image_url: imageUrl }).eq("id", data.id);
-        }
-      }
-
-      const stages = PROJECT_STAGES.map((stage, index) => ({
-        project_id: data.id,
-        stage_name: stage.label,
-        stage_order: index + 1,
-        status: index === 0 ? "in_progress" : "pending",
-      }));
-
-      await supabase.from("project_stages").insert(stages);
-
-      await supabase.from("project_notes").insert({
-        project_id: data.id,
-        note_type: "documentation",
-        title: "Project Documentation",
-        content: "",
-        created_by: user?.email || null,
-        created_by_email: user?.email || null,
-      });
-
-      // Send client onboarding Scope of Work email if client email is provided
-      if (newProject.client_email?.trim()) {
-        try {
-          const res = await sendProjectCreatedEmail({
-            to: newProject.client_email.trim(),
-            clientName: newProject.name,
-            brandName: newProject.brand_name || newProject.name,
-            projectId: projectId,
-            projectType: newProject.project_type || "perfume",
-            productCategory: newProject.product_category,
-            productsToLaunch: newProject.products_to_launch,
-            startDate: newProject.start_date,
-            expectedLaunchDate: newProject.expected_launch_date,
-            projectValue: newProject.project_value,
-            clientPhone: newProject.client_phone,
-            clientAddress: newProject.client_address,
-            projectManager: newProject.project_manager_name?.trim() || "Pankaj Singh",
-            projectManagerName: newProject.project_manager_name?.trim() || "Pankaj Singh",
-            projectManagerEmail: newProject.project_manager_email?.trim() || "pankaj@banegabrand.com",
-            projectManagerPhone: newProject.project_manager_phone?.trim() || "+91 9717943312",
-            projectDescription: newProject.product_category_note || undefined,
-          });
-
-          if (res.success) {
-            await supabase.from("project_notes").insert({
-              project_id: data.id,
-              note_type: "communication",
-              title: "Client Onboarding Email Dispatched",
-              content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${newProject.client_email}. Assigned PM: ${newProject.project_manager_name} (${newProject.project_manager_phone}).`,
-              created_by: user?.email || null,
-              created_by_email: user?.email || null,
-            });
-            queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
-          }
-        } catch (emailErr) {
-          console.error("Auto onboarding email dispatch error:", emailErr);
-        }
-      }
-
-      toast.success("Project created successfully!");
-      setDialogOpen(false);
-      setNewProject({
-        name: "",
-        brand_name: "",
-        project_type: "perfume",
-        project_value: "",
-        priority: "medium",
-        start_date: "",
-        expected_launch_date: "",
-        client_address: "",
-        client_phone: "",
-        client_email: "",
-        product_category: "perfume",
-        products_to_launch: "1",
-        product_category_note: "",
-        project_manager_name: "Pankaj Singh",
-        project_manager_email: "pankaj@banegabrand.com",
-        project_manager_phone: "+91 9717943312",
-      });
-      clearNewProjectImage();
-      refetch();
-      queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setProjectSaving(false);
-    }
-  };
-
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-
-  const handleEditProjectImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
-    }
-    setEditProjectImageFile(file);
-    setEditProjectImagePreview(URL.createObjectURL(file));
-  };
-
-  const clearEditProjectImage = () => {
-    setEditProjectImageFile(null);
-    setEditProjectImagePreview(null);
-    if (editingProject) setEditingProject({ ...editingProject, image_url: null });
-    if (editProjectImageInputRef.current) editProjectImageInputRef.current.value = "";
-  };
-
-  const updateProject = async () => {
-    if (!editingProject) return;
-
-    setProjectSaving(true);
-    try {
-      let imageUrl = editingProject.image_url || null;
-      if (editProjectImageFile) {
-        const uploadedUrl = await uploadProjectImage(editingProject.id, editProjectImageFile);
-        if (uploadedUrl) imageUrl = uploadedUrl;
-      }
-
-      const normalizedStatus = normalizeProjectStatus(editingProject.status) || editingProject.status;
-      const pmPayload = JSON.stringify({
-        name: editPmInfo.name?.trim() || "Pankaj Singh",
-        email: editPmInfo.email?.trim() || "pankaj@banegabrand.com",
-        phone: editPmInfo.phone?.trim() || "+91 9717943312",
-      });
-
-      // Note: .select() after update often returns [] under RLS even when UPDATE succeeds.
-      // So we update without relying on returned rows, then optimistically update UI + refetch.
-      const { error } = await supabase
-        .from("projects")
-        .update({
-          name: editingProject.name,
-          brand_name: editingProject.brand_name,
-          project_type: editingProject.project_type,
-          project_value: editingProject.project_value,
-          priority: editingProject.priority,
-          start_date: editingProject.start_date || null,
-          expected_launch_date: editingProject.expected_launch_date || null,
-          status: normalizedStatus,
-          current_stage: editingProject.current_stage,
-          client_address: editingProject.client_address,
-          client_phone: editingProject.client_phone,
-          client_email: editingProject.client_email,
-          product_category: editingProject.product_category || null,
-          products_to_launch: editingProject.products_to_launch ?? null,
-          product_category_note: editingProject.product_category_note || null,
-          project_manager: pmPayload,
-          image_url: imageUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingProject.id);
-
-      if (error) throw error;
-
-      const saved: Project = {
-        ...editingProject,
-        project_manager: pmPayload,
-        status: normalizedStatus,
-        image_url: imageUrl,
-      };
-
-      toast.success(
-        normalizedStatus === "on_hold"
-          ? "Project moved to On Hold"
-          : normalizedStatus === "active"
-          ? "Project set to Active"
-          : normalizedStatus === "cancelled"
-          ? "Project Cancelled"
-          : "Project updated successfully"
-      );
-      setEditDialogOpen(false);
-      setEditingProject(null);
-      setEditProjectImageFile(null);
-      setEditProjectImagePreview(null);
-      if (selectedProject?.id === saved.id) {
-        setSelectedProject({ ...selectedProject, ...saved });
-      }
-      await refetch();
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update project");
-    } finally {
-      setProjectSaving(false);
-    }
-  };
-
-  const addStage = async () => {
-    if (!newStage.stage_name || !selectedProject) {
-      toast.error("Stage name is required");
-      return;
-    }
-
-    try {
-      const maxOrder = projectStages.reduce((max, s) => Math.max(max, s.stage_order), 0);
-      
-      const { error } = await supabase
-        .from("project_stages")
-        .insert({
-          project_id: selectedProject.id,
-          stage_name: newStage.stage_name,
-          stage_order: maxOrder + 1,
-          status: newStage.status || "pending",
-        });
-
-      if (error) throw error;
-
-      toast.success("Stage added successfully!");
-      setStageDialogOpen(false);
-      setNewStage({ stage_name: "", status: "pending" });
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const updateStageStatus = async (stageId: string, status: string) => {
-    try {
-      const payload: Record<string, any> = { status };
-      if (status === "completed") payload.completion_date = new Date().toISOString();
-      if (status === "in_progress") payload.start_date = new Date().toISOString();
-      const { error } = await supabase
-        .from("project_stages")
-        .update(payload)
-        .eq("id", stageId);
-      
-      if (error) throw error;
-      
-      toast.success("Stage updated successfully");
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  // Set status on fixed Project Stages pipeline (create row if missing)
-  const upsertProjectStageStatus = async (
-    stageLabel: string,
-    stageOrder: number,
-    status: string,
-    stageValue?: string
-  ) => {
-    if (!selectedProject) return;
-    try {
-      const existing =
-        projectStages.find(
-          (s) =>
-            s.stage_name === stageLabel ||
-            s.stage_name?.toLowerCase() === stageLabel.toLowerCase() ||
-            (stageValue && s.stage_name?.toLowerCase() === stageValue.toLowerCase())
-        ) ||
-        projectStages.find((s) => s.stage_order === stageOrder);
-
-      if (existing) {
-        const payload: Record<string, any> = {
-          status,
-          stage_name: stageLabel,
-          stage_order: stageOrder,
-        };
-        if (status === "completed") payload.completion_date = new Date().toISOString();
-        if (status === "in_progress" && !existing.start_date) {
-          payload.start_date = new Date().toISOString();
-        }
-        const draftRemark = (stageCommentDrafts[stageLabel] || existing.remarks || "").trim();
-        if (draftRemark) {
-          payload.remarks = draftRemark;
-        }
-        const { error } = await supabase
-          .from("project_stages")
-          .update(payload)
-          .eq("id", existing.id);
-        if (error) throw error;
-        // Optimistic local update
-        setProjectStages((prev) =>
-          prev.map((s) => (s.id === existing.id ? { ...s, ...payload } : s))
-        );
-      } else {
-        const insertRemark = (stageCommentDrafts[stageLabel] || "").trim();
-        const { error } = await supabase.from("project_stages").insert({
-          project_id: selectedProject.id,
-          stage_name: stageLabel,
-          stage_order: stageOrder,
-          status,
-          ...(insertRemark ? { remarks: insertRemark } : {}),
-          ...(status === "in_progress" ? { start_date: new Date().toISOString() } : {}),
-          ...(status === "completed" ? { completion_date: new Date().toISOString() } : {}),
-        });
-        if (error) throw error;
-      }
-
-      // Keep projects.current_stage in sync when a stage is started or completed
-      if (status === "in_progress" || status === "completed") {
-        const stageMeta = PROJECT_STAGES.find((s) => s.label === stageLabel);
-        if (stageMeta) {
-          await supabase
-            .from("projects")
-            .update({ current_stage: stageMeta.value, updated_at: new Date().toISOString() })
-            .eq("id", selectedProject.id);
-          setSelectedProject((prev) =>
-            prev ? { ...prev, current_stage: stageMeta.value } : prev
-          );
-        }
-      }
-
-      const mergedStages = existing
-        ? projectStages.map((st) => (st.id === existing.id ? { ...st, status, stage_name: stageLabel } : st))
-        : [
-            ...projectStages,
-            {
-              id: "temp",
-              project_id: selectedProject.id,
-              stage_name: stageLabel,
-              stage_order: stageOrder,
-              status,
-              start_date: null,
-              completion_date: null,
-            },
-          ];
-      const stagePercent = computeStageCompletionPercent(mergedStages);
-      await supabase
-        .from("projects")
-        .update({ completion_percentage: stagePercent, updated_at: new Date().toISOString() })
-        .eq("id", selectedProject.id);
-      setSelectedProject((prev) => prev ? { ...prev, completion_percentage: stagePercent } : prev);
-
-      // Optimistic update for the global projects list so it reflects instantly without a reload
-      queryClient.setQueryData(["projects"], (oldData: any) => {
-        if (!oldData) return oldData;
-        return oldData.map((p: any) =>
-          p.id === selectedProject.id
-            ? { 
-                ...p, 
-                completion_percentage: stagePercent,
-                current_stage: (status === "in_progress" || status === "completed") 
-                  ? (PROJECT_STAGES.find((s) => s.label === stageLabel)?.value || p.current_stage) 
-                  : p.current_stage
-              }
-            : p
-        );
-      });
-
-      toast.success("Stage updated successfully");
-
-      if (status === "completed" && existing?.status !== "completed") {
-        const comment = (stageCommentDrafts[stageLabel] || existing?.remarks || "").trim();
-        await sendStageCompletedEmail(selectedProject, stageLabel, comment);
-      }
-
-      fetchProjectDetails(selectedProject.id);
-      // No need to wait for refetch() for UI to feel instant, but keep it for consistency
-      refetch();
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update stage");
-    }
-  };
-
-  const saveStageComment = async (stageLabel: string, stageOrder: number, stageValue?: string) => {
-    if (!selectedProject) return;
-    const comment = (stageCommentDrafts[stageLabel] || "").trim();
-    if (!comment) {
-      toast.error("Please enter a remark first");
-      return;
-    }
-    setStageCommentSaving(stageLabel);
-    try {
-      const existing =
-        projectStages.find(
-          (st) =>
-            st.stage_name === stageLabel ||
-            st.stage_name?.toLowerCase() === stageLabel.toLowerCase() ||
-            (stageValue && st.stage_name?.toLowerCase() === stageValue.toLowerCase())
-        ) ||
-        projectStages.find((st) => st.stage_order === stageOrder);
-
-      if (existing) {
-        const { error } = await supabase
-          .from("project_stages")
-          .update({ remarks: comment })
-          .eq("id", existing.id);
-        if (error && String(error.message || "").toLowerCase().includes("remarks")) {
-          const { error: noteErr } = await supabase.from("project_notes").insert({
-            project_id: selectedProject.id,
-            note_type: "stage_comment",
-            title: stageLabel,
-            content: comment,
-            created_by: user?.email || null,
-            created_by_email: user?.email || null,
-          });
-          if (noteErr) throw noteErr;
-        } else if (error) {
-          throw error;
-        } else {
-          setProjectStages((prev) =>
-            prev.map((st) => (st.id === existing.id ? { ...st, remarks: comment } : st))
-          );
-        }
-      } else {
-        const { error } = await supabase.from("project_stages").insert({
-          project_id: selectedProject.id,
-          stage_name: stageLabel,
-          stage_order: stageOrder,
-          status: "pending",
-          remarks: comment,
-        });
-        if (error) throw error;
-      }
-
-      toast.success("Remark saved");
-      setOpenStageComment(null);
-      fetchProjectDetails(selectedProject.id);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save remark");
-    } finally {
-      setStageCommentSaving(null);
-    }
-  };
-
-  // Sync default Project Stages list onto older projects
-  const syncDefaultProjectStages = async () => {
-    if (!selectedProject) return;
-    try {
-      const existingNames = new Set(projectStages.map((s) => (s.stage_name || "").toLowerCase()));
-      const toInsert = PROJECT_STAGES
-        .map((stage, index) => ({
-          project_id: selectedProject.id,
-          stage_name: stage.label,
-          stage_order: index + 1,
-          status: "pending" as const,
-        }))
-        .filter((s) => !existingNames.has(s.stage_name.toLowerCase()));
-
-      if (toInsert.length === 0) {
-        toast.info("All project stages are already loaded");
-        return;
-      }
-      const { error } = await supabase.from("project_stages").insert(toInsert);
-      if (error) throw error;
-      toast.success(`${toInsert.length} stages added`);
-      fetchProjectDetails(selectedProject.id);
-    } catch (error: any) {
-      toast.error(error.message || "Sync fail");
-    }
-  };
-
-  const addDepartment = async () => {
-    if (!newDepartment.name || !newDepartment.department_id || !selectedProject) {
-      toast.error("Department name and department are required");
-      return;
-    }
-
-    try {
-      const manager = itTeam.find(m => m.email === newDepartment.manager_email);
-
-      const { error } = await supabase
-        .from("project_departments")
-        .insert({
-          project_id: selectedProject.id,
-          department_id: newDepartment.department_id,
-          name: newDepartment.name,
-          department_type: newDepartment.department_type || null,
-          manager_email: newDepartment.manager_email || null,
-          manager_name: manager?.name || null,
-          status: newDepartment.status || "active",
-          start_date: newDepartment.start_date || null,
-          due_date: newDepartment.due_date || null,
-          notes: newDepartment.notes || null,
-          progress: 0,
-        });
-
-      if (error) throw error;
-
-      toast.success("Department added successfully!");
-      setDepartmentDialogOpen(false);
-      setNewDepartment({ name: "", department_id: "", department_type: "custom", manager_email: "", status: "active", start_date: "", due_date: "", notes: "" });
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add department");
-    }
-  };
-
-  const updateDepartment = async () => {
-    if (!editingDepartment) return;
-    if (!editingDepartment.department_id) {
-      toast.error("Department is required");
-      return;
-    }
-
-    try {
-      const manager = itTeam.find(m => m.email === editingDepartment.manager_email);
-
-      const { error } = await supabase
-        .from("project_departments")
-        .update({
-          name: editingDepartment.name,
-          department_id: editingDepartment.department_id,
-          department_type: editingDepartment.department_type,
-          manager_email: editingDepartment.manager_email || null,
-          manager_name: editingDepartment.manager_email ? (manager?.name || editingDepartment.manager_name) : null,
-          status: editingDepartment.status,
-          start_date: editingDepartment.start_date || null,
-          due_date: editingDepartment.due_date || null,
-          notes: editingDepartment.notes || null,
-        })
-        .eq("id", editingDepartment.id);
-
-      if (error) throw error;
-
-      toast.success("Department updated successfully!");
-      setDepartmentDialogOpen(false);
-      setEditingDepartment(null);
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update department");
-    }
-  };
-
-  const deleteDepartment = async (departmentId: string) => {
-    if (!confirm("Delete this department? Its tasks will remain but become unassigned from any department.")) return;
-
-    try {
-      const { error } = await supabase
-        .from("project_departments")
-        .delete()
-        .eq("id", departmentId);
-
-      if (error) throw error;
-
-      toast.success("Department deleted successfully!");
-      if (selectedDepartment?.id === departmentId) {
-        setSelectedDepartment(null);
-      }
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete department");
-    }
-  };
-
-  const recomputeDepartmentProgress = async (departmentId: string) => {
-    try {
-      const { data: deptTasks, error: deptTasksError } = await supabase
-        .from("project_tasks")
-        .select("status")
-        .eq("department_id", departmentId);
-
-      if (deptTasksError || !deptTasks || deptTasks.length === 0) return;
-
-      const completedCount = deptTasks.filter((t: any) => t.status === "completed").length;
-      const newProgress = Math.round((completedCount / deptTasks.length) * 100);
-
-      await supabase
-        .from("project_departments")
-        .update({ progress: newProgress })
-        .eq("id", departmentId);
-    } catch (error) {
-      console.error("Error recomputing department progress:", error);
-    }
-  };
-
-  const updateTaskStatus = async (taskId: string, status: string) => {
-    try {
-      const payload: Record<string, any> = { status };
-      if (status === "completed") payload.completion_date = new Date().toISOString();
-      const { error } = await supabase
-        .from("project_tasks")
-        .update(payload)
-        .eq("id", taskId);
-      
-      if (error) throw error;
-      
-      toast.success("Task updated successfully");
-
-      if (status === "completed") {
-        notifyTaskCompleted({
-          taskId,
-          completedByName: displayPersonName((user as any)?.name || currentTeamMember?.name, user?.email),
-        }).then((res) => {
-          if (res?.success) {
-            toast.success("Completion email delivered from team@banegabrand.com");
-          }
-        });
-      }
-
-      const changedTask = projectTasks.find(t => t.id === taskId);
-      if (changedTask?.department_id) {
-        await recomputeDepartmentProgress(changedTask.department_id);
-      }
-
-      if (selectedProject) {
-        const { data: tasksData, error: tasksError } = await supabase
-          .from("project_tasks")
-          .select("*")
-          .eq("project_id", selectedProject.id);
-
-        // Project progress bar is driven by stages, not tasks.
-
-        await fetchProjectDetails(selectedProject.id);
-        refetch();
-      }
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const assignTask = async (taskId: string, email: string, name: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("project_tasks")
-        .update({ assigned_to_email: email, assigned_to_name: name })
-        .eq("id", taskId)
-        .select();
-
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        toast.error("Update blocked (0 rows changed) — check RLS UPDATE policy on project_tasks.");
-        return;
-      }
-
-      toast.success(`Task assigned to ${name}`);
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["project_last_assignees"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const addTask = async () => {
-    if (!newTask.task_name || !selectedProject) {
-      toast.error("Task name is required");
-      return;
-    }
-
-    try {
-      const assignee = itTeam.find(m => m.email === newTask.assigned_to_email);
-      const stageIdToSave = newTask.stage_id && newTask.stage_id !== "none" ? newTask.stage_id : null;
-      const departmentIdToSave = newTask.department_id && newTask.department_id !== "none" ? newTask.department_id : null;
-      const linkedDepartment = departmentIdToSave ? departments.find(d => d.id === departmentIdToSave) : null;
-
-      const { error } = await supabase
-        .from("project_tasks")
-        .insert({
-          project_id: selectedProject.id,
-          stage_id: stageIdToSave,
-          department_id: departmentIdToSave,
-          task_name: newTask.task_name,
-          description: newTask.description || null,
-          department: linkedDepartment?.name || newTask.department || null,
-          priority: newTask.priority,
-          status: "not_started",
-          due_date: newTask.due_date || null,
-          assigned_by: user?.id,
-          assigned_to_email: newTask.assigned_to_email || null,
-          assigned_to_name: assignee?.name || null,
-        });
-
-      if (error) throw error;
-
-      toast.success("Task added successfully!");
-      setTaskDialogOpen(false);
-      setNewTask({
-        task_name: "",
-        description: "",
-        department: "",
-        department_id: "",
-        priority: "medium",
-        due_date: "",
-        stage_id: "",
-        assigned_to_email: "",
-      });
-      if (departmentIdToSave) {
-        recomputeDepartmentProgress(departmentIdToSave);
-      }
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const deleteTask = async (taskId: string) => {
-    if (!confirm("Delete this task?")) return;
-
-    try {
-      const taskBeingDeleted = projectTasks.find(t => t.id === taskId);
-
-      const { error } = await supabase
-        .from("project_tasks")
-        .delete()
-        .eq("id", taskId);
-
-      if (error) throw error;
-
-      toast.success("Task deleted successfully!");
-      if (taskBeingDeleted?.department_id) {
-        recomputeDepartmentProgress(taskBeingDeleted.department_id);
-      }
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-      queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const updatePaymentStatus = async (paymentId: string, status: string, paidDate?: string) => {
-    try {
-      const updates: any = { status };
-      
-      if (status === 'paid') {
-        updates.paid_date = paidDate || new Date().toISOString().split('T')[0];
-      } else if (status !== 'paid') {
-        updates.paid_date = null;
-      }
-      
-      const { error } = await supabase
-        .from("payments")
-        .update(updates)
-        .eq("id", paymentId);
-      
-      if (error) throw error;
-      
-      toast.success("Payment status updated successfully!");
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const deletePayment = async (paymentId: string) => {
-    if (!confirm("Delete this payment record?")) return;
-
-    try {
-      const { error } = await supabase
-        .from("payments")
-        .delete()
-        .eq("id", paymentId);
-
-      if (error) throw error;
-
-      toast.success("Payment deleted successfully!");
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const [newAgreement, setNewAgreement] = useState({
-    title: "",
-    agreement_type: "banega_brand",
-    status: "not_sent",
-  });
-
-  const addAgreement = async () => {
-    if (!newAgreement.title || !selectedProject) {
-      toast.error("Title is required");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("agreements")
-        .insert({
-          project_id: selectedProject.id,
-          title: newAgreement.title,
-          agreement_type: newAgreement.agreement_type,
-          status: newAgreement.status,
-        });
-
-      if (error) throw error;
-
-      toast.success("Agreement added successfully!");
-      setAgreementDialogOpen(false);
-      setNewAgreement({ title: "", agreement_type: "banega_brand", status: "not_sent" });
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const [newPayment, setNewPayment] = useState({
-    payment_type: "client",
-    milestone: "",
-    amount: "",
-    due_date: "",
-    status: "pending",
-  });
-
-  const addPayment = async () => {
-    if (!newPayment.milestone || !newPayment.amount || !selectedProject) {
-      toast.error("Milestone and amount are required");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("payments")
-        .insert({
-          project_id: selectedProject.id,
-          payment_type: newPayment.payment_type,
-          milestone: newPayment.milestone,
-          amount: Number(newPayment.amount),
-          due_date: newPayment.due_date || null,
-          status: newPayment.status,
-        });
-
-      if (error) throw error;
-
-      toast.success("Payment added successfully!");
-      setPaymentDialogOpen(false);
-      setNewPayment({ payment_type: "client", milestone: "", amount: "", due_date: "", status: "pending" });
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const addManufacturing = async () => {
-    if (!newManufacturing.stage || !selectedProject) {
-      toast.error("Stage is required");
-      return;
-    }
-
-    try {
-      const { data: existing } = await supabase
-        .from("manufacturing_tracker")
-        .select("id")
-        .eq("project_id", selectedProject.id)
-        .eq("stage", newManufacturing.stage)
-        .single();
-
-      if (existing) {
-        const { error } = await supabase
-          .from("manufacturing_tracker")
-          .update({
-            status: newManufacturing.status,
-            remarks: newManufacturing.remarks || null,
-            responsible_person: newManufacturing.responsible_person || null,
-            start_date: newManufacturing.start_date || new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", existing.id);
-
-        if (error) throw error;
-        toast.success("Manufacturing stage updated successfully!");
-      } else {
-        const { error } = await supabase
-          .from("manufacturing_tracker")
-          .insert({
-            project_id: selectedProject.id,
-            stage: newManufacturing.stage,
-            status: newManufacturing.status,
-            remarks: newManufacturing.remarks || null,
-            responsible_person: newManufacturing.responsible_person || null,
-            start_date: newManufacturing.start_date || new Date().toISOString(),
-          });
-
-        if (error) throw error;
-        toast.success("Manufacturing stage added successfully!");
-      }
-
-      setManufacturingDialogOpen(false);
-      setNewManufacturing({
-        stage: "",
-        status: "pending",
-        remarks: "",
-        responsible_person: "",
-        start_date: "",
-      });
-      
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update manufacturing");
-    }
-  };
-
-  const uploadDocument = async () => {
-    if (!newDocument.folder || !newDocument.file || !selectedProject) {
-      toast.error("Folder and file are required");
-      return;
-    }
-
-    try {
-      const file = newDocument.file;
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `projects/${selectedProject.id}/documents/${newDocument.folder}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('project_files')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from('project_files')
-        .getPublicUrl(filePath);
-
-      const { error } = await supabase
-        .from("project_documents")
-        .insert({
-          project_id: selectedProject.id,
-          folder: newDocument.folder,
-          file_name: file.name,
-          file_url: urlData.publicUrl,
-          file_size: file.size,
-          file_type: file.type,
-          uploaded_by: user?.id,
-          version: 1,
-        });
-
-      if (error) throw error;
-
-      toast.success("Document uploaded successfully!");
-      setDocumentDialogOpen(false);
-      setNewDocument({
-        folder: "",
-        file_name: "",
-        file: null,
-      });
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      
-    } catch (error: any) {
-      toast.error(error.message || "Failed to upload document");
-    }
-  };
-
-  const addDocumentLink = async (folder: string) => {
-    if (!selectedProject) return;
-    const draft = folderLinkDrafts[folder] || { title: "", url: "" };
-    const raw = (draft.url || "").trim();
-    if (!raw) {
-      toast.error("Please enter a link");
-      return;
-    }
-    const parts = raw
-      .split(/[\n,]+/)
-      .map((x) => x.trim())
-      .filter(Boolean);
-    if (parts.length === 0) {
-      toast.error("Please enter a link");
-      return;
-    }
-    const titleBase = (draft.title || "").trim();
-    setFolderLinkSaving(folder);
-    try {
-      const rows = parts.map((url, idx) => {
-        const href = toClickableUrl(url);
-        const name = parts.length === 1
-          ? (titleBase || url)
-          : (titleBase ? `${titleBase} ${idx + 1}` : url);
-        return {
-          project_id: selectedProject.id,
-          folder,
-          file_name: name,
-          file_url: href,
-          file_size: null,
-          file_type: "link",
-          uploaded_by: user?.id,
-          version: 1,
-        };
-      });
-      const { error } = await supabase.from("project_documents").insert(rows);
-      if (error) throw error;
-      toast.success(rows.length > 1 ? `${rows.length} links added` : "Link added");
-      setFolderLinkDrafts((prev) => ({ ...prev, [folder]: { title: "", url: "" } }));
-      fetchProjectDetails(selectedProject.id);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add link");
-    } finally {
-      setFolderLinkSaving(null);
-    }
-  };
-
-  const uploadMultipleFiles = async () => {
-    if (!multipleFiles.length || !selectedProject) {
-      toast.error("Please select files to upload");
-      return;
-    }
-
-    setUploadingMultiple(true);
-    let successCount = 0;
-    let failCount = 0;
-
-    try {
-      for (const file of multipleFiles) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `projects/${selectedProject.id}/documents/${newDocument.folder || 'Others'}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('project_files')
-          .upload(filePath, file);
-
-        if (uploadError) {
-          failCount++;
-          continue;
-        }
-
-        const { data: urlData } = supabase.storage
-          .from('project_files')
-          .getPublicUrl(filePath);
-
-        const { error: insertError } = await supabase
-          .from("project_documents")
-          .insert({
-            project_id: selectedProject.id,
-            folder: newDocument.folder || 'Others',
-            file_name: file.name,
-            file_url: urlData.publicUrl,
-            file_size: file.size,
-            file_type: file.type,
-            uploaded_by: user?.id,
-            version: 1,
-          });
-
-        if (insertError) {
-          failCount++;
-        } else {
-          successCount++;
-        }
-      }
-
-      toast.success(`${successCount} files uploaded successfully! ${failCount > 0 ? `${failCount} failed.` : ''}`);
-      setDocumentDialogOpen(false);
-      setMultipleFiles([]);
-      setNewDocument({ folder: "", file_name: "", file: null });
-      setUploadType("single");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      
-    } catch (error: any) {
-      toast.error(error.message || "Failed to upload files");
-    } finally {
-      setUploadingMultiple(false);
-    }
-  };
-
-  const deleteDocument = async (doc: Document) => {
-    if (!confirm(`Delete file "${doc.file_name}"?`)) return;
-    try {
-      const { error } = await supabase.from("project_documents").delete().eq("id", doc.id);
-      if (error) throw error;
-      // Best-effort storage cleanup if path can be derived
-      try {
-        const marker = "/project-documents/";
-        const idx = doc.file_url?.indexOf(marker);
-        if (idx != null && idx >= 0) {
-          const path = doc.file_url.substring(idx + marker.length);
-          if (path) await supabase.storage.from("project-documents").remove([path]);
-        }
-      } catch {
-        /* storage cleanup optional */
-      }
-      toast.success("Document deleted");
-      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
-      if (selectedProject) fetchProjectDetails(selectedProject.id);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete document");
-    }
-  };
-
-  const handleMultipleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    
-    const fileArray = Array.from(files);
-    setMultipleFiles(fileArray);
-    toast.success(`${fileArray.length} files selected`);
-  };
-
-  const removeFileFromMultiple = (index: number) => {
-    setMultipleFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const addCommunication = async () => {
-    if (!newCommunication.message || !selectedProject) {
-      toast.error("Message is required");
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from("client_communications")
-        .insert({
-          project_id: selectedProject.id,
-          communication_type: newCommunication.type,
-          subject: newCommunication.subject || null,
-          message: newCommunication.message,
-          next_followup_date: newCommunication.next_followup || null,
-          user_id: user?.id,
-          communication_date: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-
-      toast.success("Communication added successfully!");
-      setCommunicationDialogOpen(false);
-      setNewCommunication({ 
-        type: "comment", 
-        subject: "", 
-        message: "", 
-        next_followup: "" 
-      });
-      
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add communication");
-    }
-  };
-
-  const resetNoteForm = () => {
-    setNoteMode("quick");
-    setNewNote({ title: "", content: "" });
-    setBrandKitFields(EMPTY_BRAND_KIT);
-    setClientTrackerFields(EMPTY_CLIENT_TRACKER);
-    setNoteImageFile(null);
-    setNoteImagePreview(null);
-    setExistingNoteImageUrl(null);
-    setEditingNote(null);
-  };
-
-  const openAddNoteDialog = (mode: "quick" | "brand_kit" | "client_tracker" = "quick") => {
-    resetNoteForm();
-    setNoteMode(mode);
-    setNoteDialogOpen(true);
-  };
-
-  const openEditNoteDialog = (note: ProjectNote) => {
-    setEditingNote(note);
-    if (note.note_type === "client_tracker") {
-      const parsed = parseClientTracker(note.content);
-      setNoteMode("client_tracker");
-      setClientTrackerFields({ ...EMPTY_CLIENT_TRACKER, ...(parsed?.fields || {}) });
-      setBrandKitFields(EMPTY_BRAND_KIT);
-      setExistingNoteImageUrl(parsed?.imageUrl || null);
-      setNoteImageFile(null);
-      setNoteImagePreview(null);
-      setNewNote({ title: note.title || "", content: "" });
-    } else if (note.note_type === "brand_kit") {
-      const parsed = parseBrandKit(note.content);
-      setNoteMode("brand_kit");
-      setBrandKitFields({ ...EMPTY_BRAND_KIT, ...(parsed?.fields || {}) });
-      setClientTrackerFields(EMPTY_CLIENT_TRACKER);
-      setExistingNoteImageUrl(parsed?.imageUrl || null);
-      setNoteImageFile(null);
-      setNoteImagePreview(null);
-      setNewNote({ title: note.title || "", content: "" });
-    } else {
-      setNoteMode("quick");
-      setNewNote({ title: note.title || "", content: note.content });
-      setBrandKitFields(EMPTY_BRAND_KIT);
-      setClientTrackerFields(EMPTY_CLIENT_TRACKER);
-      setExistingNoteImageUrl(null);
-      setNoteImageFile(null);
-      setNoteImagePreview(null);
-    }
-    setNoteDialogOpen(true);
-  };
-
-  const handleNoteImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
-    }
-    setNoteImageFile(file);
-    setNoteImagePreview(URL.createObjectURL(file));
-  };
-
-  const clearNoteImage = () => {
-    setNoteImageFile(null);
-    setNoteImagePreview(null);
-    setExistingNoteImageUrl(null);
-    if (noteImageInputRef.current) noteImageInputRef.current.value = "";
-  };
-
-  const uploadNoteImageIfNeeded = async (): Promise<string | null> => {
-    if (!noteImageFile || !selectedProject) return existingNoteImageUrl;
-    const fileExt = noteImageFile.name.split('.').pop();
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = `projects/${selectedProject.id}/notes/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('project_files')
-      .upload(filePath, noteImageFile);
-
-    if (uploadError) throw uploadError;
-
-    const { data: urlData } = supabase.storage
-      .from('project_files')
-      .getPublicUrl(filePath);
-
-    return urlData.publicUrl;
-  };
-
-  const addNote = async () => {
-    if (!selectedProject) return;
-
-    if (noteMode === "quick" && !newNote.content) {
-      toast.error("Note content is required");
-      return;
-    }
-    if (noteMode === "brand_kit" && !brandKitFields.brand_name && !Object.values(brandKitFields).some(Boolean)) {
-      toast.error("Please fill at least the brand name or another field");
-      return;
-    }
-    if (noteMode === "client_tracker" && !Object.values(clientTrackerFields).some(Boolean)) {
-      toast.error("Please fill at least one field");
-      return;
-    }
-
-    setNoteSaving(true);
-    try {
-      const imageUrl = await uploadNoteImageIfNeeded();
-
-      let insertPayload: any = {
-        project_id: selectedProject.id,
-        created_by: user?.email || user?.id || null,
-        created_by_email: user?.email || null,
-      };
-
-      if (noteMode === "client_tracker") {
-        insertPayload.note_type = "client_tracker";
-        insertPayload.title = clientTrackerFields.client_full_name || "Client Progress Tracker";
-        insertPayload.content = serializeClientTracker(clientTrackerFields, imageUrl);
-      } else if (noteMode === "brand_kit") {
-        insertPayload.note_type = "brand_kit";
-        insertPayload.title = brandKitFields.brand_name || "Brand Identity Kit";
-        insertPayload.content = serializeBrandKit(brandKitFields, imageUrl);
-      } else {
-        insertPayload.note_type = "general";
-        insertPayload.title = newNote.title || null;
-        insertPayload.content = imageUrl ? `${newNote.content}\n\n[image] ${imageUrl}` : newNote.content;
-      }
-
-      const { error } = await supabase.from("project_notes").insert(insertPayload);
-      if (error) throw error;
-
-      toast.success(
-        noteMode === "client_tracker"
-          ? "Client progress tracker saved!"
-          : noteMode === "brand_kit"
-          ? "Brand identity kit saved!"
-          : "Note saved successfully!"
-      );
-      setNoteDialogOpen(false);
-      resetNoteForm();
-      fetchProjectDetails(selectedProject.id);
-      queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save note");
-    } finally {
-      setNoteSaving(false);
-    }
-  };
-
-  const updateNote = async () => {
-    if (!editingNote || !selectedProject) return;
-
-    setNoteSaving(true);
-    try {
-      const imageUrl = await uploadNoteImageIfNeeded();
-
-      let updatePayload: any = {
-        updated_at: new Date().toISOString(),
-      };
-
-      if (noteMode === "client_tracker") {
-        updatePayload.title = clientTrackerFields.client_full_name || "Client Progress Tracker";
-        updatePayload.content = serializeClientTracker(clientTrackerFields, imageUrl);
-      } else if (noteMode === "brand_kit") {
-        updatePayload.title = brandKitFields.brand_name || "Brand Identity Kit";
-        updatePayload.content = serializeBrandKit(brandKitFields, imageUrl);
-      } else {
-        updatePayload.title = newNote.title || null;
-        updatePayload.content = imageUrl ? `${newNote.content}\n\n[image] ${imageUrl}` : newNote.content;
-      }
-
-      const { error } = await supabase
-        .from("project_notes")
-        .update(updatePayload)
-        .eq("id", editingNote.id);
-
-      if (error) throw error;
-
-      toast.success("Note updated successfully!");
-      setNoteDialogOpen(false);
-      resetNoteForm();
-      fetchProjectDetails(selectedProject.id);
-      queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update note");
-    } finally {
-      setNoteSaving(false);
-    }
-  };
-
-  const deleteNote = async (noteId: string) => {
-    if (!confirm("Delete this note?")) return;
-
-    try {
-      const { error } = await supabase
-        .from("project_notes")
-        .delete()
-        .eq("id", noteId);
-
-      if (error) throw error;
-
-      toast.success("Note deleted successfully!");
-      if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
-      }
-      queryClient.invalidateQueries({ queryKey: ["project_last_notes"] });
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-
-  const saveProjectLinks = async (items: ProjectLinkItem[]) => {
-    if (!selectedProject) return;
-    setLinkSaving(true);
-    try {
-      const payload: any = {
-        project_id: selectedProject.id,
-        note_type: "drive_links",
-        title: "Drive Links",
-        content: serializeProjectLinks(items),
-        updated_at: new Date().toISOString(),
-      };
-      if (projectLinksNoteId) {
-        let { error } = await supabase.from("project_notes").update(payload).eq("id", projectLinksNoteId);
-        if (error && String(error.message || "").toLowerCase().includes("note_type")) {
-          const retry = await supabase.from("project_notes").update({ ...payload, note_type: "general" }).eq("id", projectLinksNoteId);
-          error = retry.error;
-        }
-        if (error) throw error;
-      } else {
-        let { data, error } = await supabase.from("project_notes").insert({
-          ...payload,
-          created_by: user?.email || null,
-          created_by_email: user?.email || null,
-        }).select("id").single();
-        if (error && String(error.message || "").toLowerCase().includes("note_type")) {
-          const retry = await supabase.from("project_notes").insert({
-            ...payload,
-            note_type: "general",
-            created_by: user?.email || null,
-            created_by_email: user?.email || null,
-          }).select("id").single();
-          data = retry.data;
-          error = retry.error;
-        }
-        if (error) throw error;
-        if (data?.id) setProjectLinksNoteId(data.id);
-      }
-      setProjectLinks(items);
-      toast.success("Links saved");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to save links");
-    } finally {
-      setLinkSaving(false);
-    }
-  };
-
-  const addProjectLink = () => {
-    if (!newLink.url.trim() && !newLink.username.trim() && !newLink.title.trim()) {
-      toast.error("Enter a title, URL, or ID");
-      return;
-    }
-    const item: ProjectLinkItem = { ...newLink, id: `link_${Date.now()}` };
-    saveProjectLinks([item, ...projectLinks]);
-    setNewLink({ category: "Google Drive", title: "", url: "", username: "", password: "", note: "" });
-  };
-
-  const deleteProjectLink = (id: string) => {
-    saveProjectLinks(projectLinks.filter((x) => x.id !== id));
-  };
-
-  const copyText = async (text: string, label: string) => {
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`${label} copied`);
-    } catch {
-      toast.error("Copy failed");
-    }
-  };
-
-  const saveDocumentationNote = async () => {
-    if (!selectedProject) return;
-
-    try {
-      if (documentationNote) {
-        const { error } = await supabase
-          .from("project_notes")
-          .update({ content: docNoteContent, updated_at: new Date().toISOString() })
-          .eq("id", documentationNote.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("project_notes")
-          .insert({
-            project_id: selectedProject.id,
-            note_type: "documentation",
-            title: "Project Documentation",
-            content: docNoteContent || "",
-            updated_at: new Date().toISOString(),
-            created_by: user?.email || null,
-            created_by_email: user?.email || null,
-          });
-        if (error) throw error;
-      }
-
-      toast.success("Documentation saved!");
-      setDocNoteEditing(false);
-      fetchProjectDetails(selectedProject.id);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save documentation");
-    }
-  };
-
-  // ── Save Content Calendar ──
-  const saveContentCalendar = async () => {
-    if (!selectedProject) return;
-    setContentCalendarSaving(true);
-    try {
-      const sortedDays = sortContentDaysByDate(contentCalendarDays);
-      setContentCalendarDays(sortedDays);
-      const payload = serializeContentCalendar(sortedDays, contentCalendarStartDate || null);
-      if (contentCalendarNoteId) {
-        const { error } = await supabase
-          .from("project_notes")
-          .update({
-            content: payload,
-            title: "Social Media Content Calendar",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", contentCalendarNoteId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from("project_notes")
-          .insert({
-            project_id: selectedProject.id,
-            note_type: "content_calendar",
-            title: "Social Media Content Calendar",
-            content: payload,
-            updated_at: new Date().toISOString(),
-            created_by: user?.email || null,
-            created_by_email: user?.email || null,
-          })
-          .select()
-          .single();
-        if (error) throw error;
-        if (data) setContentCalendarNoteId(data.id);
-      }
-      toast.success("Content calendar saved!");
-      fetchProjectDetails(selectedProject.id);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to save content calendar");
-    } finally {
-      setContentCalendarSaving(false);
-    }
-  };
-
-  const updateContentDay = (dayIndex: number, patch: Partial<ContentDay>) => {
-    setContentCalendarDays((prev) =>
-      prev.map((d, i) => (i === dayIndex ? { ...d, ...patch } : d))
-    );
-  };
-
-  const toggleContentDayPlatform = (dayIndex: number, platformName: string) => {
-    setContentCalendarDays((prev) =>
-      prev.map((d, i) => {
-        if (i !== dayIndex) return d;
-        const current = normalizeContentPlatforms(d);
-        const next = current.includes(platformName)
-          ? current.filter((p) => p !== platformName)
-          : [...current, platformName];
-        const platforms = next.length ? next : [platformName];
-        return { ...d, platforms, platform: platforms.join(", ") };
-      })
-    );
-  };
-
-  const toggleContentDayStatus = (dayIndex: number) => {
-    setContentCalendarDays((prev) =>
-      prev.map((d, i) =>
-        i === dayIndex
-          ? { ...d, status: d.status === "completed" ? "pending" : "completed" }
-          : d
-      )
-    );
-  };
-
-  const applyStartDateToCalendar = (start: string) => {
-    setContentCalendarStartDate(start);
-    if (!start) return;
-    // Only fill empty dates — never overwrite dates the user already set (fixes "forgot a day" pain)
-    const base = startOfDay(new Date(start));
-    setContentCalendarDays((prev) => {
-      let emptySlot = 0;
-      const next = prev.map((d) => {
-        if ((d.scheduled_date || "").trim()) return d;
-        const scheduled = format(addDays(base, emptySlot), "yyyy-MM-dd");
-        emptySlot += 1;
-        return { ...d, scheduled_date: scheduled };
-      });
-      return sortContentDaysByDate(next);
-    });
-  };
-
-  /** Add a post for a specific date (or smart default). Inserts date-wise — no need to delete later posts. */
-  const addContentDay = (forDate?: string) => {
-    setContentCalendarDays((prev) => {
-      let scheduled = (forDate || "").trim();
-      if (!scheduled) {
-        // Prefer explicit new-post date from UI, then start date, then day after last dated post
-        const pick = (contentCalendarNewPostDate || "").trim();
-        if (pick) {
-          scheduled = pick;
-        } else if (contentCalendarStartDate) {
-          const dated = prev
-            .map((d) => (d.scheduled_date || "").trim())
-            .filter(Boolean)
-            .sort();
-          if (dated.length === 0) {
-            scheduled = contentCalendarStartDate;
-          } else {
-            const last = dated[dated.length - 1];
-            scheduled = format(addDays(startOfDay(new Date(last)), 1), "yyyy-MM-dd");
-          }
-        } else if (prev.length) {
-          const dated = prev
-            .map((d) => (d.scheduled_date || "").trim())
-            .filter(Boolean)
-            .sort();
-          if (dated.length) {
-            scheduled = format(addDays(startOfDay(new Date(dated[dated.length - 1])), 1), "yyyy-MM-dd");
-          }
-        }
-      }
-      const next = [...prev, EMPTY_CONTENT_DAY(prev.length + 1, scheduled)];
-      return sortContentDaysByDate(next);
-    });
-    // Clear one-shot date picker after add
-    setContentCalendarNewPostDate("");
-  };
-
-  const removeContentDay = (dayIndex: number) => {
-    setContentCalendarDays((prev) => {
-      const next = prev.filter((_, i) => i !== dayIndex);
-      return sortContentDaysByDate(next);
-    });
-  };
-
-  /** When user changes a post's date, re-sort so calendar stays date-wise */
-  const updateContentDayDate = (dayIndex: number, scheduled_date: string) => {
-    setContentCalendarDays((prev) => {
-      const next = prev.map((d, i) => (i === dayIndex ? { ...d, scheduled_date } : d));
-      return sortContentDaysByDate(next);
-    });
-  };
-
-  const deleteProject = async (id: string) => {
-    if (!confirm("Delete this project? All data will be lost.")) return;
-
-    try {
-      const { error } = await supabase
-        .from("projects")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
-
-      toast.success("Project deleted successfully!");
-      refetch();
-      if (selectedProject?.id === id) {
-        handleBack();
-      }
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  };
-
-  const getPaymentSummary = () => {
-    const clientPayments = payments.filter(p => p.payment_type === 'client');
-    const manufacturerPayments = payments.filter(p => p.payment_type === 'manufacturer');
-    
-    const totalClient = clientPayments.reduce((sum, p) => sum + p.amount, 0);
-    const received = clientPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
-    const pending = clientPayments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + p.amount, 0);
-    
-    const totalManufacturer = manufacturerPayments.reduce((sum, p) => sum + p.amount, 0);
-    const manufacturerPaid = manufacturerPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
-    const manufacturerPending = manufacturerPayments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + p.amount, 0);
-    
-    return {
-      totalClient,
-      received,
-      pending,
-      totalManufacturer,
-      manufacturerPaid,
-      manufacturerPending,
-      grossProfit: received - manufacturerPaid,
-    };
-  };
-
-  const exportToExcel = () => {
-    try {
-      const exportData = projects.map((project: Project) => ({
-        'Project ID': project.project_id,
-        'Client Name': project.name,
-        'Brand Name': project.brand_name || '',
-        'Project Type': project.project_type || '',
-        'Priority': project.priority || 'medium',
-        'Project Value (₹)': project.project_value || 0,
-        'Status': project.status,
-        'Current Stage': project.current_stage,
-        'Completion %': project.completion_percentage || 0,
-        'Start Date': project.start_date ? format(new Date(project.start_date), 'dd-MM-yyyy') : '',
-        'Expected Launch': project.expected_launch_date ? format(new Date(project.expected_launch_date), 'dd-MM-yyyy') : '',
-        'Client Phone': project.client_phone || '',
-        'Client Email': project.client_email || '',
-        'Client Address': project.client_address || '',
-        'Created At': project.created_at ? format(new Date(project.created_at), 'dd-MM-yyyy') : '',
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Projects');
-      
-      const colWidths = Object.keys(exportData[0] || {}).map(() => ({ wch: 20 }));
-      ws['!cols'] = colWidths;
-
-      XLSX.writeFile(wb, `Projects_Export_${format(new Date(), 'dd-MM-yyyy')}.xlsx`);
-      toast.success('Projects exported successfully!');
-    } catch (error: any) {
-      toast.error('Failed to export: ' + error.message);
-    }
-  };
-
-  const handleExcelFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const validTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel'
-    ];
-    
-    if (!validTypes.includes(file.type) && !file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      toast.error('Please select a valid Excel file (.xlsx or .xls)');
-      return;
-    }
-
-    setImportFile(file);
-    previewExcelFile(file);
-  };
-
-  const previewExcelFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-        setImportPreview(jsonData.slice(0, 10));
-        toast.success(`Found ${jsonData.length} rows in the file`);
-      } catch (error: any) {
-        toast.error('Failed to read file: ' + error.message);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  const importFromExcel = async () => {
-    if (!importFile) {
-      toast.error('Please select a file first');
-      return;
-    }
-
-    setImporting(true);
-    try {
-      const reader = new FileReader();
-      const fileData = await new Promise((resolve, reject) => {
-        reader.onload = (e) => resolve(e.target?.result);
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(importFile);
-      });
-
-      const workbook = XLSX.read(fileData as ArrayBuffer, { type: 'array' });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-
-      if (!jsonData || jsonData.length === 0) {
-        toast.error('No data found in the file');
-        setImporting(false);
-        return;
-      }
-
-      let importedCount = 0;
-      let skippedCount = 0;
-
-      for (const row of jsonData) {
-        const clientName = (row as any)['Client Name'] || (row as any)['client_name'] || (row as any)['name'];
-        
-        if (!clientName) {
-          skippedCount++;
-          continue;
-        }
-
-        const projectId = `PRJ-${Date.now().toString().slice(-6)}${importedCount}`;
-        
-        const projectData = {
-          project_id: projectId,
-          name: clientName,
-          brand_name: (row as any)['Brand Name'] || (row as any)['brand_name'] || null,
-          project_type: (row as any)['Project Type'] || (row as any)['project_type'] || 'perfume',
-          priority: (row as any)['Priority'] || (row as any)['priority'] || 'medium',
-          project_value: Number((row as any)['Project Value'] || (row as any)['project_value'] || 0) || 0,
-          status: (row as any)['Status'] || (row as any)['status'] || 'active',
-          current_stage: (row as any)['Current Stage'] || (row as any)['current_stage'] || 'brand_identity',
-          completion_percentage: Number((row as any)['Completion %'] || (row as any)['completion'] || 0) || 0,
-          start_date: (row as any)['Start Date'] || (row as any)['start_date'] || null,
-          expected_launch_date: (row as any)['Expected Launch'] || (row as any)['expected_launch'] || null,
-          client_phone: (row as any)['Client Phone'] || (row as any)['client_phone'] || null,
-          client_email: (row as any)['Client Email'] || (row as any)['client_email'] || null,
-          client_address: (row as any)['Client Address'] || (row as any)['client_address'] || null,
-        };
-
-        if (projectData.start_date && typeof projectData.start_date === 'string') {
-          try {
-            const parts = projectData.start_date.split('-');
-            if (parts.length === 3) {
-              projectData.start_date = `${parts[2]}-${parts[1]}-${parts[0]}`;
-            }
-          } catch (e) {}
-        }
-
-        if (projectData.expected_launch_date && typeof projectData.expected_launch_date === 'string') {
-          try {
-            const parts = projectData.expected_launch_date.split('-');
-            if (parts.length === 3) {
-              projectData.expected_launch_date = `${parts[2]}-${parts[1]}-${parts[0]}`;
-            }
-          } catch (e) {}
-        }
-
-        try {
-          const { data, error } = await supabase
-            .from('projects')
-            .insert(projectData)
-            .select()
-            .single();
-
-          if (error) {
-            console.error('Error importing project:', error);
-            skippedCount++;
-            continue;
-          }
-
-          const stages = PROJECT_STAGES.map((stage, index) => ({
-            project_id: data.id,
-            stage_name: stage.label,
-            stage_order: index + 1,
-            status: index === 0 ? 'in_progress' : 'pending',
-          }));
-
-          await supabase.from('project_stages').insert(stages);
-
-          await supabase.from('project_notes').insert({
-            project_id: data.id,
-            note_type: 'documentation',
-            title: 'Project Documentation',
-            content: 'test',
-            created_by: user?.email || null,
-            created_by_email: user?.email || null,
-          });
-
-          importedCount++;
-        } catch (err) {
-          skippedCount++;
-          console.error('Error importing row:', err);
-        }
-      }
-
-      toast.success(`Imported ${importedCount} projects successfully! ${skippedCount} rows skipped.`);
-      setImportDialogOpen(false);
-      setImportFile(null);
-      setImportPreview([]);
-      if (excelInputRef.current) {
-        excelInputRef.current.value = '';
-      }
-      refetch();
-    } catch (error: any) {
-      toast.error('Import failed: ' + error.message);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  // ── Top Navigation ──
-  const TopNav = (
-    <div className="flex items-center gap-2 flex-wrap border-b pb-3">
-      <Button
-        variant={mainView === "projects" ? "default" : "outline"}
-        size="sm"
-        onClick={() => setMainView("projects")}
-      >
-        <FolderKanban className="h-4 w-4 mr-2" />
-        Projects
-      </Button>
-      <Button
-        variant={mainView === "my_tasks" ? "default" : "outline"}
-        size="sm"
-        onClick={() => setMainView("my_tasks")}
-      >
-        <ClipboardList className="h-4 w-4 mr-2" />
-        My Tasks
-        {myTaskStats.overdue > 0 && (
-          <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">{myTaskStats.overdue}</Badge>
-        )}
-      </Button>
-      <Button
-        variant={mainView === "task_calendar" ? "default" : "outline"}
-        size="sm"
-        onClick={() => setMainView("task_calendar")}
-      >
-        <CalendarRange className="h-4 w-4 mr-2" />
-        Calendar
-      </Button>
-      {isAdmin && (
-        <Button
-          variant={mainView === "task_assignment" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setMainView("task_assignment")}
-        >
-          <UsersIcon className="h-4 w-4 mr-2" />
-          Assignment
-        </Button>
-      )}
-      <Button
-        variant={mainView === "chat" ? "default" : "outline"}
-        size="sm"
-        onClick={() => setMainView("chat")}
-      >
-        <MessageSquare className="h-4 w-4 mr-2" />
-        Team Chat
-        {chatUnread.length > 0 && (
-          <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">{chatUnread.length}</Badge>
-        )}
-      </Button>
-      {isAdmin && (
-        <Badge variant="outline" className="ml-auto text-[10px]">👑 {ADMIN_DISPLAY_NAME} — Admin View</Badge>
-      )}
-    </div>
-  );
-
-  // ── TASK CALENDAR VIEW ──
-  if (mainView === "task_calendar") {
-    const calendarTasks = isAdmin ? allTasks : myTasks;
-    return (
-      <div className="space-y-6">
-        {TopNav}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Task Calendar</h1>
-            <p className="text-muted-foreground text-sm">
-              {isAdmin
-                ? "Filter by project from the dropdown · Single click date = Add Task · Double click = Open day"
-                : "Your assigned tasks · Filter by project · Single click date = Add Task · Double click = Open day"}
-            </p>
-          </div>
-        </div>
-        <TaskCalendarView 
-          tasks={calendarTasks} 
-          onTaskClick={handleTaskClick}
-          itTeam={itTeam}
-          projects={projects}
-          onAddTask={async (data) => {
-            const { error } = await supabase.from("project_tasks").insert({
-              project_id: data.project_id,
-              task_name: data.task_name,
-              description: data.description || null,
-              priority: data.priority || "medium",
-              status: "not_started",
-              due_date: data.due_date,
-              assigned_to_email: data.assigned_to_email || null,
-              assigned_to_name: data.assigned_to_name || null,
-              assigned_by: user?.id,
-            });
-            if (error) throw error;
-            queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-            queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-            queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
-          }}
-          onUpdateDueDate={async (taskId, dueDate) => {
-            const { error } = await supabase
-              .from("project_tasks")
-              .update({ due_date: dueDate, updated_at: new Date().toISOString() })
-              .eq("id", taskId);
-            if (error) throw error;
-            queryClient.invalidateQueries({ queryKey: ["all_tasks"] });
-            queryClient.invalidateQueries({ queryKey: ["all_tasks_for_views"] });
-            queryClient.invalidateQueries({ queryKey: ["my_tasks"] });
-          }}
-        />
-
-        {/* Task Detail Dialog */}
-        <TaskDetailDialog
-          open={taskDetailDialogOpen}
-          onOpenChange={(open) => {
-            setTaskDetailDialogOpen(open);
-            if (!open) setSelectedTaskId(null);
-          }}
-          task={allTasks.find(t => t.id === selectedTaskId) || null}
-          itTeam={itTeam}
-          subtasks={selectedTaskId ? dialogSubtasks[selectedTaskId] || [] : []}
-          remarks={selectedTaskId ? dialogRemarks[selectedTaskId] || [] : []}
-          projectNote={selectedTaskId ? dialogProjectNotes[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || null : null}
-          currentUserEmail={user?.email || ""}
-          onStatusChange={handleDialogStatusChange}
-          onAssign={handleDialogAssign}
-          onAddSubtask={handleDialogAddSubtask}
-          onToggleSubtask={handleDialogToggleSubtask}
-          onDeleteSubtask={handleDialogDeleteSubtask}
-          onUpdateSubtaskNote={handleDialogUpdateSubtaskNote}
-          onAddRemark={handleDialogAddRemark}
-          onDeleteTask={handleDialogDeleteTask}
-          onSaveProjectNote={handleDialogSaveProjectNote}
-          onFetchSubtasks={fetchDialogSubtasks}
-          onFetchRemarks={fetchDialogRemarks}
-          subtasksLoading={selectedTaskId ? dialogSubtasksLoading[selectedTaskId] || false : false}
-          remarksLoading={selectedTaskId ? dialogRemarksLoading[selectedTaskId] || false : false}
-          savingRemark={selectedTaskId ? dialogSavingRemark === selectedTaskId : false}
-          projectNoteLoading={selectedTaskId ? dialogProjectNotesLoading[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || false : false}
-        />
-      </div>
-    );
-  }
-
-  // ── TASK ASSIGNMENT VIEW (Admin only) ──
-  if (mainView === "task_assignment") {
-    if (!isAdmin) {
-      return (
-        <div className="space-y-6">
-          {TopNav}
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Shield className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-              <p className="font-medium">Access restricted</p>
-              <p className="text-sm text-muted-foreground mt-1">The Task Assignment dashboard is only available to Admin. You can view your work in My Tasks.</p>
-              <Button className="mt-4" size="sm" onClick={() => setMainView("my_tasks")}>
-                <ClipboardList className="h-4 w-4 mr-2" /> Go to My Tasks
+              <Button size="sm" onClick={handleBulkAssign}>
+                <UserCheck className="mr-1 h-4 w-4" />Bulk Assign
               </Button>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-    return (
-      <div className="space-y-6">
-        {TopNav}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Task Assignment</h1>
-          <p className="text-muted-foreground text-sm">Assign and manage tasks across the team</p>
-        </div>
-        <TaskAssignmentPage 
-          itTeam={itTeam} 
-          user={user} 
-          onTaskClick={handleTaskClick}
-        />
-
-        {/* Task Detail Dialog */}
-        <TaskDetailDialog
-          open={taskDetailDialogOpen}
-          onOpenChange={(open) => {
-            setTaskDetailDialogOpen(open);
-            if (!open) setSelectedTaskId(null);
-          }}
-          task={allTasks.find(t => t.id === selectedTaskId) || null}
-          itTeam={itTeam}
-          subtasks={selectedTaskId ? dialogSubtasks[selectedTaskId] || [] : []}
-          remarks={selectedTaskId ? dialogRemarks[selectedTaskId] || [] : []}
-          projectNote={selectedTaskId ? dialogProjectNotes[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || null : null}
-          currentUserEmail={user?.email || ""}
-          onStatusChange={handleDialogStatusChange}
-          onAssign={handleDialogAssign}
-          onAddSubtask={handleDialogAddSubtask}
-          onToggleSubtask={handleDialogToggleSubtask}
-          onDeleteSubtask={handleDialogDeleteSubtask}
-          onUpdateSubtaskNote={handleDialogUpdateSubtaskNote}
-          onAddRemark={handleDialogAddRemark}
-          onDeleteTask={handleDialogDeleteTask}
-          onSaveProjectNote={handleDialogSaveProjectNote}
-          onFetchSubtasks={fetchDialogSubtasks}
-          onFetchRemarks={fetchDialogRemarks}
-          subtasksLoading={selectedTaskId ? dialogSubtasksLoading[selectedTaskId] || false : false}
-          remarksLoading={selectedTaskId ? dialogRemarksLoading[selectedTaskId] || false : false}
-          savingRemark={selectedTaskId ? dialogSavingRemark === selectedTaskId : false}
-          projectNoteLoading={selectedTaskId ? dialogProjectNotesLoading[allTasks.find(t => t.id === selectedTaskId)?.project_id || ""] || false : false}
-        />
-      </div>
-    );
-  }
-
-  // ── MY TASKS VIEW ──
-  if (mainView === "my_tasks") {
-    const selectedTask = myTasks.find(t => t.id === selectedTaskId) || null;
-    
-    return (
-      <div className="space-y-6">
-        {TopNav}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Tasks</h1>
-          <p className="text-muted-foreground text-sm">Your assigned tasks are displayed here</p>
-        </div>
-
-        {myTasksLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <StatCard
-                icon={ClipboardList}
-                label="Total Tasks"
-                value={myTaskStats.total}
-                color="blue"
-                active={myTaskStatusFilter === "all" && myTaskDueFilter === "all"}
-                onClick={() => applyMyTaskStatFilter("all")}
-              />
-              <StatCard
-                icon={Zap}
-                label="Active"
-                value={myTaskStats.active}
-                color="indigo"
-                active={myTaskStatusFilter === "in_progress"}
-                onClick={() => applyMyTaskStatFilter("active")}
-              />
-              <StatCard
-                icon={Clock}
-                label="Pending"
-                value={myTaskStats.pending}
-                color="yellow"
-                active={myTaskStatusFilter === "not_started"}
-                onClick={() => applyMyTaskStatFilter("pending")}
-              />
-              <StatCard
-                icon={AlertTriangle}
-                label="Overdue"
-                value={myTaskStats.overdue}
-                color="red"
-                active={myTaskDueFilter === "overdue"}
-                onClick={() => applyMyTaskStatFilter("overdue")}
-              />
-              <StatCard
-                icon={CheckCircle}
-                label="Completed"
-                value={myTaskStats.completed}
-                color="green"
-                active={myTaskStatusFilter === "completed"}
-                onClick={() => applyMyTaskStatFilter("completed")}
-              />
-              <StatCard
-                icon={CalendarDays}
-                label="Today's Tasks"
-                value={myTaskStats.today}
-                color="orange"
-                active={myTaskDueFilter === "today"}
-                onClick={() => applyMyTaskStatFilter("today")}
-              />
+              <Button 
+                size="sm" 
+                variant="default"
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => setBulkStageDialogOpen(true)}
+                disabled={selectedIds.size === 0}
+              >
+                <Layers className="mr-1 h-4 w-4" />Bulk Stage
+              </Button>
+              <Button 
+                size="sm" 
+                variant="destructive" 
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={selectedIds.size === 0}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />Bulk Delete
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
             </div>
+          )}
+        </CardHeader>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap gap-2">
-                  <Select value={myTaskDueFilter} onValueChange={setMyTaskDueFilter}>
-                    <SelectTrigger className="w-40"><SelectValue placeholder="Due date" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Dates</SelectItem>
-                      <SelectItem value="overdue">Overdue</SelectItem>
-                      <SelectItem value="today">Due Today</SelectItem>
-                      <SelectItem value="this_week">This Week</SelectItem>
-                      <SelectItem value="later">Later</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={myTaskPriorityFilter} onValueChange={setMyTaskPriorityFilter}>
-                    <SelectTrigger className="w-36"><SelectValue placeholder="Priority" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Priority</SelectItem>
-                      <SelectItem value="urgent">🔴 Urgent</SelectItem>
-                      <SelectItem value="high">🟠 High</SelectItem>
-                      <SelectItem value="medium">🟡 Medium</SelectItem>
-                      <SelectItem value="low">🟢 Low</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={myTaskStatusFilter} onValueChange={setMyTaskStatusFilter}>
-                    <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="not_started">Not Started</SelectItem>
-                      <SelectItem value="in_progress">Processing</SelectItem>
-                      <SelectItem value="review">Review</SelectItem>
-                      <SelectItem value="completed">Done</SelectItem>
-                      <SelectItem value="blocked">Blocked</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={myTaskClientFilter} onValueChange={setMyTaskClientFilter}>
-                    <SelectTrigger className="w-44"><SelectValue placeholder="Client" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Clients</SelectItem>
-                      {myTaskClients.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setMyTaskDueFilter("all");
-                      setMyTaskPriorityFilter("all");
-                      setMyTaskStatusFilter("all");
-                      setMyTaskClientFilter("all");
-                    }}
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    Clear
-                  </Button>
-                </div>
-              </CardHeader>
-            </Card>
+        <CardContent>
+          <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-foreground">
+                {showAllLeads ? (
+                  <>Total Leads: <span className="text-primary">{dashboardLeads.length}</span></>
+                ) : (
+                  <>Showing <span style={{ color: "#f97316" }}>Today's + Follow-up</span> leads: <span className="text-primary">{dashboardLeads.length}</span></>
+                )}
+                {dashboardLeads.length !== leads.length && showAllLeads && <span className="text-muted-foreground font-normal"> (filtered from {leads.length})</span>}
+              </p>
+              <Button
+                variant={showAllLeads ? "outline" : "default"}
+                size="sm"
+                onClick={() => setShowAllLeads(s => !s)}
+                className={!showAllLeads ? "bg-orange-500 hover:bg-orange-600" : ""}
+              >
+                <Layers className="mr-2 h-3.5 w-3.5" />
+                {showAllLeads ? "Show Today + Follow-ups Only" : "Show All Leads"}
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleExportByStage(filterStage)}>
+                <Download className="mr-2 h-3 w-3" />
+                Export {filterStage === "all" ? "Current View" : formatStageLabel(filterStage)}
+              </Button>
+            </div>
+          </div>
 
-            {(() => {
-              const activeMyTasks = filteredMyTasks.filter(t => t.status !== "completed");
-              const completedMyTasks = filteredMyTasks.filter(t => t.status === "completed");
-              const tasksToRender =
-                myTaskStatusFilter === "completed"
-                  ? completedMyTasks
-                  : myTaskStatusFilter === "all"
-                    ? [...activeMyTasks, ...completedMyTasks]
-                    : activeMyTasks;
-              return (
-            <div className="space-y-3">
-              {tasksToRender.length === 0 && (
-                <Card><CardContent className="p-8 text-center text-muted-foreground">
-                  Task
-                </CardContent></Card>
-              )}
-              {myTaskStatusFilter !== "completed" && activeMyTasks.length > 0 && (
-                <div className="flex items-center gap-2 pt-1">
-                  <ClipboardList className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Active Tasks</h3>
-                  <Badge variant="outline" className="text-xs">{activeMyTasks.length}</Badge>
-                </div>
-              )}
-              {(myTaskStatusFilter === "completed" ? [] : activeMyTasks).map((task) => {
-                const bucket = getDueBucket(task.due_date);
-                const isExpanded = expandedMyTaskId === task.id;
-                const subtasks = myTaskSubtasks[task.id] || [];
-                const subtasksCompleted = subtasks.filter(s => s.status === "completed").length;
-                const draft = newSubtaskDraft[task.id] || { title: "", tag: "" };
-                const projectNote = task.project_id in projectNoteByProject ? projectNoteByProject[task.project_id] : undefined;
-                const noteDraftVal = projectNoteDraft[task.project_id] ?? "";
-                const isNoteEditing = !!projectNoteEditing[task.project_id];
-                return (
-                  <Card 
-                    key={task.id} 
-                    className={`${bucket === "overdue" && task.status !== "completed" ? "border-red-300" : ""} hover:shadow-md transition-shadow cursor-pointer`}
-                    onClick={() => handleTaskClick(task)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between flex-wrap gap-2">
-                        <div className="flex-1 min-w-[200px]">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleExpandMyTask(task.id, task.project_id);
-                              }}
-                              className="shrink-0 text-muted-foreground hover:text-foreground"
-                              title={isExpanded ? "Collapse" : "Expand: client details, project update, subtasks"}
-                            >
-                              <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                            </button>
-                            <span className="font-medium">{task.task_name}</span>
-                            <PriorityBadge priority={task.priority} />
-                            <StatusBadge status={task.status} />
-                            {subtasks.length > 0 && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                                Completed {subtasksCompleted}/{subtasks.length} subtasks
-                              </span>
-                            )}
-                            {bucket === "overdue" && task.status !== "completed" && (
-                              <Badge variant="destructive" className="text-xs">Overdue</Badge>
-                            )}
-                          </div>
-                          {task.projects && (
-                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <Building2 className="h-3 w-3" /> {task.projects.name}
-                              {task.projects.brand_name ? ` • ${task.projects.brand_name}` : ""}
-                            </p>
-                          )}
-                          {task.description && (
-                            <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                          )}
-                          {task.due_date && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Due: {format(new Date(task.due_date), "dd MMM yyyy")}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {task.employee_remarks && (
-                            <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full border border-blue-200 max-w-xs truncate">
-                              💬 {task.employee_remarks}
-                            </div>
-                          )}
-                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <div className="mt-4 pt-4 border-t space-y-4" onClick={(e) => e.stopPropagation()}>
-                          <div className="bg-amber-50/50 border border-amber-100 rounded-lg p-3">
-                            <p className="text-xs font-semibold flex items-center gap-1.5 text-amber-800 mb-2">
-                              <Clock className="h-3.5 w-3.5" /> Update / Remark History
-                            </p>
-                            {remarksHistoryLoadingFor === task.id ? (
-                              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
-                            ) : (
-                              <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {(myTaskRemarksHistory[task.id] || []).map((r) => (
-                                  <div key={r.id} className="bg-white border rounded-md p-2">
-                                    <p className="text-sm whitespace-pre-wrap">{r.remark}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-1">
-                                      {r.created_by_name || r.created_by_email || "You"} • {format(new Date(r.created_at), "dd MMM yyyy, hh:mm a")}
-                                    </p>
-                                  </div>
-                                ))}
-                                {(myTaskRemarksHistory[task.id] || []).length === 0 && (
-                                  <p className="text-xs text-muted-foreground py-1">No updates yet — add one below.</p>
-                                )}
-                              </div>
-                            )}
-                            <div className="flex gap-2 mt-2">
-                              <Textarea
-                                rows={2}
-                                value={newRemarkDraft[task.id] || ""}
-                                onChange={(e) => setNewRemarkDraft((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                                placeholder="e.g. Sample sent, waiting on client reply..."
-                                className="text-sm bg-white"
-                              />
-                              <Button
-                                size="sm"
-                                disabled={remarkSavingFor === task.id || !(newRemarkDraft[task.id] || "").trim()}
-                                onClick={() => addRemarkToHistory(task.id)}
+          {dashboardLeads.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-muted-foreground">No leads found.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {showAllLeads ? "Try adjusting your filters." : "No leads created today or due for follow-up. Click \"Show All Leads\" to see everything."}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10"><Checkbox checked={dashboardLeads.length > 0 && dashboardLeads.every(l => selectedIds.has(l.id))} onCheckedChange={() => { const all = dashboardLeads.every(l => selectedIds.has(l.id)); setSelectedIds(prev => { const next = new Set(prev); dashboardLeads.forEach(l => all ? next.delete(l.id) : next.add(l.id)); return next; }); }} /></TableHead>
+                      <TableHead>Lead Name</TableHead><TableHead>Company</TableHead><TableHead>Phone</TableHead>
+                      <TableHead className="hidden lg:table-cell">Email</TableHead><TableHead>Stage / Sub Stage</TableHead>
+                      <TableHead>Temperature</TableHead><TableHead>Follow-up</TableHead><TableHead>Assigned To</TableHead>
+                      <TableHead className="hidden lg:table-cell">Lead Type</TableHead>
+                      <TableHead className="hidden lg:table-cell">Budget</TableHead><TableHead>Lead Score</TableHead>
+                      <TableHead>Created At</TableHead><TableHead className="hidden xl:table-cell">Assign Date</TableHead><TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {currentItems.map(lead => {
+                      const score = getLeadScore(lead);
+                      const assignee = getProfileName(lead.assigned_to);
+                      const assigneeColor = lead.assigned_to ? avatarColor(assignee) : "#94a3b8";
+                      return (
+                        <TableRow key={lead.id}>
+                          <TableCell><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>
+                          <TableCell><div className="flex items-center gap-2"><p className="font-semibold text-sm">{lead.name}</p><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openLeadDetail(lead)} title="View Details"><Eye className="h-3 w-3" /></Button></div></TableCell>
+                          <TableCell className="text-sm text-foreground">{lead.company || "-"}</TableCell>
+                          <TableCell>{lead.phone ? <a href={`tel:${lead.phone}`} className="text-sm text-primary hover:underline">{lead.phone}</a> : <span className="text-sm text-muted-foreground">-</span>}</TableCell>
+                          <TableCell className="hidden lg:table-cell">{lead.email ? <a href={`mailto:${lead.email}`} className="text-xs text-muted-foreground hover:underline">{lead.email}</a> : <span className="text-xs text-muted-foreground">-</span>}</TableCell>
+                          <TableCell><StagePill stage={lead.stage} subStage={lead.sub_stage} /></TableCell>
+                          <TableCell><TemperatureBadge temperature={lead.temperature} /></TableCell>
+                          <TableCell><FollowupPill nextCallDate={lead.next_call_date} /></TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 min-w-[140px]">
+                              {lead.assigned_to && (
+                                <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0" style={{ background: assigneeColor }}>
+                                  {getInitials(assignee)}
+                                </div>
+                              )}
+                              <Select 
+                                value={lead.assigned_to || "unassigned"} 
+                                onValueChange={(v) => {
+                                  assignLead.mutate({ id: lead.id, assigned_to: v });
+                                }}
+                                disabled={!canAssign}
                               >
-                                {remarkSavingFor === task.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="bg-muted/30 rounded-lg p-3">
-                            <p className="text-xs font-semibold flex items-center gap-1.5 mb-2">
-                              <Building2 className="h-3.5 w-3.5 text-blue-600" /> Client Dashboard
-                            </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                              <p><span className="text-muted-foreground">Client: </span><span className="font-medium">{task.projects?.name || "—"}</span></p>
-                              <p><span className="text-muted-foreground">Brand: </span><span className="font-medium">{task.projects?.brand_name || "—"}</span></p>
-                              {task.projects?.client_phone && (
-                                <p className="flex items-center gap-1"><Phone className="h-3 w-3 text-muted-foreground" /> {task.projects.client_phone}</p>
-                              )}
-                              {task.projects?.client_email && (
-                                <p className="flex items-center gap-1"><Mail className="h-3 w-3 text-muted-foreground" /> {task.projects.client_email}</p>
-                              )}
-                              {task.projects?.client_address && (
-                                <p className="flex items-center gap-1 sm:col-span-2"><MapPin className="h-3 w-3 text-muted-foreground" /> {task.projects.client_address}</p>
-                              )}
-                              {task.projects?.current_stage && (
-                                <p className="sm:col-span-2"><StageBadge stage={task.projects.current_stage} /></p>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="text-xs font-semibold flex items-center gap-1.5 text-blue-800">
-                                <StickyNote className="h-3.5 w-3.5" /> What's happening in this project (visible to whole team)
-                              </p>
-                              {!isNoteEditing ? (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 text-xs px-2"
-                                  onClick={() => setProjectNoteEditing(prev => ({ ...prev, [task.project_id]: true }))}
-                                >
-                                  <Edit className="h-3 w-3 mr-1" />Edit
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  className="h-6 text-xs px-2"
-                                  disabled={projectNoteSaving === task.project_id}
-                                  onClick={() => saveProjectTeamNote(task.project_id)}
-                                >
-                                  {projectNoteSaving === task.project_id ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
-                                  Save
-                                </Button>
-                              )}
-                            </div>
-                            {projectNoteLoadingFor === task.project_id ? (
-                              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
-                            ) : isNoteEditing ? (
-                              <Textarea
-                                rows={3}
-                                value={noteDraftVal}
-                                onChange={(e) => setProjectNoteDraft(prev => ({ ...prev, [task.project_id]: e.target.value }))}
-                                placeholder="e.g. Client sample approved, waiting on packaging vendor..."
-                                className="text-sm bg-white"
-                              />
-                            ) : (
-                              <p className="text-sm text-blue-900 whitespace-pre-wrap">
-                                {projectNote?.content || "No update yet — click Edit to add one."}
-                              </p>
-                            )}
-                            {projectNote?.updated_at && !isNoteEditing && (
-                              <p className="text-[10px] text-muted-foreground mt-1">
-                                Last updated: {format(new Date(projectNote.updated_at), "dd MMM yyyy, hh:mm a")}
-                              </p>
-                            )}
-                          </div>
-
-                          <div>
-                            <p className="text-xs font-semibold flex items-center gap-1.5 mb-2">
-                              <ListChecks className="h-3.5 w-3.5 text-violet-600" /> Subtasks
-                            </p>
-                            {subtaskLoadingFor === task.id ? (
-                              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin" /></div>
-                            ) : (
-                              <div className="space-y-1.5">
-                                {subtasks.map((st) => (
-                                  <div key={st.id} className="flex items-center gap-2 border rounded-md px-2 py-1.5 bg-background">
-                                    <input
-                                      type="checkbox"
-                                      checked={st.status === "completed"}
-                                      onChange={() => toggleSubtaskStatus(st.id, task.id, st.status)}
-                                      className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                                    />
-                                    <span className={`text-sm flex-1 ${st.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
-                                      {st.title}
-                                    </span>
-                                    <SubtaskTagBadge tag={st.tag} />
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-5 w-5 text-destructive"
-                                      onClick={() => deleteSubtask(st.id, task.id)}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                ))}
-                                {subtasks.length === 0 && (
-                                  <p className="text-xs text-muted-foreground py-1">No subtasks yet — break this task down below.</p>
-                                )}
-                              </div>
-                            )}
-                            <div className="flex gap-2 mt-2">
-                              <Input
-                                value={draft.title}
-                                onChange={(e) => setNewSubtaskDraft(prev => ({ ...prev, [task.id]: { title: e.target.value, tag: prev[task.id]?.tag || "" } }))}
-                                placeholder="Add a subtask..."
-                                className="h-8 text-sm flex-1"
-                                onKeyDown={(e) => { if (e.key === "Enter") addSubtask(task.id); }}
-                              />
-                              <Select
-                                value={draft.tag}
-                                onValueChange={(v) => setNewSubtaskDraft(prev => ({ ...prev, [task.id]: { title: prev[task.id]?.title || "", tag: v } }))}
-                              >
-                                <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Tag" /></SelectTrigger>
+                                <SelectTrigger className="w-[120px] h-7 text-xs">
+                                  <SelectValue placeholder={lead.assigned_to ? "Change" : "Assign..."}>
+                                    {lead.assigned_to ? getProfileName(lead.assigned_to) : "Assign..."}
+                                  </SelectValue>
+                                </SelectTrigger>
                                 <SelectContent>
-                                  {SUBTASK_TAGS.map(tag => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
+                                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                                  {typedProfiles.map(p => (
+                                    <SelectItem key={p.user_id} value={p.user_id}>
+                                      {p.display_name || "Unknown"}
+                                    </SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
-                              <Button size="sm" className="h-8" onClick={() => addSubtask(task.id)}>
-                                <Plus className="h-3.5 w-3.5 mr-1" />Add
-                              </Button>
                             </div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-
-              {(myTaskStatusFilter === "all" || myTaskStatusFilter === "completed") && completedMyTasks.length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 pt-4">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <h3 className="text-sm font-semibold">Completed Tasks</h3>
-                    <Badge variant="outline" className="text-xs">{completedMyTasks.length}</Badge>
-                  </div>
-                  {completedMyTasks.map((task) => {
-                    const bucket = getDueBucket(task.due_date);
-                    const isExpanded = expandedMyTaskId === task.id;
-                    const subtasks = myTaskSubtasks[task.id] || [];
-                    const subtasksCompleted = subtasks.filter(s => s.status === "completed").length;
-                    const draft = newSubtaskDraft[task.id] || { title: "", tag: "" };
-                    const projectNote = task.project_id in projectNoteByProject ? projectNoteByProject[task.project_id] : undefined;
-                    const noteDraftVal = projectNoteDraft[task.project_id] ?? "";
-                    const isNoteEditing = !!projectNoteEditing[task.project_id];
-                    return (
-                      <Card
-                        key={task.id}
-                        className="bg-muted/20 hover:shadow-md transition-shadow cursor-pointer opacity-90"
-                        onClick={() => handleTaskClick(task)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between flex-wrap gap-2">
-                            <div className="flex-1 min-w-[200px]">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleExpandMyTask(task.id, task.project_id);
-                                  }}
-                                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                                  title={isExpanded ? "Collapse" : "Expand"}
-                                >
-                                  <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                                </button>
-                                <span className="font-medium line-through text-muted-foreground">{task.task_name}</span>
-                                <PriorityBadge priority={task.priority} />
-                                <StatusBadge status={task.status} />
-                                {subtasks.length > 0 && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
-                                    Completed {subtasksCompleted}/{subtasks.length} subtasks
-                                  </span>
-                                )}
-                              </div>
-                              {task.projects && (
-                                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                                  <Building2 className="h-3 w-3" /> {task.projects.name}
-                                  {task.projects.brand_name ? ` • ${task.projects.brand_name}` : ""}
-                                </p>
-                              )}
-                              {task.due_date && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Due: {format(new Date(task.due_date), "dd MMM yyyy")}
-                                </p>
-                              )}
-                            </div>
-                            <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
-                          </div>
-                          {isExpanded && (
-                            <div className="mt-3 pt-3 border-t space-y-3" onClick={(e) => e.stopPropagation()}>
-                              <p className="text-xs text-muted-foreground">
-                                Task is complete. Click the card to view details.
-                              </p>
-                              {task.description && (
-                                <p className="text-sm text-muted-foreground">{task.description}</p>
-                              )}
-                              {subtasks.length > 0 && (
-                                <div className="space-y-1">
-                                  <p className="text-xs font-semibold flex items-center gap-1">
-                                    <ListChecks className="h-3.5 w-3.5" /> Subtasks
-                                  </p>
-                                  {subtasks.map((st) => (
-                                    <div key={st.id} className="text-sm flex items-center gap-2">
-                                      <CheckCircle className="h-3 w-3 text-green-600" />
-                                      <span className={st.status === "completed" ? "line-through text-muted-foreground" : ""}>
-                                        {st.title}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </>
-              )}
-            </div>
-              );
-            })()}
-          </>
-        )}
-
-        <TaskDetailDialog
-          open={taskDetailDialogOpen}
-          onOpenChange={(open) => {
-            setTaskDetailDialogOpen(open);
-            if (!open) setSelectedTaskId(null);
-          }}
-          task={selectedTask}
-          itTeam={itTeam}
-          subtasks={selectedTaskId ? dialogSubtasks[selectedTaskId] || [] : []}
-          remarks={selectedTaskId ? dialogRemarks[selectedTaskId] || [] : []}
-          projectNote={selectedTask ? dialogProjectNotes[selectedTask.project_id] || null : null}
-          currentUserEmail={user?.email || ""}
-          onStatusChange={handleDialogStatusChange}
-          onAssign={handleDialogAssign}
-          onAddSubtask={handleDialogAddSubtask}
-          onToggleSubtask={handleDialogToggleSubtask}
-          onDeleteSubtask={handleDialogDeleteSubtask}
-          onUpdateSubtaskNote={handleDialogUpdateSubtaskNote}
-          onAddRemark={handleDialogAddRemark}
-          onDeleteTask={handleDialogDeleteTask}
-          onSaveProjectNote={handleDialogSaveProjectNote}
-          onFetchSubtasks={fetchDialogSubtasks}
-          onFetchRemarks={fetchDialogRemarks}
-          subtasksLoading={selectedTaskId ? dialogSubtasksLoading[selectedTaskId] || false : false}
-          remarksLoading={selectedTaskId ? dialogRemarksLoading[selectedTaskId] || false : false}
-          savingRemark={selectedTaskId ? dialogSavingRemark === selectedTaskId : false}
-          projectNoteLoading={selectedTask ? dialogProjectNotesLoading[selectedTask.project_id] || false : false}
-        />
-      </div>
-    );
-  }
-
-  // ── TEAM CHAT VIEW ──
-  if (mainView === "chat") {
-    return (
-      <div className="space-y-4">
-        {TopNav}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Team Chat</h1>
-          <p className="text-muted-foreground text-sm">IT Team Chat — 1-to-1 + Group</p>
-        </div>
-
-        <Card>
-          <CardContent className="p-0">
-            <div className="grid grid-cols-1 md:grid-cols-3 h-[550px]">
-              <div className="border-r overflow-y-auto">
-                {itLoading ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                ) : (
-                  [TEAM_GROUP_MEMBER, ...chatTeamList].map((member) => (
-                    <button
-                      key={member.id}
-                      onClick={() => selectChatMember(member)}
-                      className={`w-full text-left px-4 py-3 border-b hover:bg-muted/40 transition-colors flex items-center justify-between ${
-                        activeChatMember?.id === member.id ? "bg-muted/60" : ""
-                      }`}
-                    >
-                      <div>
-                        <p className="font-medium text-sm flex items-center gap-1.5">
-                          {member.email === TEAM_GROUP_EMAIL ? <Users2 className="h-3.5 w-3.5 text-fuchsia-600" /> : null}
-                          {member.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{member.role || member.email}</p>
-                      </div>
-                      {chatUnread.includes(member.email) && (
-                        <CircleDot className="h-3 w-3 text-blue-500" />
-                      )}
-                    </button>
-                  ))
-                )}
-                {!itLoading && chatTeamList.length === 0 && (
-                  <p className="text-sm text-muted-foreground p-4">No other IT team members found</p>
-                )}
-              </div>
-
-              <div className="md:col-span-2 flex flex-col">
-                {!activeChatMember ? (
-                  <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm gap-2">
-                    <MessageSquare className="h-5 w-5" />
-                    Group chat ya member select karein
-                  </div>
-                ) : (
-                  <>
-                    <div className="px-4 py-3 border-b">
-                      <p className="font-medium text-sm">{activeChatMember.name}</p>
-                      {activeChatMember.email === TEAM_GROUP_EMAIL && (
-                        <p className="text-xs text-muted-foreground">The whole team can chat here. Messages are saved.</p>
-                      )}
-                    </div>
-                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2">
-                      {chatMessagesLoading ? (
-                        <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                      ) : (
-                        chatMessages.map((m) => {
-                          const mine = m.sender_email === myEmail;
-                          const senderLabel = displayPersonName(itTeam.find((t) => t.email === m.sender_email)?.name, m.sender_email);
-                          return (
-                            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                              <div
-                                className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
-                                  mine ? "bg-primary text-primary-foreground" : "bg-muted"
-                                }`}
-                              >
-                                {!mine && activeChatMember?.email === TEAM_GROUP_EMAIL && (
-                                  <p className="text-[10px] font-semibold mb-0.5 opacity-80">{senderLabel}</p>
-                                )}
-                                <p className="whitespace-pre-wrap">{m.message}</p>
-                                <p className={`text-[10px] mt-1 ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                                  {format(new Date(m.created_at), "hh:mm a")}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                      {!chatMessagesLoading && chatMessages.length === 0 && (
-                        <p className="text-center text-xs text-muted-foreground py-8">
-                          Pehla message bhejein — ye save ho jayega
-                        </p>
-                      )}
-                    </div>
-                    <div className="p-3 border-t flex gap-2">
-                      <Input
-                        value={chatDraft}
-                        onChange={(e) => setChatDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            sendChatMessage();
-                          }
-                        }}
-                        placeholder="Message likhein..."
-                      />
-                      <Button size="icon" onClick={sendChatMessage} disabled={!chatDraft.trim()}>
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ── DETAIL VIEW ──
-  if (viewMode === "detail" && selectedProject) {
-    const paymentSummary = getPaymentSummary();
-    
-    return (
-      <div className="space-y-6">
-        {TopNav}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={handleBack}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            {selectedProject.image_url ? (
-              <img
-                src={selectedProject.image_url}
-                alt={selectedProject.name}
-                className="h-14 w-14 rounded-md object-cover border shrink-0"
-              />
-            ) : (
-              <div className="h-14 w-14 rounded-md border bg-muted flex items-center justify-center text-2xl shrink-0">
-                {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"}
-              </div>
-            )}
-            <div>
-              <h1 className="text-2xl font-bold">{selectedProject.name}</h1>
-              <p className="text-sm text-muted-foreground">
-                {selectedProject.project_id} • {selectedProject.brand_name || "No brand"}
-              </p>
-              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-                {selectedProject.client_phone && (
-                  <span className="inline-flex items-center gap-1"><PhoneCall className="h-3 w-3" /> {selectedProject.client_phone}</span>
-                )}
-                {selectedProject.client_email && (
-                  <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {selectedProject.client_email}</span>
-                )}
-                {selectedProject.client_address && (
-                  <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {selectedProject.client_address}</span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {onboardingEmailSentProjects.has(selectedProject.id) && (
-              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 gap-1 text-xs hover:bg-emerald-100 font-medium">
-                <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
-                Already Sent
-              </Badge>
-            )}
-            <Badge variant="outline" className="text-sm">
-              {PROJECT_TYPES.find(t => t.value === selectedProject.project_type)?.icon || "📋"} 
-              {selectedProject.project_type || "N/A"}
-            </Badge>
-            <ProjectPriorityBadge priority={selectedProject.priority || "medium"} />
-            
-            {isAdmin && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => setTaskDialogOpen(true)}>
-                  <ClipboardList className="h-4 w-4 mr-2" />
-                  Add Task
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setManufacturingDialogOpen(true)}>
-                  <Package className="h-4 w-4 mr-2" />
-                  Manufacturing
-                </Button>
-              </>
-            )}
-            <Button size="sm" variant="outline" onClick={() => setDocumentDialogOpen(true)}>
-              <FileText className="h-4 w-4 mr-2" />
-              Upload
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setCommunicationDialogOpen(true)}>
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Communicate
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("quick")}>
-              <StickyNote className="h-4 w-4 mr-2" />
-              Add Note
-            </Button>
-            
-            {isAdmin && (
-              <>
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => {
-                    setEditingProject(selectedProject);
-                    setEditPmInfo(parseProjectManagerInfo(selectedProject.project_manager));
-                    setEditProjectImageFile(null);
-                    setEditProjectImagePreview(null);
-                    setEditDialogOpen(true);
-                  }}
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="destructive"
-                  onClick={() => deleteProject(selectedProject.id)}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>Project Progress</span>
-            <span className="font-semibold">{computeStageCompletionPercent(projectStages) || selectedProject.completion_percentage || 0}%</span>
-          </div>
-          <Progress value={computeStageCompletionPercent(projectStages) || selectedProject.completion_percentage || 0} className="h-3" />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
-            <span>Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
-          </div>
-        </div>
-
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="departments">Departments</TabsTrigger>
-            <TabsTrigger value="stages">Stages</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
-            <TabsTrigger value="payments">Payments</TabsTrigger>
-            <TabsTrigger value="manufacturing">Manufacturing</TabsTrigger>
-            <TabsTrigger value="documents">Documents</TabsTrigger>
-            <TabsTrigger value="communication">Communication</TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
-            <TabsTrigger value="content_calendar">Content Calendar</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-4 mt-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Left: Status / Stage / Value / Tasks */}
-              <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Card>
-                  <CardContent className="p-4 space-y-2">
-                    <p className="text-sm text-muted-foreground">Status</p>
-                    <Select
-                      value={normalizeProjectStatus(selectedProject.status) || selectedProject.status || "active"}
-                      onValueChange={async (v) => {
-                        try {
-                          const { error } = await supabase
-                            .from("projects")
-                            .update({ status: v, updated_at: new Date().toISOString() })
-                            .eq("id", selectedProject.id);
-                          if (error) throw error;
-                          setSelectedProject({ ...selectedProject, status: v });
-                          toast.success(`Status → ${getStatusLabel(v)}`);
-                          refetch();
-                        } catch (e: any) {
-                          toast.error(e.message || "Failed to update status");
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PROJECT_STATUSES.map((s) => (
-                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 space-y-2">
-                    <p className="text-sm text-muted-foreground">Current Stage</p>
-                    <Select
-                      value={selectedProject.current_stage || "brand_identity"}
-                      onValueChange={async (v) => {
-                        try {
-                          const { error } = await supabase
-                            .from("projects")
-                            .update({ current_stage: v, updated_at: new Date().toISOString() })
-                            .eq("id", selectedProject.id);
-                          if (error) throw error;
-                          setSelectedProject({ ...selectedProject, current_stage: v });
-                          const meta = PROJECT_STAGES.find((s) => s.value === v);
-                          if (meta) {
-                            const order = PROJECT_STAGES.findIndex((s) => s.value === v) + 1;
-                            await upsertProjectStageStatus(meta.label, order, "in_progress", meta.value);
-                          }
-                          toast.success(`Stage → ${getStageLabel(v)}`);
-                          refetch();
-                        } catch (e: any) {
-                          toast.error(e.message || "Failed to update stage");
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PROJECT_STAGES.map((s) => (
-                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Project Value</p>
-                    <p className="text-xl font-bold">{formatCurrency(selectedProject.project_value || 0)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Tasks</p>
-                    <p className="text-xl font-bold">{projectTasks.filter(t => t.status === 'completed').length}/{projectTasks.length}</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right: Product Options */}
-              <Card className="border-primary/20 bg-primary/5 h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Package className="h-4 w-4 text-primary" />
-                    Product Options
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground font-medium">Product Category</p>
-                    <Select
-                      value={
-                        !selectedProject.product_category
-                          ? ""
-                          : PRODUCT_CATEGORIES.some((c) => c.value === selectedProject.product_category)
-                            ? selectedProject.product_category
-                            : "other"
-                      }
-                      onValueChange={async (v) => {
-                        try {
-                          const { error } = await supabase
-                            .from("projects")
-                            .update({ product_category: v, updated_at: new Date().toISOString() })
-                            .eq("id", selectedProject.id);
-                          if (error) throw error;
-                          setSelectedProject({ ...selectedProject, product_category: v });
-                          toast.success(`Product category → ${PRODUCT_CATEGORIES.find(c => c.value === v)?.label || v}`);
-                          refetch();
-                        } catch (e: any) {
-                          toast.error(e.message || "Failed to update product category");
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-9 w-full">
-                        <SelectValue placeholder="Select product category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRODUCT_CATEGORIES.map((c) => (
-                          <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {(selectedProject.product_category === "other" ||
-                      (selectedProject.product_category &&
-                        !PRODUCT_CATEGORIES.some((c) => c.value === selectedProject.product_category))) && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[11px] text-muted-foreground">Specify other category</p>
-                        <Input
-                          className="h-9"
-                          placeholder="e.g. Home Decor, Pet Care, Fashion..."
-                          defaultValue={
-                            selectedProject.product_category === "other"
-                              ? ""
-                              : (selectedProject.product_category || "")
-                          }
-                          key={`other-cat-${selectedProject.id}-${selectedProject.product_category}`}
-                          onBlur={async (e) => {
-                            const custom = e.target.value.trim();
-                            if (!custom) return;
-                            try {
-                              const { error } = await supabase
-                                .from("projects")
-                                .update({ product_category: custom, updated_at: new Date().toISOString() })
-                                .eq("id", selectedProject.id);
-                              if (error) throw error;
-                              setSelectedProject({ ...selectedProject, product_category: custom });
-                              toast.success(`Product category → ${custom}`);
-                              refetch();
-                            } catch (err: any) {
-                              toast.error(err.message || "Failed to save custom category");
-                            }
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground font-medium">How Many Products to Launch</p>
-                    <Select
-                      value={selectedProject.products_to_launch != null ? String(selectedProject.products_to_launch) : ""}
-                      onValueChange={async (v) => {
-                        try {
-                          const num = Number(v);
-                          const { error } = await supabase
-                            .from("projects")
-                            .update({ products_to_launch: num, updated_at: new Date().toISOString() })
-                            .eq("id", selectedProject.id);
-                          if (error) throw error;
-                          setSelectedProject({ ...selectedProject, products_to_launch: num });
-                          toast.success(`Products to launch → ${num}`);
-                          refetch();
-                        } catch (e: any) {
-                          toast.error(e.message || "Failed to update products to launch");
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-9 w-full">
-                        <SelectValue placeholder="Select 1 to 10" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRODUCTS_TO_LAUNCH_OPTIONS.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground font-medium">
-                      Project Description
-                      <span className="block text-[10px] opacity-80 mt-0.5">
-                        (Scope of work, product details, requirements or special instructions)
-                      </span>
-                    </p>
-                    <Textarea
-                      value={selectedProject.product_category_note || ""}
-                      placeholder="Enter detailed project description, scope of work, client requirements..."
-                      className="min-h-[70px] text-sm"
-                      onChange={(e) =>
-                        setSelectedProject({
-                          ...selectedProject,
-                          product_category_note: e.target.value,
-                        })
-                      }
-                      onBlur={async (e) => {
-                        const note = e.target.value || null;
-                        try {
-                          const { error } = await supabase
-                            .from("projects")
-                            .update({
-                              product_category_note: note,
-                              updated_at: new Date().toISOString(),
-                            })
-                            .eq("id", selectedProject.id);
-                          if (error) throw error;
-                          setSelectedProject((prev) =>
-                            prev ? { ...prev, product_category_note: note } : prev
-                          );
-                          toast.success("Project description saved");
-                          refetch();
-                        } catch (err: any) {
-                          toast.error(err.message || "Failed to save project description");
-                        }
-                      }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Last note */}
-            <Card className="border-amber-200 bg-amber-50/40">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <StickyNote className="h-5 w-5 text-amber-600" />
-                    Last Note
-                  </CardTitle>
-                  <Button size="sm" variant="outline" onClick={() => handleTabChange("notes")}>
-                    View all notes
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {lastNote ? (
-                  <div className="space-y-1">
-                    {lastNote.title && <p className="font-medium text-sm">{lastNote.title}</p>}
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">
-                      {(() => {
-                        const kit = lastNote.note_type === "brand_kit" ? parseBrandKit(lastNote.content) : null;
-                        const tracker = lastNote.note_type === "client_tracker" ? parseClientTracker(lastNote.content) : null;
-                        if (kit) return kit.fields.brand_name || kit.fields.tagline || "Brand Identity Kit";
-                        if (tracker) return tracker.fields.client_full_name || "Client Progress Tracker";
-                        return lastNote.content;
-                      })()}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {format(new Date(lastNote.updated_at || lastNote.created_at), "dd MMM yyyy, hh:mm a")}
-                      {lastNote.created_by_email || lastNote.created_by
-                        ? ` · ${lastNote.created_by_email || lastNote.created_by}`
-                        : ""}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No notes yet. Add one from the Notes tab.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="text-lg">Client &amp; Project Manager Details</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Client Phone</p>
-                      <p className="text-sm font-medium">{selectedProject.client_phone || "Not added"}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Client Email</p>
-                      <p className="text-sm font-medium">{selectedProject.client_email || "Not added"}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Client Address</p>
-                      <p className="text-sm font-medium">{selectedProject.client_address || "Not added"}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <UserCog className="h-4 w-4 text-orange-600" />
-                    <div>
-                      <p className="text-xs text-muted-foreground">Project Manager</p>
-                      {(() => {
-                        const pm = parseProjectManagerInfo(selectedProject.project_manager);
-                        return (
-                          <p className="text-sm font-medium text-orange-600">
-                            {pm.name} • {pm.phone} ({pm.email})
-                          </p>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between col-span-1 md:col-span-2 pt-2 border-t mt-1 flex-wrap gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Mail className="h-4 w-4 text-primary" />
-                      <span className="text-xs text-muted-foreground">Onboarding Scope of Work Email:</span>
-                      {onboardingEmailSentProjects.has(selectedProject.id) && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
-                          Already Sent
-                        </span>
-                      )}
-                    </div>
-                    {selectedProject.client_email ? (
-                      <Button
-                        size="sm"
-                        variant={onboardingEmailSentProjects.has(selectedProject.id) ? "outline" : "default"}
-                        className="h-7 text-xs gap-1.5"
-                        onClick={async () => {
-                          toast.loading("Sending onboarding Scope of Work email...", { id: "resend-process-mail" });
-                          try {
-                            const pmInfo = parseProjectManagerInfo(selectedProject.project_manager);
-                            const res = await sendProjectCreatedEmail({
-                              to: selectedProject.client_email!,
-                              clientName: selectedProject.name,
-                              brandName: selectedProject.brand_name || selectedProject.name,
-                              projectId: selectedProject.project_id,
-                              projectType: selectedProject.project_type,
-                              productCategory: selectedProject.product_category,
-                              productsToLaunch: selectedProject.products_to_launch,
-                              startDate: selectedProject.start_date,
-                              expectedLaunchDate: selectedProject.expected_launch_date,
-                              projectValue: selectedProject.project_value,
-                              clientPhone: selectedProject.client_phone,
-                              clientAddress: selectedProject.client_address,
-                              projectManager: pmInfo.name,
-                              projectManagerName: pmInfo.name,
-                              projectManagerEmail: pmInfo.email,
-                              projectManagerPhone: pmInfo.phone,
-                              projectDescription: selectedProject.product_category_note || undefined,
-                            });
-
-                            if (res.success) {
-                              // Log communication record in project notes
-                              await supabase.from("project_notes").insert({
-                                project_id: selectedProject.id,
-                                note_type: "communication",
-                                title: "Client Onboarding Email Dispatched",
-                                content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${selectedProject.client_email}. Assigned PM: ${pmInfo.name} (${pmInfo.phone} / ${pmInfo.email}).`,
-                                created_by: user?.email || null,
-                                created_by_email: user?.email || null,
-                              });
-
-                              queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
-                              toast.success(`Onboarding Scope of Work email delivered to ${selectedProject.client_email}!`, { id: "resend-process-mail" });
-                            } else {
-                              toast.error(`Email delivery failed: ${res.error || "Check RESEND_API_KEY in .env"}`, { id: "resend-process-mail" });
-                            }
-                          } catch (err: any) {
-                            toast.error("Failed to send email: " + err.message, { id: "resend-process-mail" });
-                          }
-                        }}
-                      >
-                        <Mail className="h-3 w-3" />
-                        {onboardingEmailSentProjects.has(selectedProject.id) ? "Resend Onboarding Email" : "Send Onboarding Email"}
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground italic">Add email address to trigger</span>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="text-lg">Payment Summary</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div><p className="text-sm text-muted-foreground">Total Client</p><p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p></div>
-                  <div><p className="text-sm text-muted-foreground">Received</p><p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p></div>
-                  <div><p className="text-sm text-muted-foreground">Pending</p><p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p></div>
-                  <div><p className="text-sm text-muted-foreground">Gross Profit</p><p className="text-lg font-semibold text-blue-600">{formatCurrency(paymentSummary.grossProfit)}</p></div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Recent Tasks</CardTitle>
-                  <Button size="sm" onClick={() => setTaskDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Task</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingDetail ? (
-                  <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin" /></div>
-                ) : (
-                  <div className="space-y-2">
-                    {projectTasks.filter(t => t.status !== 'completed').slice(0, 5).map(task => (
-                      <div key={task.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                        <div className={`w-2 h-2 rounded-full ${task.status === 'in_progress' ? 'bg-blue-500' : task.status === 'blocked' ? 'bg-red-500' : task.status === 'review' ? 'bg-yellow-500' : 'bg-gray-300'}`} />
-                        <span className="flex-1">{task.task_name}</span>
-                        {task.assigned_to_name && <span className="text-xs text-indigo-600">👤 {task.assigned_to_name}</span>}
-                        <span className="text-xs text-muted-foreground">{task.due_date ? format(new Date(task.due_date), "dd MMM") : "No due"}</span>
-                        <Badge variant="outline" className="text-xs">{task.status}</Badge>
-                      </div>
-                    ))}
-                    {projectTasks.filter(t => t.status !== 'completed').length === 0 && (
-                      <p className="text-center text-muted-foreground py-4">
-                        {projectTasks.length === 0 ? "No tasks yet" : "No open tasks — completed tasks are hidden here"}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="departments" className="mt-4 space-y-4">
-            {selectedDepartment ? (
-              (() => {
-                const deptTasks = projectTasks.filter(t => t.department_id === selectedDepartment.id);
-                const deptCompleted = deptTasks.filter(t => t.status === "completed").length;
-                const typeMeta = getDepartmentTypeMeta(selectedDepartment.department_type);
-                const DeptIcon = typeMeta.icon;
-                return (
-                  <>
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-3">
-                        <Button variant="ghost" size="sm" onClick={() => setSelectedDepartment(null)}>
-                          <ArrowLeft className="h-4 w-4 mr-2" />
-                          All Departments
-                        </Button>
-                        <div className="flex items-center gap-2">
-                          <div className="p-2 rounded-md bg-primary/10 text-primary">
-                            <DeptIcon className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <h3 className="font-semibold">{selectedDepartment.name}</h3>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <DepartmentStatusBadge status={selectedDepartment.status} />
-                              {selectedDepartment.manager_name && (
-                                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                                  <UserCheck className="h-3 w-3" /> {selectedDepartment.manager_name}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => {
-                          setEditingDepartment(selectedDepartment);
-                          setNewDepartment({
-                            name: selectedDepartment.name,
-                            department_id: selectedDepartment.department_id || "",
-                            department_type: selectedDepartment.department_type || "custom",
-                            manager_email: selectedDepartment.manager_email || "",
-                            status: selectedDepartment.status,
-                            start_date: selectedDepartment.start_date || "",
-                            due_date: selectedDepartment.due_date || "",
-                            notes: selectedDepartment.notes || "",
-                          });
-                          setDepartmentDialogOpen(true);
-                        }}>
-                          <Edit className="h-4 w-4 mr-2" />Edit Department
-                        </Button>
-                        <Button size="sm" onClick={() => {
-                          setNewTask({ ...newTask, department_id: selectedDepartment.id });
-                          setTaskDialogOpen(true);
-                        }}>
-                          <Plus className="h-4 w-4 mr-2" />Add Task
-                        </Button>
-                      </div>
-                    </div>
-
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between text-sm mb-2">
-                          <span>Department Progress</span>
-                          <span className="font-semibold">{deptCompleted}/{deptTasks.length} tasks completed</span>
-                        </div>
-                        <Progress value={deptTasks.length > 0 ? (deptCompleted / deptTasks.length) * 100 : 0} className="h-2" />
-                        {selectedDepartment.notes && (
-                          <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap">{selectedDepartment.notes}</p>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader><CardTitle className="text-lg">Department Tasks</CardTitle></CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          {deptTasks.map(task => (
-                            <TaskCard
-                              key={task.id}
-                              task={task}
-                              itTeam={itTeam}
-                              subtasks={projectTaskSubtasks[task.id] || []}
-                              subtasksLoading={projectSubtaskLoadingFor === task.id}
-                              onStatusChange={updateTaskStatus}
-                              onAssign={assignTask}
-                              onDelete={deleteTask}
-                              onToggleExpand={handleExpandProjectTask}
-                              onAddSubtask={addProjectTaskSubtask}
-                              onToggleSubtask={toggleProjectTaskSubtask}
-                              onDeleteSubtask={deleteProjectTaskSubtask}
-                            />
-                          ))}
-                          {deptTasks.length === 0 && <p className="text-center text-muted-foreground py-8">No tasks in this department yet</p>}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </>
-                );
-              })()
-            ) : (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">Departments</CardTitle>
-                    <Button size="sm" onClick={() => {
-                      setEditingDepartment(null);
-                      setNewDepartment({ name: "", department_id: "", department_type: "custom", manager_email: "", status: "active", start_date: "", due_date: "", notes: "" });
-                      setDepartmentDialogOpen(true);
-                    }}>
-                      <Plus className="h-4 w-4 mr-2" />Add Department
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {loadingDetail ? (
-                    <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {departments.map(dept => {
-                        const deptTasks = projectTasks.filter(t => t.department_id === dept.id);
-                        return (
-                          <DepartmentCard
-                            key={dept.id}
-                            department={dept}
-                            taskCounts={{ total: deptTasks.length, completed: deptTasks.filter(t => t.status === 'completed').length }}
-                            onClick={() => setSelectedDepartment(dept)}
-                            onEdit={() => {
-                              setEditingDepartment(dept);
-                              setNewDepartment({
-                                name: dept.name,
-                                department_id: dept.department_id || "",
-                                department_type: dept.department_type || "custom",
-                                manager_email: dept.manager_email || "",
-                                status: dept.status,
-                                start_date: dept.start_date || "",
-                                due_date: dept.due_date || "",
-                                notes: dept.notes || "",
-                              });
-                              setDepartmentDialogOpen(true);
-                            }}
-                            onDelete={() => deleteDepartment(dept.id)}
-                          />
-                        );
-                      })}
-                      {departments.length === 0 && (
-                        <div className="col-span-full text-center py-8">
-                          <Layers className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                          <p className="text-muted-foreground">No departments yet for this client</p>
-                          <p className="text-xs text-muted-foreground mt-1">e.g. Branding, Website Development, Social Media, Production...</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="stages" className="mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <CardTitle className="text-lg">Project Stages</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={syncDefaultProjectStages}>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Load / Sync Stages
-                    </Button>
-                    <Button size="sm" onClick={() => setStageDialogOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />Add Custom Stage
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingDetail ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Stages Progress</span>
-                        <span className="font-semibold">
-                          {PROJECT_STAGES.filter((ps) => {
-                            const item = projectStages.find(
-                              (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                            );
-                            return item?.status === "completed";
-                          }).length}
-                          /{PROJECT_STAGES.length}
-                        </span>
-                      </div>
-                      <Progress
-                        value={
-                          (PROJECT_STAGES.filter((ps) => {
-                            const item = projectStages.find(
-                              (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                            );
-                            return item?.status === "completed";
-                          }).length /
-                            PROJECT_STAGES.length) *
-                          100
-                        }
-                        className="h-2"
-                      />
-                    </div>
-
-                    {STAGE_SECTIONS.map((section) => (
-                      <div key={section.title} className="space-y-2">
-                        <p className={`text-sm font-semibold ${section.color} flex items-center gap-2`}>
-                          {section.title}
-                        </p>
-                        {section.stages.map((ps) => {
-                          const item = projectStages.find(
-                            (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                          );
-                          const stageOrder = PROJECT_STAGES.findIndex((s) => s.value === ps.value) + 1;
-                          return (
-                            <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                              <div className="flex items-center justify-between gap-3 flex-wrap">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div
-                                    className={`w-3 h-3 rounded-full shrink-0 ${
-                                      item?.status === "completed"
-                                        ? "bg-green-500"
-                                        : item?.status === "in_progress"
-                                        ? "bg-blue-500"
-                                        : item?.status === "blocked"
-                                        ? "bg-red-500"
-                                        : "bg-gray-300"
-                                    }`}
-                                  />
-                                  <span className="font-medium">
-                                    {ps.label}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    {item?.status || "pending"}
-                                  </Badge>
-                                  <Select
-                                    value={item?.status || "pending"}
-                                    onValueChange={(v) => upsertProjectStageStatus(ps.label, stageOrder, v, ps.value)}
-                                  >
-                                    <SelectTrigger className="w-36 h-8 text-xs">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="pending">Pending</SelectItem>
-                                      <SelectItem value="in_progress">In Progress</SelectItem>
-                                      <SelectItem value="completed">Completed</SelectItem>
-                                      <SelectItem value="blocked">Blocked</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-                              {item?.start_date && (
-                                <p className="text-xs text-muted-foreground mt-2 ml-6">
-                                  Started: {format(new Date(item.start_date), "dd MMM yyyy")}
-                                  {item.completion_date &&
-                                    ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
-                                </p>
-                              )}
-                              {!item && (
-                                <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
-                              )}
-                              <div className="mt-2 ml-6">
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                  onClick={() =>
-                                    setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
-                                  }
-                                >
-                                  <MessageSquare className="h-3 w-3" />
-                                  Remark
-                                  {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
-                                </button>
-                                {openStageComment === ps.label && (
-                                  <div className="mt-1.5 space-y-1.5 max-w-md">
-                                    <Textarea
-                                      rows={3}
-                                      className="text-xs resize-y min-h-[72px]"
-                                      placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
-                                      value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                      onChange={(e) =>
-                                        setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
-                                      }
-                                    />
-                                    <p className="text-[10px] text-muted-foreground">
-                                      No need to save. Mark the stage Completed to save and email this remark.
-                                    </p>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs shrink-0"
-                                      disabled={stageCommentSaving === ps.label}
-                                      onClick={() => saveStageComment(ps.label, stageOrder, ps.value)}
-                                    >
-                                      {stageCommentSaving === ps.label ? (
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                      ) : (
-                                        "Save"
-                                      )}
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="tasks" className="mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <CardTitle className="text-lg">Project Tasks</CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center border rounded-md overflow-hidden">
-                      <Button
-                        variant={taskViewMode === "list" ? "default" : "ghost"}
-                        size="sm"
-                        className="h-8 rounded-none"
-                        onClick={() => setTaskViewMode("list")}
-                      >
-                        <List className="h-3.5 w-3.5 mr-1.5" />List
-                      </Button>
-                      <Button
-                        variant={taskViewMode === "dashboard" ? "default" : "ghost"}
-                        size="sm"
-                        className="h-8 rounded-none"
-                        onClick={() => setTaskViewMode("dashboard")}
-                      >
-                        <LayoutGrid className="h-3.5 w-3.5 mr-1.5" />Dashboard
-                      </Button>
-                    </div>
-                    <Select value={taskAssigneeFilter} onValueChange={setTaskAssigneeFilter}>
-                      <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Filter by assignee" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Tasks</SelectItem>
-                        <SelectItem value="mine">My Tasks</SelectItem>
-                        {itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" onClick={() => setTaskDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Task</Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingDetail ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
-                ) : taskViewMode === "dashboard" ? (
-                  <TaskDashboard tasks={filteredTasks} onStatusChange={updateTaskStatus} onDelete={deleteTask} />
-                ) : (
-                  <div className="space-y-3">
-                    {filteredTasks.map(task => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        itTeam={itTeam}
-                        subtasks={projectTaskSubtasks[task.id] || []}
-                        subtasksLoading={projectSubtaskLoadingFor === task.id}
-                        onStatusChange={updateTaskStatus}
-                        onAssign={assignTask}
-                        onDelete={deleteTask}
-                        onToggleExpand={handleExpandProjectTask}
-                        onAddSubtask={addProjectTaskSubtask}
-                        onToggleSubtask={toggleProjectTaskSubtask}
-                        onDeleteSubtask={deleteProjectTaskSubtask}
-                      />
-                    ))}
-                    {filteredTasks.length === 0 && <p className="text-center text-muted-foreground py-8">No tasks found</p>}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="payments" className="mt-4">
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Total Client</p><p className="text-lg font-semibold">{formatCurrency(paymentSummary.totalClient)}</p></CardContent></Card>
-                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Received</p><p className="text-lg font-semibold text-green-600">{formatCurrency(paymentSummary.received)}</p></CardContent></Card>
-                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Pending</p><p className="text-lg font-semibold text-red-600">{formatCurrency(paymentSummary.pending)}</p></CardContent></Card>
-                <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Manufacturer Pending</p><p className="text-lg font-semibold text-orange-600">{formatCurrency(paymentSummary.manufacturerPending)}</p></CardContent></Card>
-              </div>
-
-              <Card>
-                <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-lg">Client Payments</CardTitle><Button size="sm" onClick={() => setPaymentDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Payment</Button></div></CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {payments.filter(p => p.payment_type === 'client').map(payment => <PaymentCard key={payment.id} payment={payment} onStatusChange={updatePaymentStatus} onDelete={deletePayment} />)}
-                    {payments.filter(p => p.payment_type === 'client').length === 0 && <p className="text-center text-muted-foreground py-4">No client payments</p>}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader><CardTitle className="text-lg">Manufacturer Payments</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {payments.filter(p => p.payment_type === 'manufacturer').map(payment => <PaymentCard key={payment.id} payment={payment} onStatusChange={updatePaymentStatus} onDelete={deletePayment} />)}
-                    {payments.filter(p => p.payment_type === 'manufacturer').length === 0 && <p className="text-center text-muted-foreground py-4">No manufacturer payments</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="manufacturing" className="mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Manufacturing Tracker</CardTitle>
-                  <Button size="sm" onClick={() => setManufacturingDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Update Manufacturing
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Manufacturing Progress</span>
-                      <span className="font-semibold">
-                        {manufacturing.filter(m => m.status === 'completed').length}/{MANUFACTURING_STAGES.length}
-                      </span>
-                    </div>
-                    <Progress 
-                      value={(manufacturing.filter(m => m.status === 'completed').length / MANUFACTURING_STAGES.length) * 100} 
-                      className="h-2" 
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    {MANUFACTURING_STAGES.map((stage) => {
-                      const item = manufacturing.find(m => m.stage === stage);
-                      return (
-                        <div key={stage} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-3 h-3 rounded-full ${
-                                item?.status === 'completed' ? 'bg-green-500' :
-                                item?.status === 'in_progress' ? 'bg-blue-500' :
-                                item?.status === 'blocked' ? 'bg-red-500' : 'bg-gray-300'
-                              }`} />
-                              <span className="font-medium">{stage}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <Badge variant="outline" className="text-xs">
-                                {item?.status || 'pending'}
-                              </Badge>
-                              {item && (
-                                <Select 
-                                  value={item.status} 
-                                  onValueChange={async (v) => {
-                                    try {
-                                      const { error } = await supabase
-                                        .from("manufacturing_tracker")
-                                        .update({ 
-                                          status: v,
-                                          ...(v === 'completed' ? { completion_date: new Date().toISOString() } : {})
-                                        })
-                                        .eq("id", item.id);
-                                      if (error) throw error;
-                                      toast.success("Status updated");
-                                      if (selectedProject) fetchProjectDetails(selectedProject.id);
-                                    } catch (error: any) {
-                                      toast.error(error.message);
-                                    }
-                                  }}
-                                >
-                                  <SelectTrigger className="w-32 h-7 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="pending">Pending</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                    <SelectItem value="blocked">Blocked</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              )}
-                              {item?.file_url && (
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="h-7 w-7"
-                                  onClick={() => window.open(item.file_url, "_blank")}
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                          {item?.remarks && (
-                            <p className="text-sm text-muted-foreground mt-2">{item.remarks}</p>
-                          )}
-                          {item?.responsible_person && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              👤 {item.responsible_person}
-                            </p>
-                          )}
-                          {item?.start_date && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Due {item.completion_date ? 
-                                `Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}` :
-                                `Started: ${format(new Date(item.start_date), "dd MMM yyyy")}`
-                              }
-                            </p>
-                          )}
-                          {!item && (
-                            <p className="text-xs text-muted-foreground mt-2">Not started yet</p>
-                          )}
-                        </div>
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium">{lead.lead_type}</span>) : "-"}</TableCell>
+                          <TableCell className="hidden lg:table-cell text-sm text-foreground">{lead.budget || "-"}</TableCell>
+                          <TableCell><ScoreBadge score={score} /></TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
+                          <TableCell className="hidden xl:table-cell text-xs text-muted-foreground whitespace-nowrap">{lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}</TableCell>
+                          <TableCell><div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
+                            {lead.stage !== "lost" && lead.stage !== "converted" && (<Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setLostLeadDialog(lead)} title="Mark as Lost"><Flag className="h-3.5 w-3.5" /></Button>)}
+                            
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(lead.id)} title="Delete"><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div></TableCell>
+                        </TableRow>
                       );
                     })}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="documents" className="mt-4">
-            <div className="space-y-4">
-            <Card className="border-blue-200">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Link2 className="h-5 w-5 text-blue-600" />
-                  Drive / Social Links & Logins
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Store Google Drive, Instagram, and Amazon IDs/passwords here. Click a URL to open it in a new tab.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 border rounded-lg bg-muted/30">
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Type</Label>
-                    <Select value={newLink.category} onValueChange={(v) => setNewLink({ ...newLink, category: v })}>
-                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {LINK_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Title</Label>
-                    <Input className="h-9" value={newLink.title} onChange={(e) => setNewLink({ ...newLink, title: e.target.value })} placeholder="e.g. Client Drive Folder" />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">URL / Drive link</Label>
-                    <Input className="h-9" value={newLink.url} onChange={(e) => setNewLink({ ...newLink, url: e.target.value })} placeholder="https://drive.google.com/..." />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">ID / Username / Email</Label>
-                    <Input className="h-9" value={newLink.username} onChange={(e) => setNewLink({ ...newLink, username: e.target.value })} placeholder="username or email" />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Password</Label>
-                    <Input className="h-9" type="text" value={newLink.password} onChange={(e) => setNewLink({ ...newLink, password: e.target.value })} placeholder="password" />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Note</Label>
-                    <Input className="h-9" value={newLink.note} onChange={(e) => setNewLink({ ...newLink, note: e.target.value })} placeholder="optional" />
-                  </div>
-                  <div className="sm:col-span-2 lg:col-span-3">
-                    <Button size="sm" onClick={addProjectLink} disabled={linkSaving}>
-                      {linkSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Add Link
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {projectLinks.map((item) => {
-                    const href = toClickableUrl(item.url);
-                    const clickable = isUrlLike(item.url);
-                    return (
-                      <div key={item.id} className="border rounded-lg p-3 hover:bg-muted/30">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="outline">{item.category}</Badge>
-                              <span className="font-medium text-sm">{item.title || item.category}</span>
-                            </div>
-                            {item.url && (
-                              clickable ? (
-                                <a
-                                  href={href}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline break-all"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                                  {item.url}
-                                </a>
-                              ) : (
-                                <p className="text-sm break-all">{item.url}</p>
-                              )
-                            )}
-                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                              {item.username && (
-                                <button type="button" className="hover:text-foreground" onClick={() => copyText(item.username, "ID")}>
-                                  ID: <span className="font-medium text-foreground">{item.username}</span>
-                                </button>
-                              )}
-                              {item.password && (
-                                <span className="inline-flex items-center gap-1">
-                                  Pass:
-                                  <span className="font-medium text-foreground">
-                                    {showPasswords[item.id] ? item.password : "••••••••"}
-                                  </span>
-                                  <button type="button" onClick={() => setShowPasswords((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}>
-                                    {showPasswords[item.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                                  </button>
-                                  <button type="button" onClick={() => copyText(item.password, "Password")}>
-                                    <Copy className="h-3 w-3" />
-                                  </button>
-                                </span>
-                              )}
-                            </div>
-                            {item.note && <p className="text-xs text-muted-foreground">{item.note}</p>}
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteProjectLink(item.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {projectLinks.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No Drive / social links yet. Add one using the form above.
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Documents</CardTitle>
-                  <Button size="sm" onClick={() => setDocumentDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Upload
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {DOCUMENT_FOLDERS.map(folder => {
-                    const files = documents.filter(d => documentFolderAliases(folder).includes(d.folder));
-                    const draft = folderLinkDrafts[folder] || { title: "", url: "" };
-                    return (
-                      <div key={folder} className="border rounded-lg p-3 hover:bg-muted/30">
-                        <div className="flex items-center gap-2">
-                          <FolderKanban className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium text-sm">{folder}</span>
-                          <Badge variant="outline" className="ml-auto text-xs">{files.length}</Badge>
-                        </div>
-                        <div className="mt-2 grid gap-1.5">
-                          <Input
-                            className="h-8 text-xs"
-                            placeholder="Link title (optional)"
-                            value={draft.title}
-                            onChange={(e) => setFolderLinkDrafts((prev) => ({
-                              ...prev,
-                              [folder]: { ...draft, title: e.target.value },
-                            }))}
-                          />
-                          <div className="flex gap-1.5">
-                            <Textarea
-                              rows={2}
-                              className="min-h-8 text-xs resize-none"
-                              placeholder="multiple links —   use comma or new line "
-                              value={draft.url}
-                              onChange={(e) => setFolderLinkDrafts((prev) => ({
-                                ...prev,
-                                [folder]: { ...draft, title: draft.title, url: e.target.value },
-                              }))}
-                            />
-                            <Button
-                              size="sm"
-                              className="h-8 shrink-0"
-                              disabled={folderLinkSaving === folder}
-                              onClick={() => addDocumentLink(folder)}
-                            >
-                              {folderLinkSaving === folder ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link2 className="h-3 w-3" />}
-                            </Button>
-                          </div>
-                        </div>
-                        {files.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {files.slice(0, 3).map(file => (
-                              <div key={file.id} className="flex items-center gap-2 text-xs group">
-                                {isDocumentLink(file) ? (
-                                  <Link2 className="h-3 w-3 text-blue-600 shrink-0" />
-                                ) : file.file_type?.startsWith('image/') ? (
-                                  <Image className="h-3 w-3 text-blue-500 shrink-0" />
-                                ) : (
-                                  <File className="h-3 w-3 text-muted-foreground shrink-0" />
-                                )}
-                                {isDocumentLink(file) ? (
-                                  <a
-                                    href={toClickableUrl(file.file_url)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="truncate flex-1 text-blue-600 hover:underline"
-                                    title={file.file_url}
-                                  >
-                                    {file.file_name}
-                                  </a>
-                                ) : (
-                                  <span className="truncate flex-1">{file.file_name}</span>
-                                )}
-                                <button
-                                  type="button"
-                                  title="View"
-                                  onClick={() => window.open(file.file_url, "_blank", "noopener,noreferrer")}
-                                  className="opacity-70 hover:opacity-100 shrink-0"
-                                >
-                                  <Eye className="h-3 w-3 text-blue-500" />
-                                </button>
-                                {!isDocumentLink(file) && (
-                                <a
-                                  href={file.file_url}
-                                  download={file.file_name}
-                                  title="Download"
-                                  className="opacity-70 hover:opacity-100 shrink-0"
-                                >
-                                  <Download className="h-3 w-3 text-muted-foreground" />
-                                </a>
-                                )}
-                                <button
-                                  type="button"
-                                  title="Delete"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteDocument(file);
-                                  }}
-                                  className="opacity-70 hover:opacity-100 shrink-0"
-                                >
-                                  <Trash2 className="h-3 w-3 text-red-500" />
-                                </button>
-                              </div>
-                            ))}
-                            {files.length > 3 && (
-                              <button
-                                type="button"
-                                className="text-xs text-primary hover:underline"
-                                onClick={() => { setActiveFolderView(folder); setFolderViewOpen(true); }}
-                              >
-                                +{files.length - 3} more — View all
-                              </button>
-                            )}
-                            {files.length <= 3 && files.length > 0 && (
-                              <button
-                                type="button"
-                                className="text-xs text-primary hover:underline"
-                                onClick={() => { setActiveFolderView(folder); setFolderViewOpen(true); }}
-                              >
-                                View all
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="communication" className="mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Communication Center</CardTitle>
-                  <Button size="sm" onClick={() => setCommunicationDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Communication</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {communications.map(comm => (
-                    <div key={comm.id} className="border-l-4 pl-4 py-2" style={{
-                      borderColor: comm.communication_type === 'call' ? '#3b82f6' : comm.communication_type === 'email' ? '#8b5cf6' : comm.communication_type === 'whatsapp' ? '#25D366' : comm.communication_type === 'meeting' ? '#f59e0b' : comm.communication_type === 'followup' ? '#ef4444' : '#94a3b8'
-                    }}>
-                      <div className="flex items-center gap-2">
-                        {comm.communication_type === 'call' && <Phone className="h-4 w-4 text-blue-500" />}
-                        {comm.communication_type === 'email' && <Mail className="h-4 w-4 text-purple-500" />}
-                        {comm.communication_type === 'whatsapp' && <MessageSquare className="h-4 w-4 text-green-500" />}
-                        {comm.communication_type === 'meeting' && <Calendar className="h-4 w-4 text-orange-500" />}
-                        {comm.communication_type === 'followup' && <Bell className="h-4 w-4 text-red-500" />}
-                        {comm.communication_type === 'comment' && <MessageSquare className="h-4 w-4 text-gray-500" />}
-                        <span className="text-xs font-medium uppercase text-muted-foreground">{comm.communication_type}</span>
-                        <span className="text-xs text-muted-foreground">{format(new Date(comm.communication_date), "dd MMM yyyy, hh:mm a")}</span>
-                      </div>
-                      {comm.subject && <p className="font-medium mt-1">{comm.subject}</p>}
-                      <p className="text-sm text-muted-foreground mt-1">{comm.message}</p>
-                      {comm.next_followup_date && <p className="text-xs text-red-500 mt-1">🔔 Follow-up: {format(new Date(comm.next_followup_date), "dd MMM yyyy")}</p>}
-                    </div>
-                  ))}
-                  {communications.length === 0 && <p className="text-center text-muted-foreground py-8">No communications yet</p>}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="notes" className="mt-4 space-y-4">
-            <Card className="border-primary/30">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-primary" />
-                    Project Documentation
-                  </CardTitle>
-                  {!docNoteEditing ? (
-                    <Button size="sm" variant="outline" onClick={() => setDocNoteEditing(true)}><Edit className="h-4 w-4 mr-2" />Edit</Button>
-                  ) : (
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setDocNoteEditing(false); setDocNoteContent(documentationNote?.content || ""); }}>Cancel</Button>
-                      <Button size="sm" onClick={saveDocumentationNote}><Save className="h-4 w-4 mr-2" />Save</Button>
-                    </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {docNoteEditing ? (
-                  <Textarea value={docNoteContent} onChange={(e) => setDocNoteContent(e.target.value)} rows={8} placeholder="Project scope, requirements, links, credentials, notes for the team..." />
-                ) : (
-                  <p className="text-sm whitespace-pre-wrap">{documentationNote?.content || "test"}</p>
-                )}
-                {documentationNote?.updated_at && <p className="text-xs text-muted-foreground mt-3">Last updated: {format(new Date(documentationNote.updated_at), "dd MMM yyyy, hh:mm a")}</p>}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <CardTitle className="text-lg">Notes</CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("client_tracker")}>
-                      <ClipboardList className="h-4 w-4 mr-2" />Add Client Tracker
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => openAddNoteDialog("brand_kit")}>
-                      <Palette className="h-4 w-4 mr-2" />Add Brand Identity Kit
-                    </Button>
-                    <Button size="sm" onClick={() => openAddNoteDialog("quick")}>
-                      <Plus className="h-4 w-4 mr-2" />Add Note
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {generalNotes.map(note => <NoteCard key={note.id} note={note} onEdit={openEditNoteDialog} onDelete={deleteNote} />)}
-                  {generalNotes.length === 0 && <p className="text-center text-muted-foreground py-8">No notes yet</p>}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ── Social Media Content Calendar ── */}
-          <TabsContent value="content_calendar" className="mt-4 space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <CalendarDays className="h-5 w-5 text-fuchsia-500" />
-                      Social Media Content Calendar
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Plan posts, dates, captions, and links for this project.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Button
-                      size="sm"
-                      onClick={saveContentCalendar}
-                      disabled={contentCalendarSaving}
-                    >
-                      {contentCalendarSaving ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Save className="h-4 w-4 mr-2" />
-                      )}
-                      Save Calendar
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Controls */}
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">Start date (fills empty only)</Label>
-                    <Input
-                      type="date"
-                      value={contentCalendarStartDate}
-                      onChange={(e) => applyStartDateToCalendar(e.target.value)}
-                      className="w-44 h-9"
-                    />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">Add post for date</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="date"
-                        value={contentCalendarNewPostDate}
-                        onChange={(e) => setContentCalendarNewPostDate(e.target.value)}
-                        className="w-40 h-9"
-                        title="Pick any date — even a forgotten day in between"
-                      />
-                      <Button size="sm" className="h-9" onClick={() => addContentDay(contentCalendarNewPostDate || undefined)}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add post
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">Filter</Label>
-                    <Select
-                      value={contentCalendarFilter}
-                      onValueChange={(v: "all" | "pending" | "completed") => setContentCalendarFilter(v)}
-                    >
-                      <SelectTrigger className="w-36 h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Days</SelectItem>
-                        <SelectItem value="pending">Pending only</SelectItem>
-                        <SelectItem value="completed">Completed only</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-4 ml-auto text-sm">
-                    <span className="text-muted-foreground">
-                      Completed:{" "}
-                      <strong className="text-green-600">
-                        {contentCalendarDays.filter((d) => d.status === "completed").length}/{contentCalendarDays.length || 0}
-                      </strong>
-                    </span>
-                    <Progress
-                      value={
-                        contentCalendarDays.length
-                          ? (contentCalendarDays.filter((d) => d.status === "completed").length / contentCalendarDays.length) * 100
-                          : 0
-                      }
-                      className="w-24 h-2"
-                    />
-                  </div>
-                </div>
-
-                {/* Days list */}
-                <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-                  {contentCalendarDays
-                    .filter((d) => {
-                      if (contentCalendarFilter === "pending") return d.status === "pending";
-                      if (contentCalendarFilter === "completed") return d.status === "completed";
-                      return true;
-                    })
-                    .map((day) => {
-                      const realIndex = contentCalendarDays.findIndex((x) => (x.id && day.id ? x.id === day.id : x.day === day.day));
-                      return (
-                        <div
-                          key={day.id || `day_${day.day}`}
-                          className={`border rounded-lg p-3 transition-colors ${
-                            day.status === "completed"
-                              ? "bg-green-50/50 border-green-200"
-                              : "hover:bg-muted/30"
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="flex flex-col items-center gap-1 shrink-0 pt-1">
-                              <input
-                                type="checkbox"
-                                checked={day.status === "completed"}
-                                onChange={() => toggleContentDayStatus(realIndex)}
-                                className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                                title="Mark as completed"
-                              />
-                              <span className="text-[10px] font-bold text-muted-foreground">
-                                #{day.day}
-                              </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-destructive"
-                                title="Remove post"
-                                onClick={() => removeContentDay(realIndex)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-
-                            <div className="flex-1 min-w-0 space-y-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-semibold text-sm">Post {day.day}</span>
-                                <Input
-                                  type="date"
-                                  value={day.scheduled_date || ""}
-                                  onChange={(e) =>
-                                    updateContentDayDate(realIndex, e.target.value)
-                                  }
-                                  className="h-7 w-40 text-xs"
-                                />
-                                {day.scheduled_date && (
-                                  <Badge variant="outline" className="text-xs">
-                                    {format(new Date(day.scheduled_date), "dd MMM yyyy")}
-                                  </Badge>
-                                )}
-                                {day.status === "completed" && (
-                                  <Badge className="text-xs bg-green-100 text-green-700 border-green-200">
-                                    <CheckCircle className="h-3 w-3 mr-1" /> Completed
-                                  </Badge>
-                                )}
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                                <div className="grid gap-1">
-                                  <Label className="text-[10px] text-muted-foreground">Post Title</Label>
-                                  <Input
-                                    value={day.title}
-                                    onChange={(e) =>
-                                      updateContentDay(realIndex, { title: e.target.value })
-                                    }
-                                    placeholder="e.g. Product Reveal"
-                                    className="h-8 text-sm"
-                                  />
-                                </div>
-                                <div className="grid gap-1 sm:col-span-1 lg:col-span-2">
-                                  <Label className="text-[10px] text-muted-foreground">
-                                    Platforms (multiple — same post, different platforms)
-                                  </Label>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {CONTENT_PLATFORMS.map((p) => {
-                                      const selected = normalizeContentPlatforms(day).includes(p);
-                                      return (
-                                        <button
-                                          key={p}
-                                          type="button"
-                                          onClick={() => toggleContentDayPlatform(realIndex, p)}
-                                          className={`h-7 px-2 rounded-full text-[11px] border transition-colors ${
-                                            selected
-                                              ? "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 font-medium"
-                                              : "bg-background text-muted-foreground border-border hover:bg-muted"
-                                          }`}
-                                        >
-                                          {selected ? "✓ " : ""}{p}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  {normalizeContentPlatforms(day).length > 0 && (
-                                    <p className="text-[10px] text-muted-foreground">
-                                      Selected: {normalizeContentPlatforms(day).join(" + ")}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="grid gap-1 sm:col-span-2">
-                                  <Label className="text-[10px] text-muted-foreground">
-                                    Caption / Content
-                                  </Label>
-                                  <Input
-                                    value={day.caption}
-                                    onChange={(e) =>
-                                      updateContentDay(realIndex, { caption: e.target.value })
-                                    }
-                                    placeholder="Write caption or post idea..."
-                                    className="h-8 text-sm"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div className="grid gap-1">
-                                  <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                    <Link2 className="h-3 w-3" /> Social Media Link
-                                  </Label>
-                                  <Input
-                                    value={day.social_media_link || ""}
-                                    onChange={(e) =>
-                                      updateContentDay(realIndex, { social_media_link: e.target.value })
-                                    }
-                                    placeholder="https://instagram.com/... or reel/post URL"
-                                    className="h-8 text-sm"
-                                  />
-                                  {isUrlLike(day.social_media_link || "") && (
-                                    <a
-                                      href={toClickableUrl(day.social_media_link || "")}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline break-all"
-                                    >
-                                      <ExternalLink className="h-3 w-3 shrink-0" />
-                                      Open social link
-                                    </a>
-                                  )}
-                                </div>
-                                <div className="grid gap-1">
-                                  <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                    <Link2 className="h-3 w-3" /> Other Link
-                                  </Label>
-                                  <Input
-                                    value={day.other_link || ""}
-                                    onChange={(e) =>
-                                      updateContentDay(realIndex, { other_link: e.target.value })
-                                    }
-                                    placeholder="Drive / Canva / reference URL"
-                                    className="h-8 text-sm"
-                                  />
-                                  {isUrlLike(day.other_link || "") && (
-                                    <a
-                                      href={toClickableUrl(day.other_link || "")}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline break-all"
-                                    >
-                                      <ExternalLink className="h-3 w-3 shrink-0" />
-                                      Open other link
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="grid gap-1">
-                                <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                  <StickyNote className="h-3 w-3" /> Note / Checklist remark
-                                </Label>
-                                <Textarea
-                                  value={day.note}
-                                  onChange={(e) =>
-                                    updateContentDay(realIndex, { note: e.target.value })
-                                  }
-                                  placeholder="Add note, checklist, or status update for this day..."
-                                  rows={2}
-                                  className="text-sm resize-none"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-
-                {contentCalendarDays.filter((d) => {
-                  if (contentCalendarFilter === "pending") return d.status === "pending";
-                  if (contentCalendarFilter === "completed") return d.status === "completed";
-                  return true;
-                }).length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">
-                    {contentCalendarDays.length === 0
-                      ? "No posts yet. Pick a date (optional) and tap Add post — you can add any forgotten day later without deleting others."
-                      : "No posts match the current filter"}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-
-        {/* ── Folder "View All" documents dialog ── */}
-        <Dialog open={folderViewOpen} onOpenChange={setFolderViewOpen}>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FolderKanban className="h-5 w-5 text-primary" />
-                {activeFolderView}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2 py-2">
-              {documents.filter(d => documentFolderAliases(activeFolderView || "").includes(d.folder)).map(file => (
-                <div key={file.id} className="flex items-center gap-3 border rounded-lg p-2">
-                  {isDocumentLink(file) ? (
-                    <Link2 className="h-4 w-4 text-blue-600 shrink-0" />
-                  ) : file.file_type?.startsWith('image/') ? (
-                    <img src={file.file_url} alt={file.file_name} className="h-10 w-10 rounded object-cover shrink-0" />
-                  ) : (
-                    <File className="h-4 w-4 text-muted-foreground shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    {isDocumentLink(file) ? (
-                      <a href={toClickableUrl(file.file_url)} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline truncate block">
-                        {file.file_name}
-                      </a>
-                    ) : (
-                      <p className="text-sm truncate">{file.file_name}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {file.created_at ? format(new Date(file.created_at), "dd MMM yyyy") : ""}
-                      {file.file_size ? ` • ${(file.file_size / 1024).toFixed(1)} KB` : ""}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    title="View"
-                    onClick={() => window.open(file.file_url, "_blank", "noopener,noreferrer")}
-                  >
-                    <Eye className="h-4 w-4 text-blue-500" />
-                  </Button>
-                  <a href={file.file_url} download={file.file_name}>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </a>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    title="Delete"
-                    onClick={() => deleteDocument(file)}
-                  >
-                    <Trash2 className="h-4 w-4 text-red-500" />
-                  </Button>
-                </div>
-              ))}
-              {documents.filter(d => documentFolderAliases(activeFolderView || "").includes(d.folder)).length === 0 && (
-                <p className="text-center text-muted-foreground text-sm py-6">No files in this folder</p>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* ── All Dialogs ── */}
-        <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Add New Stage</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Stage Name *</Label><Input value={newStage.stage_name} onChange={(e) => setNewStage({ ...newStage, stage_name: e.target.value })} placeholder="Enter stage name" /></div>
-              <div className="grid gap-2"><Label>Status</Label><Select value={newStage.status} onValueChange={(v) => setNewStage({ ...newStage, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setStageDialogOpen(false)}>Cancel</Button><Button onClick={addStage}>Add Stage</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={departmentDialogOpen} onOpenChange={(open) => { setDepartmentDialogOpen(open); if (!open) setEditingDepartment(null); }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><Layers className="h-5 w-5 text-primary" />{editingDepartment ? "Edit Department" : "Add Department"}</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Department Name *</Label>
-                <Input
-                  value={editingDepartment ? editingDepartment.name : newDepartment.name}
-                  onChange={(e) => editingDepartment
-                    ? setEditingDepartment({ ...editingDepartment, name: e.target.value })
-                    : setNewDepartment({ ...newDepartment, name: e.target.value })}
-                  placeholder="e.g. Website Development"
-                />
+                  </TableBody>
+                </Table>
               </div>
-              <div className="grid gap-2">
-                <Label>Department *</Label>
-                <Select
-                  value={editingDepartment ? (editingDepartment.department_id || "") : newDepartment.department_id}
-                  onValueChange={(v) => editingDepartment
-                    ? setEditingDepartment({ ...editingDepartment, department_id: v })
-                    : setNewDepartment({ ...newDepartment, department_id: v })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
-                  <SelectContent>
-                    {departmentOptions.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Department Type (label/icon only)</Label>
-                <Select
-                  value={editingDepartment ? (editingDepartment.department_type || "custom") : newDepartment.department_type}
-                  onValueChange={(v) => editingDepartment
-                    ? setEditingDepartment({ ...editingDepartment, department_type: v })
-                    : setNewDepartment({ ...newDepartment, department_type: v })}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {DEPARTMENT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Manager (IT Team)</Label>
-                <Select
-                  value={editingDepartment ? (editingDepartment.manager_email || "") : newDepartment.manager_email}
-                  onValueChange={(v) => editingDepartment
-                    ? setEditingDepartment({ ...editingDepartment, manager_email: v })
-                    : setNewDepartment({ ...newDepartment, manager_email: v })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
-                  <SelectContent>
-                    {itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Status</Label>
-                  <Select
-                    value={editingDepartment ? editingDepartment.status : newDepartment.status}
-                    onValueChange={(v) => editingDepartment
-                      ? setEditingDepartment({ ...editingDepartment, status: v })
-                      : setNewDepartment({ ...newDepartment, status: v })}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {DEPARTMENT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label>Due Date</Label>
-                  <Input
-                    type="date"
-                    value={editingDepartment ? (editingDepartment.due_date || "") : newDepartment.due_date}
-                    onChange={(e) => editingDepartment
-                      ? setEditingDepartment({ ...editingDepartment, due_date: e.target.value })
-                      : setNewDepartment({ ...newDepartment, due_date: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <Label>Start Date</Label>
-                <Input
-                  type="date"
-                  value={editingDepartment ? (editingDepartment.start_date || "") : newDepartment.start_date}
-                  onChange={(e) => editingDepartment
-                    ? setEditingDepartment({ ...editingDepartment, start_date: e.target.value })
-                    : setNewDepartment({ ...newDepartment, start_date: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Notes</Label>
-                <Textarea
-                  rows={3}
-                  value={editingDepartment ? (editingDepartment.notes || "") : newDepartment.notes}
-                  onChange={(e) => editingDepartment
-                    ? setEditingDepartment({ ...editingDepartment, notes: e.target.value })
-                    : setNewDepartment({ ...newDepartment, notes: e.target.value })}
-                  placeholder="Scope, requirements, links..."
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDepartmentDialogOpen(false)}>Cancel</Button>
-              <Button onClick={editingDepartment ? updateDepartment : addDepartment}>
-                <Save className="h-4 w-4 mr-2" />{editingDepartment ? "Save Changes" : "Add Department"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5 text-blue-500" />Add New Task</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Task Name *</Label><Input value={newTask.task_name} onChange={(e) => setNewTask({ ...newTask, task_name: e.target.value })} placeholder="Enter task name" /></div>
-              <div className="grid gap-2"><Label>Description</Label><Textarea value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} placeholder="Enter description" rows={3} /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2"><Label>Department</Label><Select value={newTask.department} onValueChange={(v) => setNewTask({ ...newTask, department: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="Design">🎨 Design</SelectItem><SelectItem value="Development">💻 Development</SelectItem><SelectItem value="Manufacturing">🏭 Manufacturing</SelectItem><SelectItem value="Marketing">📢 Marketing</SelectItem><SelectItem value="Sales">💼 Sales</SelectItem><SelectItem value="Legal">⚖️ Legal</SelectItem><SelectItem value="Finance">💰 Finance</SelectItem><SelectItem value="IT">🖥️ IT</SelectItem></SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Priority</Label><Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">🟢 Low</SelectItem><SelectItem value="medium">🟡 Medium</SelectItem><SelectItem value="high">🟠 High</SelectItem><SelectItem value="urgent">🔴 Urgent</SelectItem></SelectContent></Select></div>
-              </div>
-              <div className="grid gap-2"><Label>Assign To (IT Team)</Label><Select value={newTask.assigned_to_email} onValueChange={(v) => setNewTask({ ...newTask, assigned_to_email: v })}><SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger><SelectContent>{itTeam.map(m => <SelectItem key={m.id} value={m.email}>{m.name} ({m.email})</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Department (Optional)</Label><Select value={newTask.department_id} onValueChange={(v) => setNewTask({ ...newTask, department_id: v })}><SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Stage (Optional)</Label><Select value={newTask.stage_id} onValueChange={(v) => setNewTask({ ...newTask, stage_id: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{projectStages.map(s => <SelectItem key={s.id} value={s.id}>{s.stage_name}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Due Date</Label><Input type="date" value={newTask.due_date} onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })} /></div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setTaskDialogOpen(false)}>Cancel</Button><Button onClick={addTask} disabled={!newTask.task_name}><Plus className="h-4 w-4 mr-2" />Add Task</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Add Payment</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Payment Type</Label><Select value={newPayment.payment_type} onValueChange={(v) => setNewPayment({ ...newPayment, payment_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="client">Client Payment</SelectItem><SelectItem value="manufacturer">Manufacturer Payment</SelectItem></SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Milestone *</Label><Input value={newPayment.milestone} onChange={(e) => setNewPayment({ ...newPayment, milestone: e.target.value })} placeholder="e.g., Booking Amount" /></div>
-              <div className="grid gap-2"><Label>Amount (₹) *</Label><Input type="number" value={newPayment.amount} onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })} placeholder="Enter amount" /></div>
-              <div className="grid gap-2"><Label>Due Date</Label><Input type="date" value={newPayment.due_date} onChange={(e) => setNewPayment({ ...newPayment, due_date: e.target.value })} /></div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button><Button onClick={addPayment}>Add Payment</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={manufacturingDialogOpen} onOpenChange={setManufacturingDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-orange-500" />Update Manufacturing</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Stage *</Label><Select value={newManufacturing.stage} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, stage: v })}><SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger><SelectContent>{MANUFACTURING_STAGES.map(s => <SelectItem key={s} value={s}>{manufacturing.find(m => m.stage === s)?.status === 'completed' ? 'Completed ' : ''}{manufacturing.find(m => m.stage === s)?.status === 'in_progress' ? '⏳ ' : ''}{s}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Status</Label><Select value={newManufacturing.status} onValueChange={(v) => setNewManufacturing({ ...newManufacturing, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem><SelectItem value="blocked">Blocked</SelectItem></SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Remarks</Label><Textarea value={newManufacturing.remarks} onChange={(e) => setNewManufacturing({ ...newManufacturing, remarks: e.target.value })} placeholder="Enter remarks" rows={2} /></div>
-              <div className="grid gap-2"><Label>Responsible Person</Label><Input value={newManufacturing.responsible_person} onChange={(e) => setNewManufacturing({ ...newManufacturing, responsible_person: e.target.value })} placeholder="Enter name" /></div>
-              <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newManufacturing.start_date} onChange={(e) => setNewManufacturing({ ...newManufacturing, start_date: e.target.value })} /></div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setManufacturingDialogOpen(false)}>Cancel</Button><Button onClick={addManufacturing} disabled={!newManufacturing.stage}><Save className="h-4 w-4 mr-2" />{manufacturing.find(m => m.stage === newManufacturing.stage) ? "Update" : "Add"} Manufacturing</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={documentDialogOpen} onOpenChange={setDocumentDialogOpen}>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-500" />
-                Upload Files
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <Label>Upload Type</Label>
-                <Select 
-                  value={uploadType} 
-                  onValueChange={(v: "single" | "multiple") => {
-                    setUploadType(v);
-                    setMultipleFiles([]);
-                    setNewDocument({ ...newDocument, file: null });
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select upload type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="single">
-                      <div className="flex items-center gap-2">
-                        <File className="h-4 w-4" />
-                        Single File
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="multiple">
-                      <div className="flex items-center gap-2">
-                        <Images className="h-4 w-4" />
-                        Multiple Files
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Folder *</Label>
-                <Select 
-                  value={newDocument.folder} 
-                  onValueChange={(v) => setNewDocument({ ...newDocument, folder: v })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Select folder" /></SelectTrigger>
-                  <SelectContent>
-                    {DOCUMENT_FOLDERS.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {uploadType === "single" && (
-                <div className="grid gap-2">
-                  <Label>File *</Label>
-                  <div className="border-2 border-dashed rounded-lg p-4 text-center hover:border-primary transition-colors cursor-pointer">
-                    <input 
-                      ref={fileInputRef} 
-                      type="file" 
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.ttf,.otf,.woff,.woff2"
-                      onChange={(e) => { 
-                        const file = e.target.files?.[0]; 
-                        if (file) { 
-                          setNewDocument({ ...newDocument, file: file, file_name: file.name }); 
-                        } 
-                      }} 
-                      className="hidden" 
-                      id="file-upload" 
-                    />
-                    <label htmlFor="file-upload" className="cursor-pointer block">
-                      {newDocument.file ? (
-                        <div className="flex items-center justify-center gap-2">
-                          {newDocument.file.type.startsWith('image/') ? (
-                            <img src={URL.createObjectURL(newDocument.file)} alt="Preview" className="h-16 w-16 rounded-md object-cover border" />
-                          ) : (
-                            <File className="h-8 w-8 text-green-500" />
-                          )}
-                          <span className="text-sm">{newDocument.file.name}</span>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={(e) => { 
-                              e.preventDefault(); 
-                              setNewDocument({ ...newDocument, file: null, file_name: "" }); 
-                              if (fileInputRef.current) fileInputRef.current.value = ""; 
-                            }}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div>
-                          <FilePlus className="h-8 w-8 mx-auto text-muted-foreground" />
-                          <p className="text-sm text-muted-foreground mt-2">Click to upload a file</p>
-                          <p className="text-xs text-muted-foreground">Images, PDFs, Documents, Fonts (Max 10MB)</p>
-                        </div>
-                      )}
-                    </label>
-                  </div>
-                  <Button 
-                    onClick={uploadDocument} 
-                    disabled={!newDocument.folder || !newDocument.file}
-                    className="w-full"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload File
-                  </Button>
-                </div>
-              )}
-
-              {uploadType === "multiple" && (
-                <div className="grid gap-2">
-                  <Label>Select Files *</Label>
-                  <div className="border-2 border-dashed rounded-lg p-4 text-center hover:border-primary transition-colors cursor-pointer">
-                    <input 
-                      type="file" 
-                      multiple
-                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.ttf,.otf,.woff,.woff2"
-                      onChange={handleMultipleFileSelect} 
-                      className="hidden" 
-                      id="multiple-file-upload" 
-                    />
-                    <label htmlFor="multiple-file-upload" className="cursor-pointer block">
-                      {multipleFiles.length > 0 ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-center gap-2">
-                            <Images className="h-8 w-8 text-blue-500" />
-                            <span className="text-sm font-medium">{multipleFiles.length} files selected</span>
-                          </div>
-                          <div className="max-h-32 overflow-y-auto text-left">
-                            {multipleFiles.map((file, idx) => (
-                              <div key={idx} className="flex items-center justify-between text-xs py-1 border-b last:border-0">
-                                <span className="truncate flex-1">{file.name}</span>
-                                <span className="text-muted-foreground ml-2">{(file.size / 1024).toFixed(1)} KB</span>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="h-5 w-5 p-0"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    removeFileFromMultiple(idx);
-                                  }}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setMultipleFiles([]);
-                              const input = document.getElementById('multiple-file-upload') as HTMLInputElement;
-                              if (input) input.value = '';
-                            }}
-                          >
-                            Clear All
-                          </Button>
-                        </div>
-                      ) : (
-                        <div>
-                          <Images className="h-8 w-8 mx-auto text-muted-foreground" />
-                          <p className="text-sm text-muted-foreground mt-2">Click to select multiple files</p>
-                          <p className="text-xs text-muted-foreground">Images, PDFs, Documents (Max 10MB each)</p>
-                        </div>
-                      )}
-                    </label>
-                  </div>
-                  <Button 
-                    onClick={uploadMultipleFiles} 
-                    disabled={!newDocument.folder || multipleFiles.length === 0 || uploadingMultiple}
-                    className="w-full"
-                  >
-                    {uploadingMultiple ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload {multipleFiles.length} Files
-                      </>
-                    )}
-                  </Button>
-                  {uploadingMultiple && (
-                    <div className="mt-2">
-                      <Progress value={50} className="h-2" />
-                      <p className="text-xs text-muted-foreground text-center mt-1">Uploading files...</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => {
-                setDocumentDialogOpen(false);
-                setMultipleFiles([]);
-                setNewDocument({ folder: "", file_name: "", file: null });
-                setUploadType("single");
-              }}>
-                Cancel
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={communicationDialogOpen} onOpenChange={setCommunicationDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-blue-500" />Add Communication</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid gap-2"><Label>Type</Label><Select value={newCommunication.type} onValueChange={(v) => setNewCommunication({ ...newCommunication, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="call">📞 Call</SelectItem><SelectItem value="email">✉️ Email</SelectItem><SelectItem value="whatsapp">💬 WhatsApp</SelectItem><SelectItem value="meeting">Due Meeting</SelectItem><SelectItem value="comment">💭 Comment</SelectItem><SelectItem value="followup">🔔 Follow-up</SelectItem></SelectContent></Select></div>
-              <div className="grid gap-2"><Label>Subject</Label><Input value={newCommunication.subject} onChange={(e) => setNewCommunication({ ...newCommunication, subject: e.target.value })} placeholder="Enter subject" /></div>
-              <div className="grid gap-2"><Label>Message *</Label><Textarea value={newCommunication.message} onChange={(e) => setNewCommunication({ ...newCommunication, message: e.target.value })} placeholder="Enter message" rows={3} /></div>
-              <div className="grid gap-2"><Label>Next Follow-up</Label><Input type="datetime-local" value={newCommunication.next_followup} onChange={(e) => setNewCommunication({ ...newCommunication, next_followup: e.target.value })} /></div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setCommunicationDialogOpen(false)}>Cancel</Button><Button onClick={addCommunication} disabled={!newCommunication.message}><Send className="h-4 w-4 mr-2" />Add Communication</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={noteDialogOpen} onOpenChange={(open) => { setNoteDialogOpen(open); if (!open) resetNoteForm(); }}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {noteMode === "client_tracker" ? <ClipboardList className="h-5 w-5 text-fuchsia-500" /> : noteMode === "brand_kit" ? <Palette className="h-5 w-5 text-purple-500" /> : <StickyNote className="h-5 w-5 text-yellow-500" />}
-                {editingNote
-                  ? (noteMode === "client_tracker" ? "Edit Client Progress Tracker" : noteMode === "brand_kit" ? "Edit Brand Identity Kit" : "Edit Note")
-                  : (noteMode === "client_tracker" ? "Add Client Progress Tracker" : noteMode === "brand_kit" ? "Add Brand Identity Kit" : "Add Note")}
-              </DialogTitle>
-            </DialogHeader>
-
-            {!editingNote && (
-              <div className="flex gap-2 border-b pb-3 flex-wrap">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={noteMode === "quick" ? "default" : "outline"}
-                  onClick={() => setNoteMode("quick")}
-                >
-                  <StickyNote className="h-4 w-4 mr-2" />Quick Note
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={noteMode === "brand_kit" ? "default" : "outline"}
-                  onClick={() => setNoteMode("brand_kit")}
-                >
-                  <Sparkles className="h-4 w-4 mr-2" />Brand Identity Kit
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={noteMode === "client_tracker" ? "default" : "outline"}
-                  onClick={() => setNoteMode("client_tracker")}
-                >
-                  <ClipboardList className="h-4 w-4 mr-2" />Client Progress Tracker
-                </Button>
-              </div>
-            )}
-
-            <div className="space-y-4 py-2">
-              <div className="grid gap-2">
-                <Label>Image (optional)</Label>
-                <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
-                  <input
-                    ref={noteImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleNoteImageSelect}
-                    className="hidden"
-                    id="note-image-upload"
-                  />
-                  {(noteImagePreview || existingNoteImageUrl) ? (
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={noteImagePreview || existingNoteImageUrl || ""}
-                        alt="Preview"
-                        className="h-16 w-16 rounded-md object-cover border"
-                      />
-                      <div className="flex-1 text-sm text-muted-foreground">
-                        {noteImageFile ? noteImageFile.name : "Existing image"}
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={clearNoteImage}>
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <label htmlFor="note-image-upload" className="cursor-pointer flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
-                      <Upload className="h-4 w-4" />
-                      Click to upload an image (logo, moodboard, reference...)
-                    </label>
-                  )}
-                </div>
-              </div>
-
-              {noteMode === "quick" && (
-                <>
-                  <div className="grid gap-2"><Label>Title (Optional)</Label><Input value={newNote.title} onChange={(e) => setNewNote({ ...newNote, title: e.target.value })} placeholder="Enter title" /></div>
-                  <div className="grid gap-2"><Label>Note *</Label><Textarea value={newNote.content} onChange={(e) => setNewNote({ ...newNote, content: e.target.value })} placeholder="Enter note" rows={5} /></div>
-                </>
-              )}
-
-              {noteMode === "brand_kit" && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {BRAND_KIT_FIELDS.map((f) => (
-                    <div key={f.key} className={`grid gap-2 ${f.type === "textarea" ? "sm:col-span-2" : ""}`}>
-                      <Label>{f.label}</Label>
-                      {f.type === "textarea" ? (
-                        <Textarea
-                          rows={2}
-                          value={brandKitFields[f.key] || ""}
-                          onChange={(e) => setBrandKitFields({ ...brandKitFields, [f.key]: e.target.value })}
-                          placeholder={f.label}
-                        />
-                      ) : (
-                        <Input
-                          value={brandKitFields[f.key] || ""}
-                          onChange={(e) => setBrandKitFields({ ...brandKitFields, [f.key]: e.target.value })}
-                          placeholder={f.label}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {noteMode === "client_tracker" && (
-                <div className="space-y-5">
-                  {CLIENT_TRACKER_SECTIONS.map((section) => (
-                    <div key={section.key} className="space-y-2">
-                      <p className="text-sm font-semibold flex items-center gap-1.5">
-                        <span>{section.emoji}</span>
-                        <span>{section.title}</span>
-                      </p>
-                      <div className="grid gap-3 sm:grid-cols-2 border-l-2 pl-3" style={{ borderColor: "var(--border)" }}>
-                        {section.fields.map((f) => (
-                          <div key={f.key} className={`grid gap-1.5 ${f.type === "textarea" ? "sm:col-span-2" : ""}`}>
-                            <Label className="text-xs text-muted-foreground">{f.label}</Label>
-                            {f.type === "textarea" ? (
-                              <Textarea
-                                rows={2}
-                                value={clientTrackerFields[f.key] || ""}
-                                onChange={(e) => setClientTrackerFields({ ...clientTrackerFields, [f.key]: e.target.value })}
-                                placeholder={f.label}
-                              />
-                            ) : (
-                              <Input
-                                value={clientTrackerFields[f.key] || ""}
-                                onChange={(e) => setClientTrackerFields({ ...clientTrackerFields, [f.key]: e.target.value })}
-                                placeholder={f.label}
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button>
-              <Button
-                onClick={editingNote ? updateNote : addNote}
-                disabled={noteSaving || (noteMode === "quick" && !newNote.content)}
-              >
-                {noteSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                {editingNote ? "Update" : "Save"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Edit Project</DialogTitle></DialogHeader>
-            {editingProject && (
-              <div className="grid gap-4 py-4 sm:grid-cols-2">
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label>Project Image</Label>
-                  <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
-                    <input
-                      ref={editProjectImageInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleEditProjectImageSelect}
-                      className="hidden"
-                      id="edit-project-image-upload"
-                    />
-                    {(editProjectImagePreview || editingProject.image_url) ? (
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={editProjectImagePreview || editingProject.image_url || ""}
-                          alt="Preview"
-                          className="h-16 w-16 rounded-md object-cover border"
-                        />
-                        <div className="flex-1 text-sm text-muted-foreground">
-                          {editProjectImageFile ? editProjectImageFile.name : "Current image"}
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={clearEditProjectImage}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <label htmlFor="edit-project-image-upload" className="cursor-pointer flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
-                        <ImagePlus className="h-4 w-4" />
-                        Click to upload a cover image
-                      </label>
-                    )}
-                  </div>
-                </div>
-                <div className="grid gap-2"><Label>Client Name *</Label><Input value={editingProject.name} onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })} /></div>
-                <div className="grid gap-2"><Label>Brand Name</Label><Input value={editingProject.brand_name || ""} onChange={(e) => setEditingProject({ ...editingProject, brand_name: e.target.value })} /></div>
-                <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={editingProject.client_phone || ""} onChange={(e) => setEditingProject({ ...editingProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
-                <div className="grid gap-2"><Label>Client Email</Label><Input value={editingProject.client_email || ""} onChange={(e) => setEditingProject({ ...editingProject, client_email: e.target.value })} placeholder="Enter email address" /></div>
-                <div className="grid gap-2 sm:col-span-2"><Label>Client Address</Label><Input value={editingProject.client_address || ""} onChange={(e) => setEditingProject({ ...editingProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                <div className="grid gap-2">
-                  <Label>Product Category</Label>
-                  <Select
-                    value={
-                      !editingProject.product_category
-                        ? ""
-                        : PRODUCT_CATEGORIES.some((c) => c.value === editingProject.product_category)
-                          ? editingProject.product_category
-                          : "other"
-                    }
-                    onValueChange={(v) => setEditingProject({ ...editingProject, product_category: v })}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                    <SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {(editingProject.product_category === "other" ||
-                    (editingProject.product_category &&
-                      !PRODUCT_CATEGORIES.some((c) => c.value === editingProject.product_category))) && (
-                    <Input
-                      className="mt-1"
-                      placeholder="Specify other category (e.g. Home Decor, Pet Care...)"
-                      value={
-                        editingProject.product_category === "other"
-                          ? ""
-                          : (editingProject.product_category || "")
-                      }
-                      onChange={(e) =>
-                        setEditingProject({
-                          ...editingProject,
-                          product_category: e.target.value.trim() || "other",
-                        })
-                      }
-                    />
-                  )}
-                </div>
-                <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={editingProject.products_to_launch != null ? String(editingProject.products_to_launch) : ""} onValueChange={(v) => setEditingProject({ ...editingProject, products_to_launch: Number(v) })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label>Project Description</Label>
-                  <Textarea
-                    value={editingProject.product_category_note || ""}
-                    onChange={(e) => setEditingProject({ ...editingProject, product_category_note: e.target.value })}
-                    placeholder="Enter detailed project description, scope of work, client requirements..."
-                    className="min-h-[80px]"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Project Manager Name</Label>
-                  <Input
-                    value={editPmInfo.name}
-                    onChange={(e) => setEditPmInfo({ ...editPmInfo, name: e.target.value })}
-                    placeholder="e.g. Pankaj Singh"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Project Manager Email ID</Label>
-                  <Input
-                    type="email"
-                    value={editPmInfo.email}
-                    onChange={(e) => setEditPmInfo({ ...editPmInfo, email: e.target.value })}
-                    placeholder="e.g. pankaj@banegabrand.com"
-                  />
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label>Project Manager Phone Number</Label>
-                  <Input
-                    value={editPmInfo.phone}
-                    onChange={(e) => setEditPmInfo({ ...editPmInfo, phone: e.target.value })}
-                    placeholder="e.g. +91 9717943312"
-                  />
-                </div>
-                <div className="grid gap-2"><Label>Priority</Label><Select value={editingProject.priority || "medium"} onValueChange={(v) => setEditingProject({ ...editingProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={editingProject.project_value || 0} onChange={(e) => setEditingProject({ ...editingProject, project_value: Number(e.target.value) })} /></div>
-                <div className="grid gap-2">
-                  <Label>Status</Label>
-                  <Select
-                    value={normalizeProjectStatus(editingProject.status) || editingProject.status || "active"}
-                    onValueChange={(v) => setEditingProject({ ...editingProject, status: v })}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
-                    <SelectContent>
-                      {PROJECT_STATUSES.map(s => (
-                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2"><Label>Current Stage</Label><Select value={editingProject.current_stage} onValueChange={(v) => setEditingProject({ ...editingProject, current_stage: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={editingProject.start_date || ""} onChange={(e) => setEditingProject({ ...editingProject, start_date: e.target.value })} /></div>
-                <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={editingProject.expected_launch_date || ""} onChange={(e) => setEditingProject({ ...editingProject, expected_launch_date: e.target.value })} /></div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-              <Button onClick={updateProject} disabled={projectSaving}>
-                {projectSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                Save Changes
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
-  }
-
-  // ── DASHBOARD VIEW ──
-  return (
-    <div className="space-y-6">
-      {TopNav}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground text-sm">
-            {isAdmin
-              ? "Manage all client projects from one dashboard"
-              : "All client projects are listed here — full access for the IT team"}
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={exportToExcel}>
-            <FileDown className="mr-2 h-4 w-4" />
-            Export Excel
-          </Button>
-          
-          {isAdmin && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
-                <FileUp className="mr-2 h-4 w-4" />
-                Import Excel
-              </Button>
               
-              <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) clearNewProjectImage(); }}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="mr-2 h-4 w-4" />
-                    New Project
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-                  <DialogHeader><DialogTitle>Create New Project</DialogTitle></DialogHeader>
-                  <div className="grid gap-4 py-4 sm:grid-cols-2">
-                    <div className="grid gap-2 sm:col-span-2">
-                      <Label>Project Image (optional)</Label>
-                      <div className="border-2 border-dashed rounded-lg p-3 hover:border-primary transition-colors">
-                        <input
-                          ref={projectImageInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleNewProjectImageSelect}
-                          className="hidden"
-                          id="new-project-image-upload"
-                        />
-                        {newProjectImagePreview ? (
-                          <div className="flex items-center gap-3">
-                            <img src={newProjectImagePreview} alt="Preview" className="h-16 w-16 rounded-md object-cover border" />
-                            <div className="flex-1 text-sm text-muted-foreground">{newProjectImageFile?.name}</div>
-                            <Button variant="ghost" size="sm" onClick={clearNewProjectImage}><X className="h-4 w-4" /></Button>
-                          </div>
-                        ) : (
-                          <label htmlFor="new-project-image-upload" className="cursor-pointer flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
-                            <ImagePlus className="h-4 w-4" />
-                            Click to upload a cover image
-                          </label>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grid gap-2"><Label>Client Name *</Label><Input value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })} placeholder="Enter client name" /></div>
-                    <div className="grid gap-2"><Label>Brand Name</Label><Input value={newProject.brand_name} onChange={(e) => setNewProject({ ...newProject, brand_name: e.target.value })} placeholder="Enter brand name" /></div>
-                    <div className="grid gap-2"><Label>Client Phone Number</Label><Input value={newProject.client_phone} onChange={(e) => setNewProject({ ...newProject, client_phone: e.target.value })} placeholder="Enter phone number" /></div>
-                    <div className="grid gap-2">
-                      <div className="flex items-center justify-between">
-                        <Label>Client Email</Label>
-                        <span className="text-[11px] text-muted-foreground font-normal flex items-center gap-1">
-                          <Mail className="h-3 w-3 text-primary" /> Full process roadmap will be emailed automatically
-                        </span>
-                      </div>
-                      <Input
-                        type="email"
-                        value={newProject.client_email}
-                        onChange={(e) => setNewProject({ ...newProject, client_email: e.target.value })}
-                        placeholder="Enter email address (e.g. client@gmail.com)"
-                      />
-                    </div>
-                    <div className="grid gap-2 sm:col-span-2"><Label>Client Address</Label><Input value={newProject.client_address} onChange={(e) => setNewProject({ ...newProject, client_address: e.target.value })} placeholder="Enter address" /></div>
-                    <div className="grid gap-2">
-                      <Label>Product Category</Label>
-                      <Select
-                        value={
-                          !newProject.product_category
-                            ? ""
-                            : PRODUCT_CATEGORIES.some((c) => c.value === newProject.product_category)
-                              ? newProject.product_category
-                              : "other"
-                        }
-                        onValueChange={(v) => setNewProject({ ...newProject, product_category: v })}
-                      >
-                        <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                        <SelectContent>{PRODUCT_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                      {(newProject.product_category === "other" ||
-                        (newProject.product_category &&
-                          !PRODUCT_CATEGORIES.some((c) => c.value === newProject.product_category))) && (
-                        <Input
-                          className="mt-1"
-                          placeholder="Specify other category (e.g. Home Decor, Pet Care...)"
-                          value={
-                            newProject.product_category === "other"
-                              ? ""
-                              : (newProject.product_category || "")
-                          }
-                          onChange={(e) =>
-                            setNewProject({
-                              ...newProject,
-                              product_category: e.target.value.trim() || "other",
-                            })
-                          }
-                        />
-                      )}
-                    </div>
-                    <div className="grid gap-2"><Label>How Many Products to Launch</Label><Select value={newProject.products_to_launch} onValueChange={(v) => setNewProject({ ...newProject, products_to_launch: v })}><SelectTrigger><SelectValue placeholder="1 to 10" /></SelectTrigger><SelectContent>{PRODUCTS_TO_LAUNCH_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select></div>
-                    <div className="grid gap-2 sm:col-span-2">
-                      <Label>Project Description</Label>
-                      <Textarea
-                        value={newProject.product_category_note}
-                        onChange={(e) => setNewProject({ ...newProject, product_category_note: e.target.value })}
-                        placeholder="Enter detailed project description, scope of work, client requirements..."
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Project Manager Name</Label>
-                      <Input
-                        value={newProject.project_manager_name}
-                        onChange={(e) => setNewProject({ ...newProject, project_manager_name: e.target.value })}
-                        placeholder="e.g. Pankaj Singh"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Project Manager Email ID</Label>
-                      <Input
-                        type="email"
-                        value={newProject.project_manager_email}
-                        onChange={(e) => setNewProject({ ...newProject, project_manager_email: e.target.value })}
-                        placeholder="e.g. pankaj@banegabrand.com"
-                      />
-                    </div>
-                    <div className="grid gap-2 sm:col-span-2">
-                      <Label>Project Manager Phone Number</Label>
-                      <Input
-                        value={newProject.project_manager_phone}
-                        onChange={(e) => setNewProject({ ...newProject, project_manager_phone: e.target.value })}
-                        placeholder="e.g. +91 9717943312"
-                      />
-                    </div>
-                    <div className="grid gap-2"><Label>Priority</Label><Select value={newProject.priority} onValueChange={(v) => setNewProject({ ...newProject, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent></Select></div>
-                    <div className="grid gap-2"><Label>Project Value (₹)</Label><Input type="number" value={newProject.project_value} onChange={(e) => setNewProject({ ...newProject, project_value: e.target.value })} placeholder="Enter project value" /></div>
-                    <div className="grid gap-2"><Label>Start Date</Label><Input type="date" value={newProject.start_date} onChange={(e) => setNewProject({ ...newProject, start_date: e.target.value })} /></div>
-                    <div className="grid gap-2"><Label>Expected Launch Date</Label><Input type="date" value={newProject.expected_launch_date} onChange={(e) => setNewProject({ ...newProject, expected_launch_date: e.target.value })} /></div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={createProject} disabled={projectSaving}>
-                      {projectSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                      Create Project
+              {totalPages > 1 && (
+                <div className="flex flex-wrap items-center justify-between mt-4 gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, dashboardLeads.length)} of {dashboardLeads.length} leads
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
                     </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                    <span className="text-sm font-medium">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </>
           )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
-        <StatCard
-          icon={FolderKanban}
-          label="Total Projects"
-          value={stats.total}
-          color="blue"
-          active={filterStatus === "all"}
-          onClick={() => setFilterStatus("all")}
-        />
-        <StatCard
-          icon={CheckCircle}
-          label="Active"
-          value={stats.active}
-          color="green"
-          active={filterStatus === "active"}
-          onClick={() => setFilterStatus("active")}
-        />
-        <StatCard
-          icon={AlertTriangle}
-          label="On Hold"
-          value={stats.onHold}
-          color="orange"
-          active={filterStatus === "on_hold"}
-          onClick={() => setFilterStatus("on_hold")}
-        />
-        <StatCard
-          icon={XCircle}
-          label="Cancelled"
-          value={stats.cancelled}
-          color="red"
-          active={filterStatus === "cancelled"}
-          onClick={() => setFilterStatus("cancelled")}
-        />
-        <StatCard
-          icon={RefreshCw}
-          label="Refund"
-          value={stats.refund}
-          color="purple"
-          active={filterStatus === "refund"}
-          onClick={() => setFilterStatus("refund")}
-        />
-        <StatCard
-          icon={Award}
-          label="Completed"
-          value={stats.completed}
-          color="teal"
-          active={filterStatus === "completed"}
-          onClick={() => setFilterStatus("completed")}
-        />
-        <StatCard
-          icon={DollarSign}
-          label="Total Value"
-          value={formatCurrency(stats.totalValue)}
-          color="indigo"
-        />
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-wrap gap-2">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
-            </div>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Status</SelectItem>{PROJECT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={filterStage} onValueChange={setFilterStage}>
-              <SelectTrigger className="w-48"><SelectValue placeholder="Stage" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Stages</SelectItem>{PROJECT_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={filterPriority} onValueChange={setFilterPriority}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="Priority" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Priority</SelectItem>{PROJECT_PRIORITIES.map(p => <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-48"><SelectValue placeholder="Sort by" /></SelectTrigger>
-              <SelectContent><SelectItem value="newest">🕒 Newest First</SelectItem><SelectItem value="date_asc">Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("newest"); }}>
-              <X className="h-4 w-4 mr-1" />Clear
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
-
-      <Card>
-        <CardContent className="p-6">
-          <div className="space-y-4">
-            {filteredProjects.length === 0 ? (
-              <div className="text-center py-12">
-                <FolderKanban className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  {isAdmin || isITEmployee ? "No projects found" : "You have no tasks assigned on any project yet"}
-                </p>
-                {isAdmin && (
-                  <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />Create Your First Project
-                  </Button>
-                )}
-              </div>
-            ) : (
-              filteredProjects.map((project: Project) => (
-                <ProjectCard 
-                  key={project.id} 
-                  project={project} 
-                  onClick={() => handleProjectClick(project)}
-                  onImageUpload={handleDashboardImageUpload}
-                  uploading={uploadingImage === project.id}
-                  lastNote={lastNotesByProject[project.id] || null}
-                  lastAssignee={lastAssigneeByProject[project.id] || null}
-                  stageProgress={project.completion_percentage}
-                  hasOnboardingEmailSent={onboardingEmailSentProjects.has(project.id)}
-                />
-              ))
-            )}
-          </div>
         </CardContent>
       </Card>
 
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="max-w-3xl">
+      <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterAssignment("all"); }} />
+
+      <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-green-600" />
-              Import Projects from Excel
+            <DialogTitle className="flex flex-wrap items-center justify-between gap-2">
+              <span>Lead Details</span>
+              <div className="flex items-center gap-2">
+                <TemperatureBadge temperature={detailLead?.temperature} />
+                <ScoreBadge score={detailLead ? getLeadScore(detailLead) : 0} />
+              </div>
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
-              <input
-                ref={excelInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleExcelFileSelect}
-                className="hidden"
-                id="excel-upload"
-              />
-              <label htmlFor="excel-upload" className="cursor-pointer block">
-                {importFile ? (
-                  <div className="flex items-center justify-center gap-3">
-                    <FileSpreadsheet className="h-10 w-10 text-green-600" />
-                    <div className="text-left">
-                      <p className="font-medium">{importFile.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {(importFile.size / 1024).toFixed(1)} KB • {importPreview.length} rows found
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setImportFile(null);
-                        setImportPreview([]);
-                        if (excelInputRef.current) excelInputRef.current.value = "";
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <FileSpreadsheet className="h-12 w-12 mx-auto text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Click to upload Excel file (.xlsx or .xls)
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      File should have columns: Client Name, Brand Name, Project Type, Priority, etc.
-                    </p>
-                  </div>
-                )}
-              </label>
-            </div>
-
-            {importPreview.length > 0 && (
-              <div>
-                <p className="text-sm font-medium mb-2">Preview (first {importPreview.length} rows):</p>
-                <div className="border rounded-lg overflow-auto max-h-60">
-                  <table className="w-full text-xs">
-                    <thead className="bg-muted sticky top-0">
-                      <tr>
-                        {Object.keys(importPreview[0] || {}).map((key) => (
-                          <th key={key} className="px-3 py-2 text-left font-medium border-b">{key}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importPreview.map((row, idx) => (
-                        <tr key={idx} className="border-b hover:bg-muted/30">
-                          {Object.values(row).map((val: any, colIdx) => (
-                            <td key={colIdx} className="px-3 py-1.5 max-w-[150px] truncate">{String(val || '')}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {detailLead && (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base" style={{ background: avatarColor(detailLead.name) }}>{getInitials(detailLead.name)}</div>
+                  <div><h3 className="font-bold text-base">{detailLead.name}</h3>{detailLead.company && <p className="text-sm text-muted-foreground">{detailLead.company}</p>}</div>
                 </div>
               </div>
-            )}
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-              <p className="font-medium">⚠️ Important Notes:</p>
-              <ul className="list-disc list-inside mt-1 space-y-0.5 text-xs">
-                <li>Required column: <strong>Client Name</strong></li>
-                <li>Optional columns: Brand Name, Project Type, Priority, Project Value, Status, etc.</li>
-                <li>Priority values: high, medium, low</li>
-                <li>Status values: active, on_hold, completed, cancelled</li>
-                <li>Project Type values: perfume, ayurveda, cosmetics, food, supplements</li>
-                <li>Duplicates will be skipped automatically</li>
-              </ul>
+              <Progress value={getLeadScore(detailLead)} className="h-2" />
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-muted-foreground text-xs">Email</p><p className="font-medium break-all">{detailLead.email || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Phone</p><p className="font-medium">{detailLead.phone || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Company</p><p className="font-medium">{detailLead.company || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Address</p><p className="font-medium">{detailLead.address || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Lead Type</p><p className="font-medium">{detailLead.lead_type || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Budget</p><p className="font-medium">{detailLead.budget || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Follow-up Date</p><FollowupPill nextCallDate={detailLead.next_call_date} /></div>
+                
+                <div className="grid gap-1">
+                  <p className="text-muted-foreground text-xs flex items-center gap-1">
+                    <span>Temperature</span>
+                    <span className="text-[10px] text-muted-foreground">(click to change)</span>
+                  </p>
+                  <Select 
+                    value={detailLead.temperature || "warm"} 
+                    onValueChange={(v) => handleTemperatureUpdate(detailLead.id, v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select temperature" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LEAD_TEMPERATURE.map(t => (
+                        <SelectItem key={t.value} value={t.value}>
+                          <span className="flex items-center gap-2">
+                            <span>{t.label}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              ({t.value === "hot" ? "High Priority" : t.value === "warm" ? "Medium Priority" : "Low Priority"})
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Brand Stage</p><Select value={detailLead.stage || "ringing"} onValueChange={async (v) => { await handleUpdateStageFromDetail(detailLead.id, v, detailLead.sub_stage || ""); }}><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-1"><p className="text-muted-foreground text-xs">Sub Stage</p><Select value={detailLead.sub_stage || "none"} onValueChange={async (v) => { const val = v === "none" ? "" : v; await handleUpdateStageFromDetail(detailLead.id, detailLead.stage || "ringing", val); }}><SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(detailLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+                <div><p className="text-muted-foreground text-xs">Source</p><p className="font-medium">{detailLead.source || "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Status</p><span className="text-xs font-semibold px-2 py-0.5 rounded border" style={{ background: detailLead.stage === "lost" ? "#fef2f2" : "#f0fdf4", color: detailLead.stage === "lost" ? "#dc2626" : "#16a34a", borderColor: detailLead.stage === "lost" ? "#fecaca" : "#bbf7d0" }}>{formatStageLabel(detailLead.status)}</span></div>
+                <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Business Status</p><p className="font-medium">{detailLead.business_status || "Active"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Assigned To</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
+                <div><p className="text-muted-foreground text-xs">Assign Date</p><p className="font-medium">{detailLead.assign_date ? format(new Date(detailLead.assign_date), "dd MMM yyyy") : "-"}</p></div>
+                <div><p className="text-muted-foreground text-xs">Created At</p><p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p></div>
+                {detailLead.lost_reason && (<div className="col-span-2"><p className="text-muted-foreground text-xs">Lost Reason</p><p className="font-medium text-red-600">{formatStageLabel(detailLead.lost_reason)}</p></div>)}
+                
+                <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>
+                <div className="col-span-2"><p className="text-muted-foreground text-xs">Remark</p><p className="font-medium whitespace-pre-wrap">{detailLead.remark || "-"}</p></div>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2">
+                {detailLead.phone && (<Button size="sm" variant="outline" asChild><a href={`tel:${detailLead.phone}`} onClick={() => logActivity(detailLead.id, "called", detailLead.phone || undefined)}><Phone className="mr-1 h-3 w-3" />Call</a></Button>)}
+                {detailLead.email && (<Button size="sm" variant="outline" asChild><a href={`mailto:${detailLead.email}`} onClick={() => logActivity(detailLead.id, "emailed", detailLead.email || undefined)}><Mail className="mr-1 h-3 w-3" />Email</a></Button>)}
+                {detailLead.phone && (<Button size="sm" variant="outline" asChild><a href={`https://wa.me/${detailLead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer" onClick={() => logActivity(detailLead.id, "whatsapp", detailLead.phone || undefined)}><MessageCircle className="mr-1 h-3 w-3" />WhatsApp</a></Button>)}
+                {detailLead.stage !== "lost" && detailLead.stage !== "converted" && (<Button size="sm" variant="destructive" onClick={() => setLostLeadDialog(detailLead)}><Flag className="mr-1 h-3 w-3" />Mark as Lost</Button>)}
+                
+              </div>
+              <LeadCommentsPanel leadId={detailLead.id} leadStage={detailLead.stage} />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
-            <Button onClick={importFromExcel} disabled={!importFile || importing}>
-              {importing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                <>
-                  <Import className="h-4 w-4 mr-2" />
-                  Import Projects
-                </>
-              )}
-            </Button>
-          </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editLead} onOpenChange={() => setEditLead(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
+          {editLead && (
+            <div className="grid gap-4 py-4 sm:grid-cols-2">
+              {[{ label: "Name", key: "name" }, { label: "Email", key: "email" }, { label: "Number", key: "phone" }, { label: "Company", key: "company" }, { label: "Address", key: "address" }].map(f => (<div key={f.key} className="grid gap-2"><Label>{f.label}</Label><Input value={(editLead as any)[f.key] || ""} onChange={e => setEditLead({ ...editLead, [f.key]: e.target.value } as DbLead)} /></div>))}
+              <div className="grid gap-2"><Label>Value (₹)</Label><Input type="number" value={editLead.value || 0} onChange={e => setEditLead({ ...editLead, value: Number(e.target.value) })} /></div>
+              <div className="grid gap-2"><Label>Lead Type</Label><Select value={editLead.lead_type || ""} onValueChange={v => setEditLead({ ...editLead, lead_type: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Budget</Label><Select value={editLead.budget || ""} onValueChange={v => setEditLead({ ...editLead, budget: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{BUDGETS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Lead Temperature</Label><Select value={editLead.temperature || "warm"} onValueChange={v => setEditLead({ ...editLead, temperature: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_TEMPERATURE.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Follow-up / Next Call Date</Label><Input type="date" value={editLead.next_call_date ? editLead.next_call_date.slice(0, 10) : ""} onChange={e => setEditLead({ ...editLead, next_call_date: e.target.value || null })} /></div>
+              <div className="grid gap-2"><Label>Brand Stage</Label><Select value={editLead.stage || DEFAULT_LEAD_STAGE} onValueChange={v => setEditLead({ ...editLead, stage: v, sub_stage: "" })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LEAD_STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Sub Stage</Label><Select value={editLead.sub_stage || "none"} onValueChange={v => setEditLead({ ...editLead, sub_stage: v === "none" ? "" : v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">-- None --</SelectItem>{getSubStagesForStage(editLead.stage).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Status</Label><Select value={editLead.status} onValueChange={v => setEditLead({ ...editLead, status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{LEAD_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Business Status</Label><Select value={editLead.business_status || "active"} onValueChange={v => setEditLead({ ...editLead, business_status: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["active", "no-go", "done"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2"><Label>Source</Label><Select value={editLead.source || "Website"} onValueChange={v => setEditLead({ ...editLead, source: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["Website", "Referral", "LinkedIn", "Cold Call", "Trade Show", "Excel Import", "WhatsApp", "Facebook Ads", "Google Ads"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid gap-2 sm:col-span-2"><Label>Remark (for call scheduling)</Label><Textarea value={editLead.remark || ""} onChange={e => setEditLead({ ...editLead, remark: e.target.value })} placeholder="e.g., call at 2:30 PM" /></div>
+              <div className="grid gap-2 sm:col-span-2"><Label>CX Comment</Label><Textarea value={editLead.cx_comment || ""} onChange={e => setEditLead({ ...editLead, cx_comment: e.target.value })} /></div>
+              <Button onClick={handleUpdate} className="sm:col-span-2">Save Changes</Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+
+function LostLeadDialog({ lead, open, onClose, onConfirm }: {
+  lead: DbLead | null;
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (leadId: string, reason: string) => void;
+}) {
+  const [lostReason, setLostReason] = useState("");
+  
+  useEffect(() => {
+    if (open) setLostReason("");
+  }, [open]);
+  
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <XCircle className="h-5 w-5" />
+            Mark Lead as Lost
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          <p className="text-sm mb-4">
+            Are you sure you want to mark <strong>{lead?.name}</strong> as lost?
+          </p>
+          <div className="space-y-2">
+            <Label>Lost Reason</Label>
+            <Select value={lostReason} onValueChange={setLostReason}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select reason..." />
+              </SelectTrigger>
+              <SelectContent>
+                {SUB_STAGES.lost.map(reason => (
+                  <SelectItem key={reason.value} value={reason.value}>
+                    {reason.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button 
+            variant="destructive" 
+            onClick={() => lostReason && onConfirm(lead!.id, lostReason)}
+            disabled={!lostReason}
+          >
+            Confirm Lost
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmployee }: {
+  leads: DbLead[];
+  profiles: { user_id: string; display_name: string | null }[];
+  open: boolean;
+  onClose: () => void;
+  onFilterByEmployee: (userId: string) => void;
+}) {
+  const employeeStats = useMemo(() => {
+    return profiles.map(p => {
+      const empLeads = leads.filter(l => l.assigned_to === p.user_id);
+      const stageBreakdown = LEAD_STAGES.map(s => ({
+        ...s, count: empLeads.filter(l => l.stage === s.value).length,
+      }));
+      return { ...p, total: empLeads.length, converted: empLeads.filter(l => l.stage === "converted").length, stageBreakdown };
+    }).sort((a, b) => b.total - a.total);
+  }, [leads, profiles]);
+
+  const unassigned = useMemo(() => leads.filter(l => !l.assigned_to).length, [leads]);
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" /> Employee Lead Distribution
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+            <div>
+              <p className="font-medium text-muted-foreground">Unassigned</p>
+              <p className="text-xs text-muted-foreground">Not assigned to any employee</p>
+            </div>
+            <Badge variant="outline" className="text-base px-3 py-1">{unassigned}</Badge>
+          </div>
+          {employeeStats.map(emp => {
+            const color = avatarColor(emp.display_name || "?");
+            return (
+              <div key={emp.user_id} className="p-3 rounded-lg border hover:bg-muted/20 transition-colors">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: color }}>
+                      {getInitials(emp.display_name || "?")}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{emp.display_name || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground">{emp.converted} converted / {emp.total} total</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="default" className="text-base px-3 py-1">{emp.total}</Badge>
+                    <Button size="sm" variant="outline"
+                      onClick={() => { onFilterByEmployee(emp.user_id); onClose(); }}
+                      disabled={emp.total === 0}>View</Button>
+                  </div>
+                </div>
+                {emp.total > 0 && (
+                  <>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {emp.stageBreakdown.filter(s => s.count > 0).map(s => (
+                        <span key={s.value} className="text-[11px] px-2 py-0.5 rounded border font-medium" style={{ color: s.color, background: s.bg, borderColor: `${s.color}30` }}>
+                          {s.label}: {s.count}
+                        </span>
+                      ))}
+                    </div>
+                    <Progress value={(emp.converted / emp.total) * 100} className="h-1 mt-2" />
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function downloadExcelTemplate() {
+  const template = [
+    {
+      "Name": "John Doe",
+      "Email": "john@example.com",
+      "Phone": "9876543210",
+      "Company": "ABC Corp",
+      "Source": "Website",
+      "Value": 5000000,
+      "Lead Type": "Herbal & Ayurvedic",
+      "Address": "Mumbai, India",
+      "CX Comment": "Interested in products",
+      "Budget": "₹5l+",
+      "Remark": "Call after 2 PM",
+      "Temperature": "Hot"
+    }
+  ];
+  
+  const ws = XLSX.utils.json_to_sheet(template);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Lead Template");
+  XLSX.writeFile(wb, "lead_import_template.xlsx");
+  toast.success("Template downloaded! Fill it with your data and re-upload.");
+}
+
