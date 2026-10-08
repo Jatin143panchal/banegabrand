@@ -754,26 +754,30 @@ export default function Leads() {
       if (totalLeads > 0) {
         console.log(`📦 Fetching ${totalLeads} leads in ${totalPages} parallel batches...`);
         
-        // 2. Fire all requests in parallel
-        const promises = [];
-        for (let i = 0; i < totalPages; i++) {
-          let q = supabase
-            .from("leads")
-            .select("*")
-            .order("created_at", { ascending: false })
-            .range(i * PAGE_SIZE, (i + 1) * PAGE_SIZE - 1);
-            
-          if (!isAdmin && user?.id) {
-            q = q.eq("assigned_to", user.id);
+        
+        // 2. Fire requests in chunks of 3 to avoid overloading CPU
+        const CONCURRENCY_LIMIT = 3;
+        for (let i = 0; i < totalPages; i += CONCURRENCY_LIMIT) {
+          const promises = [];
+          for (let j = 0; j < CONCURRENCY_LIMIT && (i + j) < totalPages; j++) {
+            const pageIndex = i + j;
+            let q = supabase
+              .from("leads")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .range(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE - 1);
+              
+            if (!isAdmin && user?.id) {
+              q = q.eq("assigned_to", user.id);
+            }
+            promises.push(q.then(res => {
+              if (res.error) throw res.error;
+              return res.data || [];
+            }));
           }
-          promises.push(q.then(res => {
-            if (res.error) throw res.error;
-            return res.data || [];
-          }));
+          const results = await Promise.all(promises);
+          allRows = allRows.concat(results.flat());
         }
-
-        const results = await Promise.all(promises);
-        allRows = results.flat();
       }
 
       allRows = dedupeLeads(allRows);
@@ -2787,3 +2791,4 @@ function downloadExcelTemplate() {
   XLSX.writeFile(wb, "lead_import_template.xlsx");
   toast.success("Template downloaded! Fill it with your data and re-upload.");
 }
+
