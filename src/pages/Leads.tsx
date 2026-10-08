@@ -2758,4 +2758,4 @@ function downloadExcelTemplate() {
   XLSX.writeFile(wb, "lead_import_template.xlsx");
   toast.success("Template downloaded! Fill it with your data and re-upload.");
 }
-Supabase Agreements API 400 Bad Request - Grok
+
