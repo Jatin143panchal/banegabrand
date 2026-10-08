@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { useCanAssignTasks, useAllProfiles } from "@/hooks/useAdmin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Plus, Search, Loader2, Upload, FileSpreadsheet, Trash2, Edit, Eye,
@@ -674,9 +674,24 @@ export default function Leads() {
   const { data: profiles = [] } = useAllProfiles();
   const logActivity = useLeadActivityLogger();
   
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => ["global_leads_cache", user?.id], [user?.id]);
+  
   // ── State ──
-  const [leads, setLeads] = useState<DbLead[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [leads, _setLeads] = useState<DbLead[]>(() => {
+    return queryClient.getQueryData<DbLead[]>(queryKey) || [];
+  });
+  
+  const setLeads = useCallback((updater: React.SetStateAction<DbLead[]>) => {
+    _setLeads((prev) => {
+      const next = typeof updater === "function" ? (updater as any)(prev) : updater;
+      queryClient.setQueryData(queryKey, next);
+      return next;
+    });
+  }, [queryClient, queryKey]);
+
+  // If we have cached leads, start with isLoading = false so it renders instantly
+  const [isLoading, setIsLoading] = useState(() => !queryClient.getQueryData(queryKey));
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
@@ -696,7 +711,13 @@ export default function Leads() {
 
   const fetchLeads = useCallback(async (silent = false) => {
     try {
-      if (!silent) setIsLoading(true);
+      const hasCachedData = !!queryClient.getQueryData(queryKey);
+      
+      // If not specifically silent, but we already have data, just do a background sync
+      if (!silent && !hasCachedData) {
+        setIsLoading(true);
+      }
+      
       console.log("🔄 Fetching leads for user:", user?.id);
       
       const { data: profile, error: profileError } = await supabase
@@ -714,37 +735,45 @@ export default function Leads() {
       
       const PAGE_SIZE = 1000;
       let allRows: DbLead[] = [];
-      let from = 0;
-      let hasMore = true;
 
-      while (hasMore) {
-        let query = supabase
-          .from("leads")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .range(from, from + PAGE_SIZE - 1);
+      // 1. Get the exact count of leads first to know how many batches we need
+      let countQuery = supabase.from("leads").select("*", { count: "exact", head: true });
+      if (!isAdmin && user?.id) {
+        countQuery = countQuery.eq("assigned_to", user.id);
+      }
+      
+      const { count, error: countError } = await countQuery;
+      if (countError) {
+        console.error("❌ Supabase count error:", countError);
+        throw countError;
+      }
 
-        // Employees: only their assigned leads
-        if (!isAdmin && user?.id) {
-          query = query.eq("assigned_to", user.id);
+      const totalLeads = count || 0;
+      const totalPages = Math.ceil(totalLeads / PAGE_SIZE);
+      
+      if (totalLeads > 0) {
+        console.log(`📦 Fetching ${totalLeads} leads in ${totalPages} parallel batches...`);
+        
+        // 2. Fire all requests in parallel
+        const promises = [];
+        for (let i = 0; i < totalPages; i++) {
+          let q = supabase
+            .from("leads")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .range(i * PAGE_SIZE, (i + 1) * PAGE_SIZE - 1);
+            
+          if (!isAdmin && user?.id) {
+            q = q.eq("assigned_to", user.id);
+          }
+          promises.push(q.then(res => {
+            if (res.error) throw res.error;
+            return res.data || [];
+          }));
         }
 
-        const { data, error } = await query;
-
-        if (error) {
-          console.error("❌ Supabase error:", error);
-          throw error;
-        }
-
-        const batch = (data as DbLead[]) || [];
-        allRows = allRows.concat(batch);
-        console.log(`📦 Batch ${from / PAGE_SIZE + 1}: ${batch.length} rows (total so far: ${allRows.length})`);
-
-        if (batch.length < PAGE_SIZE) {
-          hasMore = false;
-        } else {
-          from += PAGE_SIZE;
-        }
+        const results = await Promise.all(promises);
+        allRows = results.flat();
       }
 
       allRows = dedupeLeads(allRows);
