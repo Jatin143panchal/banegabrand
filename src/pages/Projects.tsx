@@ -3770,7 +3770,7 @@ export default function Projects() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterStage, setFilterStage] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [sortBy, setSortBy] = useState<"date_asc" | "date_desc" | "priority">("priority");
+  const [sortBy, setSortBy] = useState<"newest" | "date_asc" | "date_desc" | "priority">("newest");
   const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
@@ -5067,6 +5067,11 @@ export default function Projects() {
         return matchSearch && matchStatus && matchStage && matchPriority;
       })
       .sort((a, b) => {
+        if (sortBy === "newest") {
+          const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return db - da; // Newest first
+        }
         if (sortBy === "priority") {
           return (PROJECT_PRIORITY_RANK[a.priority] ?? 1) - (PROJECT_PRIORITY_RANK[b.priority] ?? 1);
         }
@@ -10913,9 +10918,9 @@ export default function Projects() {
             </Select>
             <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
               <SelectTrigger className="w-48"><SelectValue placeholder="Sort by" /></SelectTrigger>
-              <SelectContent><SelectItem value="date_asc">Launch Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">Launch Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
+              <SelectContent><SelectItem value="newest">🕒 Newest First</SelectItem><SelectItem value="date_asc">Launch Date (Nearest)</SelectItem><SelectItem value="date_desc">Launch Date (Farthest)</SelectItem><SelectItem value="priority">⚡ Priority (High → Low)</SelectItem></SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("priority"); }}>
+            <Button variant="outline" size="sm" onClick={() => { setSearch(""); setFilterStatus("all"); setFilterStage("all"); setFilterPriority("all"); setSortBy("newest"); }}>
               <X className="h-4 w-4 mr-1" />Clear
             </Button>
           </div>
