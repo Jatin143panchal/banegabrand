@@ -584,14 +584,21 @@ async function sendStageCompletedEmail(project: Project, stageLabel: string, com
 function computeStageCompletionPercent(stages: { stage_name?: string | null; status?: string | null }[]): number {
   const total = PROJECT_STAGES.length;
   if (!total) return 0;
+  if (!stages || stages.length === 0) return 0;
   const done = PROJECT_STAGES.filter((ps) => {
     const item = stages.find((st) => {
-      const name = (st.stage_name || "").toLowerCase();
-      return name === ps.label.toLowerCase() || name === ps.value.toLowerCase();
+      const name = (st.stage_name || "").toLowerCase().trim();
+      const status = (st.status || "").toLowerCase().trim();
+      if (status !== "completed") return false;
+      // Match by label or value (handles both DB naming styles)
+      if (name === ps.label.toLowerCase() || name === ps.value.toLowerCase()) return true;
+      // Normalized slug form of the label (e.g. "brand identity" → "brand_identity")
+      const slug = name.replace(/[\s/()]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+      return slug === ps.value.toLowerCase();
     });
-    return item?.status === "completed";
+    return !!item;
   }).length;
-  return Math.round((done / total) * 100);
+  return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
 }
 
 function serializeBrandKit(fields: Record<string, string>, imageUrl: string | null) {
@@ -5141,7 +5148,29 @@ export default function Projects() {
         .select("*")
         .eq("project_id", projectId)
         .order("stage_order");
-      if (stagesData) setProjectStages(stagesData);
+      if (stagesData) {
+        setProjectStages(stagesData);
+        // Keep projects.completion_percentage in sync with live stage progress
+        const livePct = computeStageCompletionPercent(stagesData);
+        setSelectedProject((prev) =>
+          prev && prev.id === projectId ? { ...prev, completion_percentage: livePct } : prev
+        );
+        // Soft-sync DB + list cache (no await needed for UI)
+        if (typeof livePct === "number") {
+          supabase
+            .from("projects")
+            .update({ completion_percentage: livePct, updated_at: new Date().toISOString() })
+            .eq("id", projectId)
+            .then(() => {
+              queryClient.setQueryData(["projects"], (oldData: any) => {
+                if (!oldData) return oldData;
+                return oldData.map((p: any) =>
+                  p.id === projectId ? { ...p, completion_percentage: livePct } : p
+                );
+              });
+            });
+        }
+      }
 
       const { data: tasksData } = await supabase
         .from("project_tasks")
@@ -5502,46 +5531,14 @@ export default function Projects() {
         created_by_email: user?.email || null,
       });
 
-      // Send client onboarding Scope of Work email if client email is provided
-      if (newProject.client_email?.trim()) {
-        try {
-          const res = await sendProjectCreatedEmail({
-            to: newProject.client_email.trim(),
-            clientName: newProject.name,
-            brandName: newProject.brand_name || newProject.name,
-            projectId: projectId,
-            projectType: newProject.project_type || "perfume",
-            productCategory: newProject.product_category,
-            productsToLaunch: newProject.products_to_launch,
-            startDate: newProject.start_date,
-            expectedLaunchDate: newProject.expected_launch_date,
-            projectValue: newProject.project_value,
-            clientPhone: newProject.client_phone,
-            clientAddress: newProject.client_address,
-            projectManager: newProject.project_manager_name?.trim() || "Pankaj Singh",
-            projectManagerName: newProject.project_manager_name?.trim() || "Pankaj Singh",
-            projectManagerEmail: newProject.project_manager_email?.trim() || "pankaj@banegabrand.com",
-            projectManagerPhone: newProject.project_manager_phone?.trim() || "+91 9717943312",
-            projectDescription: newProject.product_category_note || undefined,
-          });
+      // Onboarding email is MANUAL only — use "Send Onboarding Email" button on project detail.
+      // Do NOT auto-send on project create.
 
-          if (res.success) {
-            await supabase.from("project_notes").insert({
-              project_id: data.id,
-              note_type: "communication",
-              title: "Client Onboarding Email Dispatched",
-              content: `Onboarding email with full 10-step Scope of Work & Deliverables dispatched to client at ${newProject.client_email}. Assigned PM: ${newProject.project_manager_name} (${newProject.project_manager_phone}).`,
-              created_by: user?.email || null,
-              created_by_email: user?.email || null,
-            });
-            queryClient.invalidateQueries({ queryKey: ["onboarding_email_sent_projects"] });
-          }
-        } catch (emailErr) {
-          console.error("Auto onboarding email dispatch error:", emailErr);
-        }
-      }
-
-      toast.success("Project created successfully!");
+      toast.success(
+        newProject.client_email?.trim()
+          ? "Project created successfully! Open the project and click “Send Onboarding Email” when ready."
+          : "Project created successfully!"
+      );
       setDialogOpen(false);
       setNewProject({
         name: "",
@@ -8286,9 +8283,22 @@ export default function Projects() {
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>Project Progress</span>
-            <span className="font-semibold">{computeStageCompletionPercent(projectStages) || selectedProject.completion_percentage || 0}%</span>
+            <span className="font-semibold">
+              {(() => {
+                const live = computeStageCompletionPercent(projectStages);
+                // Prefer live stage calc when stages are loaded; never treat 0 as falsy
+                const pct = projectStages.length > 0 ? live : (selectedProject.completion_percentage ?? 0);
+                return pct;
+              })()}%
+            </span>
           </div>
-          <Progress value={computeStageCompletionPercent(projectStages) || selectedProject.completion_percentage || 0} className="h-3" />
+          <Progress
+            value={(() => {
+              const live = computeStageCompletionPercent(projectStages);
+              return projectStages.length > 0 ? live : (selectedProject.completion_percentage ?? 0);
+            })()}
+            className="h-3"
+          />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Started: {selectedProject.start_date ? format(new Date(selectedProject.start_date), "dd MMM yyyy") : "N/A"}</span>
             <span>Launch: {selectedProject.expected_launch_date ? format(new Date(selectedProject.expected_launch_date), "dd MMM yyyy") : "N/A"}</span>
@@ -10740,7 +10750,7 @@ export default function Projects() {
                       <div className="flex items-center justify-between">
                         <Label>Client Email</Label>
                         <span className="text-[11px] text-muted-foreground font-normal flex items-center gap-1">
-                          <Mail className="h-3 w-3 text-primary" /> Full process roadmap will be emailed automatically
+                          <Mail className="h-3 w-3 text-primary" /> Onboarding email is manual — send from project page when ready
                         </span>
                       </div>
                       <Input
