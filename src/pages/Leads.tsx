@@ -2780,4 +2780,3 @@ function downloadExcelTemplate() {
   XLSX.writeFile(wb, "lead_import_template.xlsx");
   toast.success("Template downloaded! Fill it with your data and re-upload.");
 }
-
