@@ -1398,64 +1398,7 @@ export default function Leads() {
     let success = 0;
     let skipped = 0;
 
-    const normEmail = (e: string | null | undefined) =>
-      String(e ?? "").toLowerCase().trim();
-    const normPhone = (p: string | null | undefined) =>
-      String(p ?? "").replace(/\D/g, "");
-    const isFakeEmail = (e: string) =>
-      !e ||
-      ["no mail", "nomail", "n/a", "na", "none", "-", "null"].includes(e);
-
-    const emailsInFile = [
-      ...new Set(
-        uploadPreview
-          .map((l: any) => normEmail(l.email))
-          .filter((e: string) => e && !isFakeEmail(e))
-      ),
-    ];
-    const phonesInFile = [
-      ...new Set(
-        uploadPreview
-          .map((l: any) => normPhone(l.phone))
-          .filter((p: string) => p.length >= 8)
-      ),
-    ];
-
-    const existingEmails = new Set<string>();
-    const existingPhones = new Set<string>();
-
-    try {
-      if (emailsInFile.length > 0) {
-        for (let i = 0; i < emailsInFile.length; i += 100) {
-          const chunk = emailsInFile.slice(i, i + 100);
-          const { data } = await supabase
-            .from("leads")
-            .select("email")
-            .in("email", chunk);
-          (data || []).forEach((r: any) => {
-            const e = normEmail(r.email);
-            if (e && !isFakeEmail(e)) existingEmails.add(e);
-          });
-        }
-      }
-      if (phonesInFile.length > 0) {
-        for (let i = 0; i < phonesInFile.length; i += 100) {
-          const chunk = phonesInFile.slice(i, i + 100);
-          const { data } = await supabase
-            .from("leads")
-            .select("phone")
-            .in("phone", chunk);
-          (data || []).forEach((r: any) => {
-            const p = normPhone(r.phone);
-            if (p.length >= 8) existingPhones.add(p);
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Duplicate pre-check failed:", err);
-    }
-
-    const seenInFile = new Set<string>();
+    // No duplicate check — DB mein pehle se same email/phone ho to bhi naya lead add hoga
     const toInsert: any[] = [];
 
     for (const lead of uploadPreview) {
@@ -1465,38 +1408,18 @@ export default function Leads() {
         continue;
       }
 
-      const emailKey = normEmail(lead.email);
-      const phoneKey = normPhone(lead.phone);
-      const hasRealEmail = !!(emailKey && !isFakeEmail(emailKey));
-      const hasRealPhone = phoneKey.length >= 8;
-
-      const fileKey = hasRealEmail
-        ? `e:${emailKey}`
-        : hasRealPhone
-        ? `p:${phoneKey}`
-        : `n:${leadName.toLowerCase()}`;
-
-      if (seenInFile.has(fileKey)) {
-        skipped++;
-        continue;
-      }
-      seenInFile.add(fileKey);
-
-      if (hasRealEmail && existingEmails.has(emailKey)) {
-        skipped++;
-        continue;
-      }
-      if (hasRealPhone && existingPhones.has(phoneKey)) {
-        skipped++;
-        continue;
-      }
-
-      if (hasRealEmail) existingEmails.add(emailKey);
-      if (hasRealPhone) existingPhones.add(phoneKey);
+      const rawEmail = String(lead.email ?? "").trim();
+      const email =
+        !rawEmail ||
+        ["no mail", "nomail", "n/a", "na", "none", "-", "null", "undefined"].includes(
+          rawEmail.toLowerCase()
+        )
+          ? null
+          : rawEmail;
 
       toInsert.push({
         name: leadName,
-        email: hasRealEmail ? String(lead.email ?? "").trim() : null,
+        email,
         phone: lead.phone || null,
         company: lead.company || null,
         source: lead.source || "Excel Import",
@@ -1517,7 +1440,7 @@ export default function Leads() {
       });
     }
 
-    // Batch insert in chunks of 50 (fast + avoids payload limits)
+    // Batch insert in chunks of 50
     const CHUNK = 50;
     for (let i = 0; i < toInsert.length; i += CHUNK) {
       const chunk = toInsert.slice(i, i + CHUNK);
@@ -1525,15 +1448,20 @@ export default function Leads() {
         const { error, data } = await supabase.from("leads").insert(chunk).select("id");
         if (error) {
           console.error("Batch insert error:", error.message);
-          // fallback: try one-by-one for this chunk
           for (const row of chunk) {
             try {
               const { error: e2 } = await supabase.from("leads").insert(row);
-              if (e2) { skipped++; } else { success++; }
-            } catch { skipped++; }
+              if (e2) {
+                skipped++;
+              } else {
+                success++;
+              }
+            } catch {
+              skipped++;
+            }
           }
         } else {
-          success += (data?.length ?? chunk.length);
+          success += data?.length ?? chunk.length;
         }
       } catch (err) {
         console.error("Batch import error:", err);
@@ -1551,9 +1479,7 @@ export default function Leads() {
     setImportSummary({ imported: success });
 
     if (skipped > 0) {
-      toast.success(
-        `${success} leads imported · ${skipped} duplicates skipped`
-      );
+      toast.success(`${success} leads imported · ${skipped} rows skipped (empty name / error)`);
     } else {
       toast.success(`${success} leads imported`);
     }
