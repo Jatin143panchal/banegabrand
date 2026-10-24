@@ -10,8 +10,8 @@ interface RoleGuardProps {
 }
 
 export function RoleGuard({ allowed, children, fallback = "/" }: RoleGuardProps) {
-  const { data: roles, isLoading } = useUserRoles();
-  const hasAccess = useHasRole(...allowed);
+  const { data: roles = [], isLoading } = useUserRoles();
+  const { data: hasAccess = false } = useHasRole(...allowed);
 
   if (isLoading) {
     return (
@@ -21,7 +21,7 @@ export function RoleGuard({ allowed, children, fallback = "/" }: RoleGuardProps)
     );
   }
 
-  if (!roles || !hasAccess) {
+  if (!hasAccess) {
     return <Navigate to={fallback} replace />;
   }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useHasRole } from "@/hooks/useAdmin";
+import { useIsAdmin } from "@/hooks/useAdmin";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ interface Employee { user_id: string; display_name: string | null; avatar_url: s
 
 export default function BroadcastNotifications() {
   const { user } = useAuth();
-  const canSend = useHasRole("owner", "admin", "hr_manager");
+  const { data: canSend = false } = useIsAdmin();
   const { toast } = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());

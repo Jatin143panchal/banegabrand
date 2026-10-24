@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useIsOwnerOrAdmin, useHasRole } from "@/hooks/useAdmin";
+import { useIsAdmin } from "@/hooks/useAdmin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,8 @@ interface WeeklyReport { id: string; user_id: string; week_start: string; summar
 interface Activity { id: string; user_id: string; assigned_to: string | null; title: string; task_status: string; due_date: string | null; }
 
 export default function EmployeeDirectory() {
-  const isOwnerOrAdmin = useIsOwnerOrAdmin();
-  const isHR = useHasRole("hr_manager");
-  const canView = isOwnerOrAdmin || isHR;
+  const { data: isAdmin = false } = useIsAdmin();
+  const canView = isAdmin;
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);

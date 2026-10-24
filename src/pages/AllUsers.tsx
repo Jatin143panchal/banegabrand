@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { Loader2, Pencil, Search, Users, Bell } from "lucide-react";
 
-const ROLES: AppRole[] = ["owner", "admin", "hr_manager", "tl", "employee"];
+const ROLES: AppRole[] = ["admin", "employee"];
 const STATUSES = ["active", "inactive", "on_leave"];
 
 interface Profile {
@@ -34,7 +34,7 @@ interface Profile {
 interface Role { id: string; user_id: string; role: string; }
 
 export default function AllUsers() {
-  const canManage = useIsOwnerOrAdmin();
+  const { data: canManage = false, isLoading: authLoading } = useIsOwnerOrAdmin();
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -134,11 +134,19 @@ export default function AllUsers() {
     setNotifTitle(""); setNotifMsg(""); setNotifOpen(false);
   };
 
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   if (!canManage) {
     return (
       <Card className="max-w-lg mx-auto mt-12">
         <CardContent className="p-8 text-center text-muted-foreground">
-          Only Owner or Admin can view all users.
+          Only Admin can view all users.
         </CardContent>
       </Card>
     );

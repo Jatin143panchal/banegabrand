@@ -10,14 +10,15 @@ import { Loader2, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useIsAdmin, AppRole } from "@/hooks/useAdmin";
 
-const ROLES: AppRole[] = ["owner", "admin", "hr_manager", "tl", "employee", "user"];
+const ROLES: AppRole[] = ["admin", "employee"];
 const roleColor: Record<string, string> = {
-  owner: "bg-purple-500/10 text-purple-700 dark:text-purple-300",
-  admin: "bg-red-500/10 text-red-700 dark:text-red-300",
-  hr_manager: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
-  tl: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  admin: "bg-red-500/10 text-red-700 dark:text-red-300 font-semibold",
   employee: "bg-green-500/10 text-green-700 dark:text-green-300",
-  user: "bg-muted text-muted-foreground",
+  // Fallbacks for any legacy rows in database
+  owner: "bg-red-500/10 text-red-700 dark:text-red-300 font-semibold",
+  tl: "bg-red-500/10 text-red-700 dark:text-red-300 font-semibold",
+  hr_manager: "bg-green-500/10 text-green-700 dark:text-green-300",
+  user: "bg-green-500/10 text-green-700 dark:text-green-300",
 };
 
 interface Profile { id: string; user_id: string; display_name: string | null; }

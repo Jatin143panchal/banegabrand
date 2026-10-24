@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { useCanAssignTasks, useAllProfiles } from "@/hooks/useAdmin";
+import { useCanAssignTasks, useAllProfiles, isUserAdmin } from "@/hooks/useAdmin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLeadActivityLogger } from "@/hooks/useLeadActivity";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -151,6 +151,41 @@ const FOLLOWUP_BUCKETS = [
 let cachedTodayDate = "";
 let cachedTodayStart = 0;
 
+/** Safari/WebKit & cross-browser safe date parser */
+export function parseSafeDate(dateInput: any): Date | null {
+  if (!dateInput) return null;
+  if (dateInput instanceof Date) {
+    return isNaN(dateInput.getTime()) ? null : dateInput;
+  }
+  if (typeof dateInput === "number") {
+    const d = new Date(dateInput);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof dateInput === "string") {
+    const str = dateInput.trim();
+    if (!str) return null;
+    // Fix Safari ISO string parsing where space is used instead of T
+    // e.g. "2024-10-24 16:00:00" -> "2024-10-24T16:00:00"
+    const normalized = str.replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:)/, "$1T$2");
+    const d = new Date(normalized);
+    if (!isNaN(d.getTime())) return d;
+    const fallback = new Date(str);
+    if (!isNaN(fallback.getTime())) return fallback;
+  }
+  return null;
+}
+
+/** Formats dates safely without throwing RangeError in Safari/WebKit */
+export function safeFormatDate(dateInput: any, fmt = "dd MMM yyyy", fallback = "-"): string {
+  const d = parseSafeDate(dateInput);
+  if (!d) return fallback;
+  try {
+    return format(d, fmt);
+  } catch {
+    return fallback;
+  }
+}
+
 function getTodayStartTime(): number {
   const dateStr = new Date().toDateString();
   if (dateStr !== cachedTodayDate) {
@@ -162,7 +197,9 @@ function getTodayStartTime(): number {
 
 function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" | "today" | "upcoming" | null {
   if (!nextCallDate) return null;
-  const d = startOfDay(new Date(nextCallDate)).getTime();
+  const parsed = parseSafeDate(nextCallDate);
+  if (!parsed) return null;
+  const d = startOfDay(parsed).getTime();
   const todayTime = getTodayStartTime();
   const diffDays = Math.floor((todayTime - d) / 86400000);
   // upcoming = future, today = due today, overdue = 1 or 2 days past only
@@ -280,7 +317,7 @@ function FollowupPill({ nextCallDate }: { nextCallDate: string | null | undefine
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ color: cfg.color, background: cfg.bg, borderColor: `${cfg.color}30` }}>
         <span>{cfg.icon}</span>{cfg.label}
       </span>
-      <span className="text-[10px] text-muted-foreground">{format(new Date(nextCallDate), "dd MMM yyyy")}</span>
+      <span className="text-[10px] text-muted-foreground">{safeFormatDate(nextCallDate, "dd MMM yyyy")}</span>
     </div>
   );
 }
@@ -306,11 +343,19 @@ function FollowUpSection({
         const bucket = getFollowupBucket(l.next_call_date);
         if (!bucket) return false;
         if (bucketFilter !== "all" && bucket !== bucketFilter) return false;
-        if (fuDateFrom && new Date(l.next_call_date as string) < new Date(fuDateFrom)) return false;
-        if (fuDateTo && new Date(l.next_call_date as string) > new Date(fuDateTo + "T23:59:59")) return false;
+        if (fuDateFrom) {
+          const from = parseSafeDate(fuDateFrom);
+          const current = parseSafeDate(l.next_call_date);
+          if (from && current && current < from) return false;
+        }
+        if (fuDateTo) {
+          const to = parseSafeDate(fuDateTo + "T23:59:59") || parseSafeDate(fuDateTo);
+          const current = parseSafeDate(l.next_call_date);
+          if (to && current && current > to) return false;
+        }
         return true;
       })
-      .sort((a, b) => new Date(a.next_call_date as string).getTime() - new Date(b.next_call_date as string).getTime());
+      .sort((a, b) => (parseSafeDate(a.next_call_date)?.getTime() ?? 0) - (parseSafeDate(b.next_call_date)?.getTime() ?? 0));
   }, [leads, bucketFilter, fuDateFrom, fuDateTo]);
 
   const counts = useMemo(() => {
@@ -447,7 +492,7 @@ function FollowUpSection({
                         </span>
                       )}
                       <p className="text-[11px] text-muted-foreground mt-1">
-                        {format(new Date(lead.next_call_date as string), "dd MMM yyyy")}
+                        {safeFormatDate(lead.next_call_date, "dd MMM yyyy")}
                       </p>
                     </div>
                     {lead.phone && (
@@ -643,6 +688,16 @@ export default function Leads() {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         }
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith("banega_leads_cache")) {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const p = JSON.parse(raw);
+              if (Array.isArray(p) && p.length > 0) return p;
+            }
+          }
+        }
       } catch (e) {}
     }
     return [];
@@ -680,9 +735,19 @@ export default function Leads() {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) return false;
         }
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith("banega_leads_cache")) {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const p = JSON.parse(raw);
+              if (Array.isArray(p) && p.length > 0) return false;
+            }
+          }
+        }
       } catch (e) {}
     }
-    return true;
+    return false;
   });
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -715,21 +780,22 @@ export default function Leads() {
         setIsLoading(true);
       }
       
-      const isAdmin = !!canAssignRef.current;
+      const isAdmin = !!canAssignRef.current || isUserAdmin(userRef.current);
       
-      // ⚡ STEP 1: Fast initial batch (100 leads) so user sees UI instantly (in ~50ms)
-      const FIRST_BATCH = 100;
+      // ⚡ STEP 1: Fast initial batch of 1,000 leads + exact count in single query
+      const BATCH_SIZE = 1000;
       let firstQuery = supabase
         .from("leads")
-        .select("*")
+        .select("*", { count: "exact" })
         .order("created_at", { ascending: false })
-        .range(0, FIRST_BATCH - 1);
+        .range(0, BATCH_SIZE - 1);
 
-      if (!isAdmin && userRef.current?.id) {
+      // Only restrict query if we are certain the user is a non-admin employee and roles are not loading
+      if (!isAdmin && !rolesLoading && userRef.current?.id) {
         firstQuery = firstQuery.eq("assigned_to", userRef.current.id);
       }
 
-      const { data: firstData, error: firstError } = await firstQuery;
+      const { data: firstData, count: totalCount, error: firstError } = await firstQuery;
       if (firstError) {
         console.error("❌ Supabase error on first batch:", firstError);
         throw firstError;
@@ -737,59 +803,87 @@ export default function Leads() {
 
       const firstRows = (firstData as DbLead[]) || [];
       
-      // 🚀 TURANT DIKHE: Immediately show initial rows and remove loading spinner!
+      // 🚀 TURANT DIKHE: Immediately show initial 1000 rows and remove loading spinner!
       setLeads((prev) => {
         if (prev.length === 0) return firstRows;
         return dedupeLeads([...firstRows, ...prev]);
       });
       setIsLoading(false);
 
-      // If database has less than FIRST_BATCH, we're done!
-      if (firstRows.length < FIRST_BATCH) {
-        setLeads(firstRows);
+      // If database has fewer than BATCH_SIZE or totalCount is known and <= BATCH_SIZE, all leads are already loaded!
+      if (firstRows.length < BATCH_SIZE || (typeof totalCount === "number" && totalCount <= BATCH_SIZE)) {
+        if (firstRows.length > 0 || !hasCachedData) {
+          setLeads(firstRows);
+        }
         return firstRows;
       }
 
-      // ⚡ STEP 2: Progressively stream in remaining leads without intermediate UI jank
-      const PAGE_SIZE = 1000;
-      let from = FIRST_BATCH;
-      let hasMore = true;
+      // ⚡ STEP 2: Concurrently fetch ALL remaining leads in fast parallel waves (4,000 leads per wave)
+      // No 4,000 lead limit — dynamically fetches every single lead up to totalCount (or end of table)
       let allRows: DbLead[] = [...firstRows];
+      let currentOffset = BATCH_SIZE;
+      const PARALLEL_WAVE_SIZE = 4; // 4 concurrent requests per wave
+      let hasMore = true;
 
       while (hasMore) {
-        let query = supabase
-          .from("leads")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .range(from, from + PAGE_SIZE - 1);
-
-        if (!isAdmin && userRef.current?.id) {
-          query = query.eq("assigned_to", userRef.current.id);
+        const waveRanges: { from: number; to: number }[] = [];
+        for (let i = 0; i < PARALLEL_WAVE_SIZE; i++) {
+          const from = currentOffset + (i * BATCH_SIZE);
+          if (typeof totalCount === "number" && from >= totalCount) {
+            break;
+          }
+          waveRanges.push({ from, to: from + BATCH_SIZE - 1 });
         }
 
-        const { data, error } = await query;
-        if (error) {
-          console.error("❌ Background fetch batch error:", error);
+        if (waveRanges.length === 0) {
           break;
         }
 
-        const batch = (data as DbLead[]) || [];
-        if (batch.length > 0) {
-          allRows = allRows.concat(batch);
+        const wavePromises = waveRanges.map(async ({ from, to }) => {
+          let q = supabase
+            .from("leads")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .range(from, to);
+
+          if (!isAdmin && !rolesLoading && userRef.current?.id) {
+            q = q.eq("assigned_to", userRef.current.id);
+          }
+
+          const { data, error } = await q;
+          if (error) {
+            console.warn(`Fetch batch ${from}-${to} error:`, error);
+            return [];
+          }
+          return (data as DbLead[]) || [];
+        });
+
+        const waveResults = await Promise.all(wavePromises);
+        let hitLastBatch = false;
+
+        for (const batch of waveResults) {
+          if (batch.length > 0) {
+            allRows = allRows.concat(batch);
+          }
+          if (batch.length < BATCH_SIZE) {
+            hitLastBatch = true;
+          }
         }
 
-        if (batch.length < PAGE_SIZE) {
+        // Increment offset by total rows requested in this wave
+        currentOffset += waveRanges.length * BATCH_SIZE;
+
+        // Progressively update leads table so users see leads appearing in real time!
+        const progressiveRows = dedupeLeads(allRows);
+        setLeads(progressiveRows);
+
+        if (hitLastBatch || (typeof totalCount === "number" && currentOffset >= totalCount)) {
           hasMore = false;
-        } else {
-          from += PAGE_SIZE;
         }
       }
 
-      // Single smooth update once background loading finishes
       const finalRows = dedupeLeads(allRows);
-      if (finalRows.length > firstRows.length) {
-        setLeads(finalRows);
-      }
+      setLeads(finalRows);
       return finalRows;
     } catch (error) {
       console.error("❌ Error fetching leads:", error);
@@ -1201,19 +1295,25 @@ export default function Leads() {
 
   const filterPresetOptions = useMemo(() => ({
     all: () => true,
-    today: (l: DbLead) => isToday(new Date(l.created_at)),
-    fresh: (l: DbLead) => 
-      (l.status === "new" || l.stage === "ringing") && 
-      new Date(l.created_at) >= subDays(new Date(), 3),
-    followup: (l: DbLead) => 
-      l.next_call_date && new Date(l.next_call_date) <= new Date()
+    today: (l: DbLead) => {
+      const d = parseSafeDate(l.created_at);
+      return d ? isToday(d) : false;
+    },
+    fresh: (l: DbLead) => {
+      const d = parseSafeDate(l.created_at);
+      return (l.status === "new" || l.stage === "ringing") && !!d && d >= subDays(new Date(), 3);
+    },
+    followup: (l: DbLead) => {
+      const d = parseSafeDate(l.next_call_date);
+      return !!d && d <= new Date();
+    }
   }), []);
 
   const filtered = useMemo(() => {
     const presetFn = filterPresetOptions[filterPreset as keyof typeof filterPresetOptions] || (() => true);
     const searchLower = search.trim().toLowerCase();
-    const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
-    const toTime = dateTo ? new Date(dateTo + "T23:59:59").getTime() : null;
+    const fromTime = dateFrom ? (parseSafeDate(dateFrom)?.getTime() ?? null) : null;
+    const toTime = dateTo ? (parseSafeDate(dateTo + "T23:59:59")?.getTime() ?? parseSafeDate(dateTo)?.getTime() ?? null) : null;
     
     return leads.filter(l => {
       const matchSearch =
@@ -1241,9 +1341,9 @@ export default function Leads() {
       }
 
       if (fromTime !== null || toTime !== null) {
-        const createdTime = new Date(l.created_at).getTime();
-        if (fromTime !== null && createdTime < fromTime) return false;
-        if (toTime !== null && createdTime > toTime) return false;
+        const createdTime = parseSafeDate(l.created_at)?.getTime() ?? null;
+        if (fromTime !== null && createdTime !== null && createdTime < fromTime) return false;
+        if (toTime !== null && createdTime !== null && createdTime > toTime) return false;
       }
 
       return presetFn(l);
@@ -1256,7 +1356,10 @@ export default function Leads() {
     let base: DbLead[];
     switch (statsFilter) {
       case "today":
-        base = filtered.filter(l => isToday(new Date(l.created_at)));
+        base = filtered.filter(l => {
+          const d = parseSafeDate(l.created_at);
+          return d ? isToday(d) : false;
+        });
         break;
       case "followup":
         base = filtered.filter(l => {
@@ -1280,13 +1383,15 @@ export default function Leads() {
     }
 
     // Employees: table shows only their assigned leads (pool is a separate section)
-    if (!canAssign && user?.id) {
+    // Only restrict if roles are completely loaded and user is confirmed NOT an admin
+    if (!rolesLoading && !canAssign && !isUserAdmin(user) && user?.id) {
       base = base.filter(l => l.assigned_to === user.id);
     }
 
     if (!showAllLeads && statsFilter === "all") {
       return base.filter(l => {
-        const isTodayLead = isToday(new Date(l.created_at));
+        const d = parseSafeDate(l.created_at);
+        const isTodayLead = d ? isToday(d) : false;
         const bucket = getFollowupBucket(l.next_call_date);
         const isActiveFollowup =
           !!bucket && l.stage !== "converted" && l.stage !== "lost";
@@ -1294,7 +1399,7 @@ export default function Leads() {
       });
     }
     return base;
-  }, [filtered, statsFilter, showAllLeads, canAssign, user?.id]);
+  }, [filtered, statsFilter, showAllLeads, canAssign, rolesLoading, user?.id, user]);
 
   const totalPages = Math.ceil(dashboardLeads.length / itemsPerPage);
   const currentItems = useMemo(() => {
@@ -1559,10 +1664,10 @@ export default function Leads() {
       Source: l.source, Status: l.status, Value: l.value,
       "Business Status": l.business_status,
       "Assigned To": getProfileName(l.assigned_to),
-      "Assign Date": l.assign_date ? format(new Date(l.assign_date), "dd MMM yyyy") : "",
-      "Created At": format(new Date(l.created_at), "dd MMM yyyy"),
+      "Assign Date": safeFormatDate(l.assign_date, "dd MMM yyyy", ""),
+      "Created At": safeFormatDate(l.created_at, "dd MMM yyyy", ""),
       "Lost Reason": l.lost_reason || "",
-      "Lost Date": l.lost_date ? format(new Date(l.lost_date), "dd MMM yyyy") : "",
+      "Lost Date": safeFormatDate(l.lost_date, "dd MMM yyyy", ""),
       "Temperature": l.temperature || "Warm",
     }));
   }, [getProfileName]);
@@ -1624,7 +1729,7 @@ export default function Leads() {
   }, [detailLead, logActivity, fetchLeads]);
 
   const stats = useMemo(() => {
-    const isEmp = !canAssign && !!user?.id;
+    const isEmp = !rolesLoading && !canAssign && !isUserAdmin(user) && !!user?.id;
     let totalLeads = 0;
     let totalValue = 0;
     let convertedCount = 0;
@@ -1647,7 +1752,8 @@ export default function Leads() {
       else if (l.temperature === "warm") warmCount++;
       else if (l.temperature === "cold") coldCount++;
 
-      if (new Date(l.created_at).toDateString() === todayDateStr) {
+      const lDate = parseSafeDate(l.created_at);
+      if (lDate && lDate.toDateString() === todayDateStr) {
         todayCount++;
       }
 
@@ -1658,7 +1764,7 @@ export default function Leads() {
     }
 
     return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount, todayCount, followupCount };
-  }, [leads, canAssign, user?.id]);
+  }, [leads, canAssign, rolesLoading, user?.id, user]);
 
   // Pre-computed employee lead counts (single pass)
   const employeeLeadStats = useMemo(() => {
@@ -1703,7 +1809,7 @@ export default function Leads() {
       .sort((a, b) => b.count - a.count);
   }, [profiles, employeeLeadStats]);
 
-  if (isLoading) return (
+  if (isLoading && leads.length === 0) return (
     <div className="flex items-center justify-center h-64">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
     </div>
@@ -2423,7 +2529,7 @@ export default function Leads() {
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="unassigned">Unassigned</SelectItem>
-                                  {typedProfiles.map(p => (
+                                  {typedProfiles.filter(p => !!p?.user_id).map(p => (
                                     <SelectItem key={p.user_id} value={p.user_id}>
                                       {p.display_name || "Unknown"}
                                     </SelectItem>
@@ -2435,8 +2541,8 @@ export default function Leads() {
                           <TableCell className="hidden lg:table-cell">{lead.lead_type ? (<span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium">{lead.lead_type}</span>) : "-"}</TableCell>
                           <TableCell className="hidden lg:table-cell text-sm text-foreground">{lead.budget || "-"}</TableCell>
                           <TableCell><ScoreBadge score={score} /></TableCell>
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{format(new Date(lead.created_at), "dd MMM yyyy")}</TableCell>
-                          <TableCell className="hidden xl:table-cell text-xs text-muted-foreground whitespace-nowrap">{lead.assign_date ? format(new Date(lead.assign_date), "dd MMM yyyy") : "-"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{safeFormatDate(lead.created_at, "dd MMM yyyy")}</TableCell>
+                          <TableCell className="hidden xl:table-cell text-xs text-muted-foreground whitespace-nowrap">{safeFormatDate(lead.assign_date, "dd MMM yyyy", "-")}</TableCell>
                           <TableCell><div className="flex gap-1">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openLeadDetail(lead)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditLead(lead)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
@@ -2551,8 +2657,8 @@ export default function Leads() {
                 <div><p className="text-muted-foreground text-xs">Value</p><p className="font-medium">{formatCurrency(detailLead.value || 0)}</p></div>
                 <div><p className="text-muted-foreground text-xs">Business Status</p><p className="font-medium">{detailLead.business_status || "Active"}</p></div>
                 <div><p className="text-muted-foreground text-xs">Assigned To</p><p className="font-medium">{getProfileName(detailLead.assigned_to)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Assign Date</p><p className="font-medium">{detailLead.assign_date ? format(new Date(detailLead.assign_date), "dd MMM yyyy") : "-"}</p></div>
-                <div><p className="text-muted-foreground text-xs">Created At</p><p className="font-medium">{format(new Date(detailLead.created_at), "dd MMM yyyy")}</p></div>
+                <div><p className="text-muted-foreground text-xs">Assign Date</p><p className="font-medium">{safeFormatDate(detailLead.assign_date, "dd MMM yyyy", "-")}</p></div>
+                <div><p className="text-muted-foreground text-xs">Created At</p><p className="font-medium">{safeFormatDate(detailLead.created_at, "dd MMM yyyy")}</p></div>
                 {detailLead.lost_reason && (<div className="col-span-2"><p className="text-muted-foreground text-xs">Lost Reason</p><p className="font-medium text-red-600">{formatStageLabel(detailLead.lost_reason)}</p></div>)}
                 
                 <div className="col-span-2"><p className="text-muted-foreground text-xs">CX Comment</p><p className="font-medium whitespace-pre-wrap">{detailLead.cx_comment || "-"}</p></div>

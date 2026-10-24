@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
-import { useIsOwnerOrAdmin, useIsManager, useHasRole } from "@/hooks/useAdmin";
+import { useIsAdmin } from "@/hooks/useAdmin";
 import {
   Sidebar,
   SidebarContent,
@@ -105,9 +105,7 @@ export function CrmSidebar() {
   const currentPath = location.pathname;
   const isActive = (path: string) => currentPath === path || currentPath.startsWith(path + "/");
   
-  const { data: isOwnerOrAdmin = false } = useIsOwnerOrAdmin();
-  const { data: isManager = false } = useIsManager();
-  const { data: isHR = false } = useHasRole("hr_manager");
+  const { data: isAdmin = false } = useIsAdmin();
 
   return (
     <Sidebar collapsible="icon">
@@ -149,31 +147,11 @@ export function CrmSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Admin section - only shows if user is owner or admin */}
-        {isOwnerOrAdmin && (
+        {/* Admin section - only shows if user is admin */}
+        {isAdmin && (
           <SidebarNavGroup 
-            label="Admin (Full Access)" 
+            label="Admin" 
             items={fullAdminItems} 
-            collapsed={collapsed} 
-            isActive={isActive} 
-          />
-        )}
-
-        {/* Manager section - only shows if user is manager but NOT owner/admin */}
-        {isManager && !isOwnerOrAdmin && (
-          <SidebarNavGroup 
-            label="Manager" 
-            items={managerItems} 
-            collapsed={collapsed} 
-            isActive={isActive} 
-          />
-        )}
-
-        {/* HR section - only shows if user is HR but NOT owner/admin */}
-        {isHR && !isOwnerOrAdmin && (
-          <SidebarNavGroup 
-            label="HR" 
-            items={hrItems} 
             collapsed={collapsed} 
             isActive={isActive} 
           />

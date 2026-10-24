@@ -88,6 +88,58 @@ const STAGE_SECTIONS = [
   { title: "Marketing & Launch", color: "text-rose-700", stages: PROJECT_STAGES.slice(21) },
 ];
 
+// ⚡ Instant Cache for Project Details (0ms load time)
+const projectDetailMemoryCache = new Map<string, any>();
+
+function getCachedProjectDetails(projectId: string) {
+  if (!projectId) return null;
+  const inMem = projectDetailMemoryCache.get(projectId);
+  if (inMem) return inMem;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(`banega_proj_detail_${projectId}`) || sessionStorage.getItem(`banega_proj_detail_${projectId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        projectDetailMemoryCache.set(projectId, parsed);
+        return parsed;
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+function saveCachedProjectDetails(projectId: string, data: any) {
+  if (!projectId) return;
+  const existing = projectDetailMemoryCache.get(projectId) || {};
+  const merged = { ...existing, ...data };
+  projectDetailMemoryCache.set(projectId, merged);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(`banega_proj_detail_${projectId}`, JSON.stringify(merged));
+    } catch (e) {}
+  }
+}
+
+// ⚡ Instant Cache for Global Projects List (0ms load time)
+let globalProjectsMemoryCache: Project[] = [];
+
+function getInitialProjects(): Project[] {
+  if (globalProjectsMemoryCache && globalProjectsMemoryCache.length > 0) return globalProjectsMemoryCache;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("banega_projects_cache") || sessionStorage.getItem("banega_projects_cache");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          globalProjectsMemoryCache = parsed;
+          return parsed;
+        }
+      }
+    } catch (e) {}
+  }
+  return [];
+}
+
 const PROJECT_STATUSES = [
   { value: "active", label: "Active", color: "#10b981" },
   { value: "on_hold", label: "On Hold", color: "#f59e0b" },
@@ -3778,8 +3830,17 @@ export default function Projects() {
   const [filterStage, setFilterStage] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
   const [sortBy, setSortBy] = useState<"newest" | "date_asc" | "date_desc" | "priority">("newest");
-  const [viewMode, setViewMode] = useState<"dashboard" | "detail">("dashboard");
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [viewMode, setViewMode] = useState<"dashboard" | "detail">(() => {
+    return activeProjectId ? "detail" : "dashboard";
+  });
+  const [selectedProject, setSelectedProject] = useState<Project | null>(() => {
+    if (!activeProjectId) return null;
+    const cached = getCachedProjectDetails(activeProjectId);
+    if (cached?.project) return cached.project;
+    const all = getInitialProjects();
+    const match = all.find((p) => p.id === activeProjectId || p.project_id === activeProjectId);
+    return match || null;
+  });
   const [activeTab, setActiveTab] = useState("overview");
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState("all");
   const [taskViewMode, setTaskViewMode] = useState<"list" | "dashboard">("list");
@@ -3819,19 +3880,46 @@ export default function Projects() {
     note: "",
   });
   
-  // Data states
-  const [departments, setDepartments] = useState<Department[]>([]);
+  // Data states (instantly hydrated if activeProjectId is set)
+  const [departments, setDepartments] = useState<Department[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.departments || [];
+  });
   const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
   const [departmentDialogOpen, setDepartmentDialogOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
-  const [projectStages, setProjectStages] = useState<ProjectStage[]>([]);
-  const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
-  const [agreements, setAgreements] = useState<Agreement[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [manufacturing, setManufacturing] = useState<Manufacturing[]>([]);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [communications, setCommunications] = useState<Communication[]>([]);
-  const [notes, setNotes] = useState<ProjectNote[]>([]);
+  const [projectStages, setProjectStages] = useState<ProjectStage[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.stages || [];
+  });
+  const [projectTasks, setProjectTasks] = useState<ProjectTask[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.tasks || [];
+  });
+  const [agreements, setAgreements] = useState<Agreement[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.agreements || [];
+  });
+  const [payments, setPayments] = useState<Payment[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.payments || [];
+  });
+  const [manufacturing, setManufacturing] = useState<Manufacturing[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.manufacturing || [];
+  });
+  const [documents, setDocuments] = useState<Document[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.documents || [];
+  });
+  const [communications, setCommunications] = useState<Communication[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.communications || [];
+  });
+  const [notes, setNotes] = useState<ProjectNote[]>(() => {
+    if (!activeProjectId) return [];
+    return getCachedProjectDetails(activeProjectId)?.notes || [];
+  });
   const [docNoteContent, setDocNoteContent] = useState("");
   const [loadingDetail, setLoadingDetail] = useState(false);
 
@@ -4896,23 +4984,15 @@ export default function Projects() {
     }
   };
 
-  const { data: allProjects = [], isLoading, refetch } = useQuery({
+  const { data: allProjects = getInitialProjects(), isLoading, refetch } = useQuery({
     queryKey: ["projects"],
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     initialData: () => {
-      if (typeof window !== "undefined") {
-        try {
-          const cached = localStorage.getItem("banega_projects_cache");
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-          }
-        } catch (e) {}
-      }
-      return undefined;
+      const init = getInitialProjects();
+      return init.length > 0 ? init : undefined;
     },
     queryFn: async () => {
       const { data, error } = await supabase
@@ -4921,10 +5001,13 @@ export default function Projects() {
         .order("created_at", { ascending: false });
       
       if (error) throw error;
-      if (typeof window !== "undefined" && data) {
-        try {
-          localStorage.setItem("banega_projects_cache", JSON.stringify(data));
-        } catch (e) {}
+      if (data) {
+        globalProjectsMemoryCache = data as Project[];
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("banega_projects_cache", JSON.stringify(data));
+          } catch (e) {}
+        }
       }
       return data as Project[];
     },
@@ -5197,34 +5280,150 @@ export default function Projects() {
     });
   const lastNote = generalNotes[0] || null;
 
-  const fetchProjectDetails = async (projectId: string) => {
-    setLoadingDetail(true);
-    try {
-      const { data: departmentsData, error: departmentsError } = await supabase
-        .from("project_departments")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("created_at");
-      if (departmentsError) {
-        console.error("Error fetching departments:", departmentsError);
-        setDepartments([]);
+  const applyNotes = (notesData: ProjectNote[] | null) => {
+    if (!notesData || notesData.length === 0) {
+      setNotes([]);
+      setDocNoteContent("");
+      setContentCalendarDays(createEmptyContentCalendar());
+      setContentCalendarStartDate("");
+      setContentCalendarNoteId(null);
+      setProjectLinks([]);
+      setProjectLinksNoteId(null);
+      return;
+    }
+    const sorted = [...notesData].sort((a, b) => {
+      const ta = new Date(a.updated_at || a.created_at).getTime();
+      const tb = new Date(b.updated_at || b.created_at).getTime();
+      return tb - ta;
+    });
+    setNotes(sorted);
+    const docNote = sorted.find((n: ProjectNote) => n.note_type === "documentation");
+    setDocNoteContent(docNote?.content || "");
+    const calNote = sorted.find((n: ProjectNote) => n.note_type === "content_calendar");
+    if (calNote) {
+      const parsed = parseContentCalendar(calNote.content);
+      if (parsed) {
+        setContentCalendarDays(sortContentDaysByDate(parsed.days));
+        setContentCalendarStartDate(parsed.startDate || "");
+        setContentCalendarNoteId(calNote.id);
       } else {
-        setDepartments(departmentsData || []);
+        setContentCalendarDays(createEmptyContentCalendar());
+        setContentCalendarStartDate("");
+        setContentCalendarNoteId(calNote.id);
       }
+    } else {
+      setContentCalendarDays(createEmptyContentCalendar());
+      setContentCalendarStartDate("");
+      setContentCalendarNoteId(null);
+    }
+    const linksNote = sorted.find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
+    if (linksNote) {
+      setProjectLinksNoteId(linksNote.id);
+      setProjectLinks(parseProjectLinks(linksNote.content));
+    } else {
+      setProjectLinksNoteId(null);
+      setProjectLinks([]);
+    }
+  };
 
-      const { data: stagesData } = await supabase
-        .from("project_stages")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("stage_order");
-      if (stagesData) {
-        setProjectStages(stagesData);
-        // Keep projects.completion_percentage in sync with live stage progress
-        const livePct = computeStageCompletionPercent(stagesData);
+  const fetchProjectDetails = async (projectId: string, silent = false) => {
+    if (!projectId) return;
+
+    // ⚡ 1. Instantly hydrate from cache at 0ms delay
+    const cached = getCachedProjectDetails(projectId);
+    if (cached) {
+      if (cached.departments) setDepartments(cached.departments);
+      if (cached.stages) {
+        setProjectStages(cached.stages);
+        const livePct = computeStageCompletionPercent(cached.stages);
         setSelectedProject((prev) =>
           prev && prev.id === projectId ? { ...prev, completion_percentage: livePct } : prev
         );
-        // Soft-sync DB + list cache (no await needed for UI)
+      }
+      if (cached.tasks) setProjectTasks(cached.tasks);
+      if (cached.agreements) setAgreements(cached.agreements);
+      if (cached.payments) setPayments(cached.payments);
+      if (cached.manufacturing) setManufacturing(cached.manufacturing);
+      if (cached.documents) setDocuments(cached.documents);
+      if (cached.communications) setCommunications(cached.communications);
+      if (cached.notes) applyNotes(cached.notes);
+    }
+
+    if (!silent && !cached) {
+      setLoadingDetail(true);
+    }
+
+    try {
+      // ⚡ 2. Execute ALL 9 queries concurrently in parallel with Promise.all
+      const [
+        departmentsRes,
+        stagesRes,
+        tasksRes,
+        agreementsRes,
+        paymentsRes,
+        manufacturingRes,
+        documentsRes,
+        communicationsRes,
+        notesRes,
+      ] = await Promise.all([
+        supabase
+          .from("project_departments")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("created_at"),
+        supabase
+          .from("project_stages")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("stage_order"),
+        supabase
+          .from("project_tasks")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("due_date"),
+        supabase
+          .from("agreements")
+          .select("*")
+          .eq("project_id", projectId),
+        supabase
+          .from("payments")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("due_date"),
+        supabase
+          .from("manufacturing_tracker")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("stage"),
+        supabase
+          .from("project_documents")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("client_communications")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("communication_date", { ascending: false }),
+        supabase
+          .from("project_notes")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (departmentsRes.data) {
+        setDepartments(departmentsRes.data);
+      } else if (!cached) {
+        setDepartments([]);
+      }
+
+      if (stagesRes.data) {
+        setProjectStages(stagesRes.data);
+        const livePct = computeStageCompletionPercent(stagesRes.data);
+        setSelectedProject((prev) =>
+          prev && prev.id === projectId ? { ...prev, completion_percentage: livePct } : prev
+        );
         if (typeof livePct === "number") {
           supabase
             .from("projects")
@@ -5241,135 +5440,25 @@ export default function Projects() {
         }
       }
 
-      const { data: tasksData } = await supabase
-        .from("project_tasks")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("due_date");
-      if (tasksData) setProjectTasks(tasksData);
+      if (tasksRes.data) setProjectTasks(tasksRes.data);
+      if (agreementsRes.data) setAgreements(agreementsRes.data);
+      if (paymentsRes.data) setPayments(paymentsRes.data);
+      if (manufacturingRes.data) setManufacturing(manufacturingRes.data);
+      if (documentsRes.data) setDocuments(documentsRes.data);
+      if (communicationsRes.data) setCommunications(communicationsRes.data);
+      if (notesRes.data) applyNotes(notesRes.data);
 
-      const { data: agreementsData } = await supabase
-        .from("agreements")
-        .select("*")
-        .eq("project_id", projectId);
-      if (agreementsData) setAgreements(agreementsData);
-
-      const { data: paymentsData } = await supabase
-        .from("payments")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("due_date");
-      if (paymentsData) setPayments(paymentsData);
-
-      const { data: manufacturingData } = await supabase
-        .from("manufacturing_tracker")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("stage");
-      if (manufacturingData) setManufacturing(manufacturingData);
-
-      const { data: documentsData } = await supabase
-        .from("project_documents")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("created_at", { ascending: false });
-      if (documentsData) setDocuments(documentsData);
-
-      const { data: communicationsData } = await supabase
-        .from("client_communications")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("communication_date", { ascending: false });
-      if (communicationsData) setCommunications(communicationsData);
-
-      const { data: notesData, error: notesError } = await supabase
-        .from("project_notes")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("updated_at", { ascending: false, nullsFirst: false });
-      if (notesError) {
-        // Fallback if updated_at sort fails
-        const { data: notesFallback } = await supabase
-          .from("project_notes")
-          .select("*")
-          .eq("project_id", projectId)
-          .order("created_at", { ascending: false });
-        setNotes(notesFallback || []);
-        const docNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "documentation");
-        setDocNoteContent(docNote?.content || "");
-        const calNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "content_calendar");
-        if (calNote) {
-          const parsed = parseContentCalendar(calNote.content);
-          if (parsed) {
-            setContentCalendarDays(sortContentDaysByDate(parsed.days));
-            setContentCalendarStartDate(parsed.startDate || "");
-            setContentCalendarNoteId(calNote.id);
-          } else {
-            setContentCalendarDays(createEmptyContentCalendar());
-            setContentCalendarStartDate("");
-            setContentCalendarNoteId(calNote.id);
-          }
-        } else {
-          setContentCalendarDays(createEmptyContentCalendar());
-          setContentCalendarStartDate("");
-          setContentCalendarNoteId(null);
-        }
-
-        const linksNote = (notesFallback || []).find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
-        if (linksNote) {
-          setProjectLinksNoteId(linksNote.id);
-          setProjectLinks(parseProjectLinks(linksNote.content));
-        } else {
-          setProjectLinksNoteId(null);
-          setProjectLinks([]);
-        }
-      } else if (notesData) {
-        // Client-side sort: prefer updated_at, else created_at
-        const sorted = [...notesData].sort((a, b) => {
-          const ta = new Date(a.updated_at || a.created_at).getTime();
-          const tb = new Date(b.updated_at || b.created_at).getTime();
-          return tb - ta;
-        });
-        setNotes(sorted);
-        const docNote = sorted.find((n: ProjectNote) => n.note_type === "documentation");
-        setDocNoteContent(docNote?.content || "");
-        // Load content calendar
-        const calNote = sorted.find((n: ProjectNote) => n.note_type === "content_calendar");
-        if (calNote) {
-          const parsed = parseContentCalendar(calNote.content);
-          if (parsed) {
-            setContentCalendarDays(sortContentDaysByDate(parsed.days));
-            setContentCalendarStartDate(parsed.startDate || "");
-            setContentCalendarNoteId(calNote.id);
-          } else {
-            setContentCalendarDays(createEmptyContentCalendar());
-            setContentCalendarStartDate("");
-            setContentCalendarNoteId(calNote.id);
-          }
-        } else {
-          setContentCalendarDays(createEmptyContentCalendar());
-          setContentCalendarStartDate("");
-          setContentCalendarNoteId(null);
-        }
-
-        const linksNote = (sorted || []).find((n: ProjectNote) => n.note_type === "drive_links" || n.title === "Drive Links");
-        if (linksNote) {
-          setProjectLinksNoteId(linksNote.id);
-          setProjectLinks(parseProjectLinks(linksNote.content));
-        } else {
-          setProjectLinksNoteId(null);
-          setProjectLinks([]);
-        }
-      } else {
-        setNotes([]);
-        setDocNoteContent("");
-        setContentCalendarDays(createEmptyContentCalendar());
-        setContentCalendarStartDate("");
-        setContentCalendarNoteId(null);
-        setProjectLinks([]);
-        setProjectLinksNoteId(null);
-      }
-
+      saveCachedProjectDetails(projectId, {
+        departments: departmentsRes.data || [],
+        stages: stagesRes.data || [],
+        tasks: tasksRes.data || [],
+        agreements: agreementsRes.data || [],
+        payments: paymentsRes.data || [],
+        manufacturing: manufacturingRes.data || [],
+        documents: documentsRes.data || [],
+        communications: communicationsRes.data || [],
+        notes: notesRes.data || [],
+      });
     } catch (error) {
       console.error("Error fetching project details:", error);
     } finally {
@@ -5393,8 +5482,10 @@ export default function Projects() {
         return;
       }
 
-      // Look up in loaded projects list
+      // Look up in loaded projects list or memory cache
       const matched = projects.find(
+        (p) => p.id === activeProjectId || p.project_id === activeProjectId
+      ) || getInitialProjects().find(
         (p) => p.id === activeProjectId || p.project_id === activeProjectId
       );
 
@@ -5404,28 +5495,40 @@ export default function Projects() {
         if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
         setTaskAssigneeFilter("all");
         setSelectedDepartment(null);
-        fetchProjectDetails(matched.id);
-      } else if (!isLoading) {
-        // Fallback: fetch project directly from Supabase (for direct link / fresh page load)
-        supabase
-          .from("projects")
-          .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
-          .or(`id.eq.${activeProjectId},project_id.eq.${activeProjectId}`)
-          .maybeSingle()
-          .then(({ data, error }) => {
-            if (data && !error) {
-              const proj = data as Project;
-              setSelectedProject(proj);
-              setViewMode("detail");
-              if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
-              setTaskAssigneeFilter("all");
-              setSelectedDepartment(null);
-              fetchProjectDetails(proj.id);
-            } else {
-              toast.error("Project not found");
-              navigate("/projects", { replace: true });
-            }
-          });
+        saveCachedProjectDetails(matched.id, { project: matched });
+        fetchProjectDetails(matched.id, true);
+      } else {
+        const cached = getCachedProjectDetails(activeProjectId);
+        if (cached?.project) {
+          setSelectedProject(cached.project);
+          setViewMode("detail");
+          if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
+          setTaskAssigneeFilter("all");
+          setSelectedDepartment(null);
+          fetchProjectDetails(cached.project.id, true);
+        } else {
+          // Immediately fetch directly from Supabase
+          supabase
+            .from("projects")
+            .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
+            .or(`id.eq.${activeProjectId},project_id.eq.${activeProjectId}`)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (data && !error) {
+                const proj = data as Project;
+                setSelectedProject(proj);
+                setViewMode("detail");
+                if (activeTabFromUrl) setActiveTab(activeTabFromUrl);
+                setTaskAssigneeFilter("all");
+                setSelectedDepartment(null);
+                saveCachedProjectDetails(proj.id, { project: proj });
+                fetchProjectDetails(proj.id, true);
+              } else {
+                toast.error("Project not found");
+                navigate("/projects", { replace: true });
+              }
+            });
+        }
       }
     } else {
       // URL has no project ID -> ensure dashboard view (e.g. browser back button hit)
@@ -5453,7 +5556,25 @@ export default function Projects() {
     setActiveTab("overview");
     setTaskAssigneeFilter("all");
     setSelectedDepartment(null);
-    fetchProjectDetails(project.id);
+
+    // ⚡ Cache project itself for instant loads
+    saveCachedProjectDetails(project.id, { project });
+
+    // ⚡ Instant cache hydration at 0ms
+    const cached = getCachedProjectDetails(project.id);
+    if (cached) {
+      if (cached.departments) setDepartments(cached.departments);
+      if (cached.stages) setProjectStages(cached.stages);
+      if (cached.tasks) setProjectTasks(cached.tasks);
+      if (cached.agreements) setAgreements(cached.agreements);
+      if (cached.payments) setPayments(cached.payments);
+      if (cached.manufacturing) setManufacturing(cached.manufacturing);
+      if (cached.documents) setDocuments(cached.documents);
+      if (cached.communications) setCommunications(cached.communications);
+      if (cached.notes) applyNotes(cached.notes);
+    }
+
+    fetchProjectDetails(project.id, true);
     navigate(`/projects/${project.id}`);
   };
 
@@ -5779,7 +5900,7 @@ export default function Projects() {
       
       toast.success("Stage updated successfully");
       if (selectedProject) {
-        fetchProjectDetails(selectedProject.id);
+        fetchProjectDetails(selectedProject.id, true);
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -5899,7 +6020,7 @@ export default function Projects() {
         await sendStageCompletedEmail(selectedProject, stageLabel, comment);
       }
 
-      fetchProjectDetails(selectedProject.id);
+      fetchProjectDetails(selectedProject.id, true);
       // No need to wait for refetch() for UI to feel instant, but keep it for consistency
       refetch();
     } catch (error: any) {
@@ -5960,7 +6081,7 @@ export default function Projects() {
 
       toast.success("Remark saved");
       setOpenStageComment(null);
-      fetchProjectDetails(selectedProject.id);
+      fetchProjectDetails(selectedProject.id, true);
     } catch (error: any) {
       toast.error(error.message || "Failed to save remark");
     } finally {
@@ -5989,7 +6110,7 @@ export default function Projects() {
       const { error } = await supabase.from("project_stages").insert(toInsert);
       if (error) throw error;
       toast.success(`${toInsert.length} stages added`);
-      fetchProjectDetails(selectedProject.id);
+      fetchProjectDetails(selectedProject.id, true);
     } catch (error: any) {
       toast.error(error.message || "Sync fail");
     }
@@ -8795,7 +8916,7 @@ export default function Projects() {
                 </div>
               </CardHeader>
               <CardContent>
-                {loadingDetail ? (
+                {loadingDetail && projectTasks.length === 0 ? (
                   <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin" /></div>
                 ) : (
                   <div className="space-y-2">
@@ -8932,7 +9053,7 @@ export default function Projects() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {loadingDetail ? (
+                  {loadingDetail && departments.length === 0 ? (
                     <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -8993,146 +9114,142 @@ export default function Projects() {
                 </div>
               </CardHeader>
               <CardContent>
-                {loadingDetail ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Stages Progress</span>
-                        <span className="font-semibold">
-                          {PROJECT_STAGES.filter((ps) => {
-                            const item = projectStages.find(
-                              (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                            );
-                            return item?.status === "completed";
-                          }).length}
-                          /{PROJECT_STAGES.length}
-                        </span>
-                      </div>
-                      <Progress
-                        value={
-                          (PROJECT_STAGES.filter((ps) => {
-                            const item = projectStages.find(
-                              (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
-                            );
-                            return item?.status === "completed";
-                          }).length /
-                            PROJECT_STAGES.length) *
-                          100
-                        }
-                        className="h-2"
-                      />
-                    </div>
-
-                    {STAGE_SECTIONS.map((section) => (
-                      <div key={section.title} className="space-y-2">
-                        <p className={`text-sm font-semibold ${section.color} flex items-center gap-2`}>
-                          {section.title}
-                        </p>
-                        {section.stages.map((ps) => {
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Stages Progress</span>
+                      <span className="font-semibold">
+                        {PROJECT_STAGES.filter((ps) => {
                           const item = projectStages.find(
                             (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
                           );
-                          const stageOrder = PROJECT_STAGES.findIndex((s) => s.value === ps.value) + 1;
-                          return (
-                            <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
-                              <div className="flex items-center justify-between gap-3 flex-wrap">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div
-                                    className={`w-3 h-3 rounded-full shrink-0 ${
-                                      item?.status === "completed"
-                                        ? "bg-green-500"
-                                        : item?.status === "in_progress"
-                                        ? "bg-blue-500"
-                                        : item?.status === "blocked"
-                                        ? "bg-red-500"
-                                        : "bg-gray-300"
-                                    }`}
-                                  />
-                                  <span className="font-medium">
-                                    {ps.label}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    {item?.status || "pending"}
-                                  </Badge>
-                                  <Select
-                                    value={item?.status || "pending"}
-                                    onValueChange={(v) => upsertProjectStageStatus(ps.label, stageOrder, v, ps.value)}
-                                  >
-                                    <SelectTrigger className="w-36 h-8 text-xs">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="pending">Pending</SelectItem>
-                                      <SelectItem value="in_progress">In Progress</SelectItem>
-                                      <SelectItem value="completed">Completed</SelectItem>
-                                      <SelectItem value="blocked">Blocked</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
+                          return item?.status === "completed";
+                        }).length}
+                        /{PROJECT_STAGES.length}
+                      </span>
+                    </div>
+                    <Progress
+                      value={
+                        (PROJECT_STAGES.filter((ps) => {
+                          const item = projectStages.find(
+                            (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                          );
+                          return item?.status === "completed";
+                        }).length /
+                          PROJECT_STAGES.length) *
+                        100
+                      }
+                      className="h-2"
+                    />
+                  </div>
+
+                  {STAGE_SECTIONS.map((section) => (
+                    <div key={section.title} className="space-y-2">
+                      <p className={`text-sm font-semibold ${section.color} flex items-center gap-2`}>
+                        {section.title}
+                      </p>
+                      {section.stages.map((ps) => {
+                        const item = projectStages.find(
+                          (s) => s.stage_name === ps.label || s.stage_name?.toLowerCase() === ps.label.toLowerCase()
+                        );
+                        const stageOrder = PROJECT_STAGES.findIndex((s) => s.value === ps.value) + 1;
+                        return (
+                          <div key={ps.value} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div
+                                  className={`w-3 h-3 rounded-full shrink-0 ${
+                                    item?.status === "completed"
+                                      ? "bg-green-500"
+                                      : item?.status === "in_progress"
+                                      ? "bg-blue-500"
+                                      : item?.status === "blocked"
+                                      ? "bg-red-500"
+                                      : "bg-gray-300"
+                                  }`}
+                                />
+                                <span className="font-medium">
+                                  {ps.label}
+                                </span>
                               </div>
-                              {item?.start_date && (
-                                <p className="text-xs text-muted-foreground mt-2 ml-6">
-                                  Started: {format(new Date(item.start_date), "dd MMM yyyy")}
-                                  {item.completion_date &&
-                                    ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
-                                </p>
-                              )}
-                              {!item && (
-                                <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
-                              )}
-                              <div className="mt-2 ml-6">
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                  onClick={() =>
-                                    setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
-                                  }
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {item?.status || "pending"}
+                                </Badge>
+                                <Select
+                                  value={item?.status || "pending"}
+                                  onValueChange={(v) => upsertProjectStageStatus(ps.label, stageOrder, v, ps.value)}
                                 >
-                                  <MessageSquare className="h-3 w-3" />
-                                  Remark
-                                  {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
-                                </button>
-                                {openStageComment === ps.label && (
-                                  <div className="mt-1.5 space-y-1.5 max-w-md">
-                                    <Textarea
-                                      rows={3}
-                                      className="text-xs resize-y min-h-[72px]"
-                                      placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
-                                      value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
-                                      onChange={(e) =>
-                                        setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
-                                      }
-                                    />
-                                    <p className="text-[10px] text-muted-foreground">
-                                      No need to save. Mark the stage Completed to save and email this remark.
-                                    </p>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs shrink-0"
-                                      disabled={stageCommentSaving === ps.label}
-                                      onClick={() => saveStageComment(ps.label, stageOrder, ps.value)}
-                                    >
-                                      {stageCommentSaving === ps.label ? (
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                      ) : (
-                                        "Save"
-                                      )}
-                                    </Button>
-                                  </div>
-                                )}
+                                  <SelectTrigger className="w-36 h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
+                                    <SelectItem value="blocked">Blocked</SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                            {item?.start_date && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">
+                                Started: {format(new Date(item.start_date), "dd MMM yyyy")}
+                                {item.completion_date &&
+                                  ` • Completed: ${format(new Date(item.completion_date), "dd MMM yyyy")}`}
+                              </p>
+                            )}
+                            {!item && (
+                              <p className="text-xs text-muted-foreground mt-2 ml-6">Not started yet</p>
+                            )}
+                            <div className="mt-2 ml-6">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() =>
+                                  setOpenStageComment((prev) => (prev === ps.label ? null : ps.label))
+                                }
+                              >
+                                <MessageSquare className="h-3 w-3" />
+                                Remark
+                                {item?.remarks ? <span className="text-[10px] opacity-70">• added</span> : null}
+                              </button>
+                              {openStageComment === ps.label && (
+                                <div className="mt-1.5 space-y-1.5 max-w-md">
+                                  <Textarea
+                                    rows={3}
+                                    className="text-xs resize-y min-h-[72px]"
+                                    placeholder="Write the remark. It is saved and emailed when this stage is marked Completed."
+                                    value={stageCommentDrafts[ps.label] ?? item?.remarks ?? ""}
+                                    onChange={(e) =>
+                                      setStageCommentDrafts((prev) => ({ ...prev, [ps.label]: e.target.value }))
+                                    }
+                                  />
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No need to save. Mark the stage Completed to save and email this remark.
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs shrink-0"
+                                    disabled={stageCommentSaving === ps.label}
+                                    onClick={() => saveStageComment(ps.label, stageOrder, ps.value)}
+                                  >
+                                    {stageCommentSaving === ps.label ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Save"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -9174,7 +9291,7 @@ export default function Projects() {
                 </div>
               </CardHeader>
               <CardContent>
-                {loadingDetail ? (
+                {loadingDetail && projectTasks.length === 0 ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
                 ) : taskViewMode === "dashboard" ? (
                   <TaskDashboard tasks={filteredTasks} onStatusChange={updateTaskStatus} onDelete={deleteTask} />

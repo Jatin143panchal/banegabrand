@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,12 +33,31 @@ import CrmMessenger from "@/components/CrmMessenger";
 
 const queryClient = new QueryClient();
 
-const fullAccessRoles = ["owner", "admin"] as const;
-const managerRoles = ["owner", "admin", "tl"] as const;
-const hrRoles = ["owner", "admin", "hr_manager"] as const;
+const adminRoles = ["admin"] as const;
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth();
+
+  // ⚡ TURANT LOAD: Background prefetch projects as soon as CRM loads
+  useEffect(() => {
+    if (!user) return;
+    queryClient.prefetchQuery({
+      queryKey: ["projects"],
+      staleTime: 10 * 60 * 1000,
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from("projects")
+          .select("id, project_id, lead_id, name, brand_name, project_type, project_value, start_date, expected_launch_date, project_manager, current_stage, completion_percentage, status, priority, client_address, client_phone, client_email, image_url, product_category, products_to_launch, product_category_note, created_at, updated_at")
+          .order("created_at", { ascending: false });
+        if (!error && data) {
+          try {
+            localStorage.setItem("banega_projects_cache", JSON.stringify(data));
+          } catch (e) {}
+        }
+        return data || [];
+      },
+    });
+  }, [user]);
 
   if (loading) {
     return (
@@ -63,16 +84,16 @@ function ProtectedRoutes() {
         <Route path="/quotations" element={<Quotations />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/my-tasks" element={<MyTasks />} />
-        <Route path="/team-tasks" element={<RoleGuard allowed={[...managerRoles]}><TeamTaskReport /></RoleGuard>} />
+        <Route path="/team-tasks" element={<RoleGuard allowed={[...adminRoles]}><TeamTaskReport /></RoleGuard>} />
         <Route path="/digilocker" element={<DigiLocker />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/admin" element={<RoleGuard allowed={[...fullAccessRoles]}><AdminDashboard /></RoleGuard>} />
-        <Route path="/admin/tasks" element={<RoleGuard allowed={[...managerRoles]}><TaskAssignment /></RoleGuard>} />
-        <Route path="/admin/users" element={<RoleGuard allowed={[...fullAccessRoles]}><AllUsers /></RoleGuard>} />
-        <Route path="/admin/roles" element={<RoleGuard allowed={[...fullAccessRoles]}><TeamRoles /></RoleGuard>} />
-        <Route path="/admin/notifications" element={<RoleGuard allowed={[...hrRoles]}><BroadcastNotifications /></RoleGuard>} />
-        <Route path="/admin/employees" element={<RoleGuard allowed={[...hrRoles]}><EmployeeDirectory /></RoleGuard>} />
+        <Route path="/admin" element={<RoleGuard allowed={[...adminRoles]}><AdminDashboard /></RoleGuard>} />
+        <Route path="/admin/tasks" element={<RoleGuard allowed={[...adminRoles]}><TaskAssignment /></RoleGuard>} />
+        <Route path="/admin/users" element={<RoleGuard allowed={[...adminRoles]}><AllUsers /></RoleGuard>} />
+        <Route path="/admin/roles" element={<RoleGuard allowed={[...adminRoles]}><TeamRoles /></RoleGuard>} />
+        <Route path="/admin/notifications" element={<RoleGuard allowed={[...adminRoles]}><BroadcastNotifications /></RoleGuard>} />
+        <Route path="/admin/employees" element={<RoleGuard allowed={[...adminRoles]}><EmployeeDirectory /></RoleGuard>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </CrmLayout>

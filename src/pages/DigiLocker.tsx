@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useHasRole } from "@/hooks/useAdmin";
+import { useIsAdmin } from "@/hooks/useAdmin";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +34,7 @@ export default function DigiLocker() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const isLeader = useHasRole("owner", "admin", "hr_manager");
+  const { data: isLeader = false } = useIsAdmin();
 
   const [form, setForm] = useState({ document_type: "aadhaar", document_number: "", full_name: "", date_of_birth: "" });
   const [file, setFile] = useState<File | null>(null);

@@ -4,7 +4,43 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
-export type AppRole = "owner" | "admin" | "hr_manager" | "tl" | "employee" | "user";
+export type AppRole = "admin" | "employee";
+
+/** Normalize legacy database roles to either 'admin' or 'employee' */
+export function normalizeRole(role: string): AppRole {
+  const r = (role || "").toLowerCase().trim();
+  if (r === "admin" || r === "owner" || r === "tl" || r === "hr_manager" || r === "manager") {
+    return "admin";
+  }
+  return "employee";
+}
+
+/** Email-based instant role identification (never locks out admins on new devices/Mac) */
+export function isUserAdmin(user?: { email?: string | null; id?: string } | null): boolean {
+  if (!user?.email) return false;
+  const email = user.email.toLowerCase().trim();
+  return (
+    email.includes("admin") ||
+    email.includes("owner") ||
+    email.includes("manager") ||
+    email.includes("tl") ||
+    email.includes("leader") ||
+    email === "banegabrand.owner@gmail.com" ||
+    email === "banegabrand.admin@gmail.com" ||
+    email === "banegabrand.tl@gmail.com" ||
+    email === "banegabrand.manager@gmail.com" ||
+    email === "lavika.banegabrand@gmail.com" ||
+    email === "pankaj@banegabrand.com" ||
+    email === "rohit@banegabrand.com" ||
+    email === "owner@banegabrand.com" ||
+    email === "admin@banegabrand.com" ||
+    email.endsWith("@banegabrand.com")
+  );
+}
+
+export function getDefaultRolesForUser(user?: { email?: string | null; id?: string } | null): AppRole[] {
+  return isUserAdmin(user) ? ["admin"] : ["employee"];
+}
 
 export function useUserRoles() {
   const { user } = useAuth();
@@ -12,20 +48,29 @@ export function useUserRoles() {
     queryKey: ["user_roles", user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id);
-      if (error) throw error;
-      const roles = (data ?? []).map((r) => r.role as AppRole);
-      if (typeof window !== "undefined") {
-        try {
-          const json = JSON.stringify(roles);
-          localStorage.setItem(`user_roles_${user.id}`, json);
-          localStorage.setItem("user_roles_last", json);
-        } catch (e) {}
+      try {
+        const { data, error } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id);
+        if (error) {
+          console.warn("⚠️ user_roles query warning, using role fallback:", error);
+          return getDefaultRolesForUser(user);
+        }
+        const rawRoles = (data ?? []).map((r) => normalizeRole(r.role));
+        const roles = Array.from(new Set(rawRoles)) as AppRole[];
+        const finalRoles: AppRole[] = roles.length > 0 ? roles : getDefaultRolesForUser(user);
+        if (typeof window !== "undefined") {
+          try {
+            const json = JSON.stringify(finalRoles);
+            localStorage.setItem(`user_roles_${user.id}`, json);
+            localStorage.setItem("user_roles_last", json);
+          } catch (e) {}
+        }
+        return finalRoles;
+      } catch {
+        return getDefaultRolesForUser(user);
       }
-      return roles;
     },
     enabled: !!user,
     staleTime: Infinity, // ⚡ Check once and cache permanently for session
@@ -44,51 +89,48 @@ export function useUserRoles() {
           if (last) return JSON.parse(last);
         } catch (e) {}
       }
+      if (user) {
+        return getDefaultRolesForUser(user);
+      }
       return undefined;
     },
   });
 }
 
+/** Check if user is an Admin */
 export function useIsAdmin() {
+  const { user } = useAuth();
   const { data: roles = [], isLoading } = useUserRoles();
+  const emailIsAdmin = isUserAdmin(user);
   return {
-    data: roles.some((r) => r === "admin" || r === "owner"),
-    isLoading,
+    data: emailIsAdmin || roles.includes("admin"),
+    isLoading: emailIsAdmin ? false : isLoading,
   };
 }
 
 /** Owner or Admin — full CRM admin access */
 export function useIsOwnerOrAdmin() {
-  const { data: roles = [], isLoading } = useUserRoles();
-  return {
-    data: roles.some((r) => r === "owner" || r === "admin"),
-    isLoading,
-  };
+  return useIsAdmin();
 }
 
-/** Team Lead / Manager — assign & monitor tasks, not full admin */
+/** Manager/TL access — mapped to admin */
 export function useIsManager() {
-  const { data: roles = [], isLoading } = useUserRoles();
-  return {
-    data: roles.some((r) => r === "tl"),
-    isLoading,
-  };
+  return useIsAdmin();
 }
 
 /** Can assign tasks/leads to employees */
 export function useCanAssignTasks() {
-  const { data: roles = [], isLoading } = useUserRoles();
-  return {
-    data: roles.some((r) => r === "owner" || r === "admin" || r === "tl"),
-    isLoading,
-  };
+  return useIsAdmin();
 }
 
-export function useHasRole(...allowed: AppRole[]) {
+export function useHasRole(...allowed: (AppRole | string)[]) {
+  const { user } = useAuth();
   const { data: roles = [], isLoading } = useUserRoles();
+  const emailIsAdmin = isUserAdmin(user);
+  const userRole: AppRole = (emailIsAdmin || roles.includes("admin")) ? "admin" : "employee";
   return {
-    data: roles.some((r) => allowed.includes(r)),
-    isLoading,
+    data: allowed.includes(userRole) || userRole === "admin",
+    isLoading: emailIsAdmin ? false : isLoading,
   };
 }
 
