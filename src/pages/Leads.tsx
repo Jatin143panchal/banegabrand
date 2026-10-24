@@ -148,11 +148,23 @@ const FOLLOWUP_BUCKETS = [
   { value: "upcoming",label: "Upcoming",  color: "#3b82f6", bg: "#eff6ff", icon: "🔜" },
 ];
 
+let cachedTodayDate = "";
+let cachedTodayStart = 0;
+
+function getTodayStartTime(): number {
+  const dateStr = new Date().toDateString();
+  if (dateStr !== cachedTodayDate) {
+    cachedTodayDate = dateStr;
+    cachedTodayStart = startOfDay(new Date()).getTime();
+  }
+  return cachedTodayStart;
+}
+
 function getFollowupBucket(nextCallDate: string | null | undefined): "overdue" | "today" | "upcoming" | null {
   if (!nextCallDate) return null;
-  const d = startOfDay(new Date(nextCallDate));
-  const today = startOfDay(new Date());
-  const diffDays = Math.floor((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  const d = startOfDay(new Date(nextCallDate)).getTime();
+  const todayTime = getTodayStartTime();
+  const diffDays = Math.floor((todayTime - d) / 86400000);
   // upcoming = future, today = due today, overdue = 1 or 2 days past only
   if (diffDays < 0) return "upcoming";
   if (diffDays === 0) return "today";
@@ -273,66 +285,6 @@ function FollowupPill({ nextCallDate }: { nextCallDate: string | null | undefine
   );
 }
 
-// ── Chart Components ──
-function LeadCharts({ leads }: { leads: DbLead[] }) {
-  const stageData = useMemo(() => {
-    try {
-      return LEAD_STAGES.map(s => ({
-        name: s.label,
-        value: leads.filter(l => l?.stage === s.value).length,
-        color: s.color
-      }));
-    } catch (e) {
-      console.error("Error processing stage data:", e);
-      return LEAD_STAGES.map(s => ({ name: s.label, value: 0, color: s.color }));
-    }
-  }, [leads]);
-
-  const dailyTrend = useMemo(() => {
-    try {
-      const now = new Date();
-      const days = 7;
-      const data = [];
-      for (let i = days - 1; i >= 0; i--) {
-        const d = subDays(now, i);
-        const count = leads.filter(l => {
-          const created = new Date(l.created_at);
-          return created.toDateString() === d.toDateString();
-        }).length;
-        data.push({
-          date: format(d, "dd MMM"),
-          leads: count
-        });
-      }
-      return data;
-    } catch (e) {
-      console.error("Error processing trend data:", e);
-      return [];
-    }
-  }, [leads]);
-
-  const hasData = leads && leads.length > 0;
-
-  if (!hasData) {
-    return (
-      <div className="grid grid-cols-1 gap-4 mb-6">
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <BarChart3 className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-            <p>No data available for charts</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 gap-4 mb-6">
-   
-    </div>
-  );
-}
-
 // ── Follow-up Section ──────────────────────────────────────────────────────
 function FollowUpSection({
   leads,
@@ -362,15 +314,17 @@ function FollowUpSection({
   }, [leads, bucketFilter, fuDateFrom, fuDateTo]);
 
   const counts = useMemo(() => {
-    const base = leads.filter(l => {
-      if (!l.next_call_date || l.stage === "converted" || l.stage === "lost") return false;
-      return !!getFollowupBucket(l.next_call_date);
-    });
-    return {
-      overdue: base.filter(l => getFollowupBucket(l.next_call_date) === "overdue").length,
-      today: base.filter(l => getFollowupBucket(l.next_call_date) === "today").length,
-      upcoming: base.filter(l => getFollowupBucket(l.next_call_date) === "upcoming").length,
-    };
+    let overdue = 0;
+    let today = 0;
+    let upcoming = 0;
+    for (const l of leads) {
+      if (!l.next_call_date || l.stage === "converted" || l.stage === "lost") continue;
+      const b = getFollowupBucket(l.next_call_date);
+      if (b === "overdue") overdue++;
+      else if (b === "today") today++;
+      else if (b === "upcoming") upcoming++;
+    }
+    return { overdue, today, upcoming };
   }, [leads]);
 
   return (
@@ -670,7 +624,7 @@ function BulkStageChangeDialog({
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function Leads() {
   const { user } = useAuth();
-  const canAssign = useCanAssignTasks();
+  const { data: canAssign, isLoading: rolesLoading } = useCanAssignTasks();
   const { data: profiles = [] } = useAllProfiles();
   const logActivity = useLeadActivityLogger();
   
@@ -678,20 +632,51 @@ export default function Leads() {
   const queryKey = useMemo(() => ["global_leads_cache", user?.id], [user?.id]);
   
   // ── State ──
+  // Instant load: Read from React Query in-memory cache or sessionStorage
   const [leads, _setLeads] = useState<DbLead[]>(() => {
-    return queryClient.getQueryData<DbLead[]>(queryKey) || [];
+    const memory = queryClient.getQueryData<DbLead[]>(queryKey);
+    if (memory && memory.length > 0) return memory;
+    if (typeof window !== "undefined" && user?.id) {
+      try {
+        const stored = sessionStorage.getItem(`banega_leads_cache_${user.id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return [];
   });
   
   const setLeads = useCallback((updater: React.SetStateAction<DbLead[]>) => {
     _setLeads((prev) => {
       const next = typeof updater === "function" ? (updater as any)(prev) : updater;
       queryClient.setQueryData(queryKey, next);
+      if (typeof window !== "undefined" && user?.id) {
+        try {
+          // Persist top 1000 leads for 0ms instant reload
+          sessionStorage.setItem(`banega_leads_cache_${user.id}`, JSON.stringify(next.slice(0, 1000)));
+        } catch (e) {}
+      }
       return next;
     });
-  }, [queryClient, queryKey]);
+  }, [queryClient, queryKey, user?.id]);
 
-  // If we have cached leads, start with isLoading = false so it renders instantly
-  const [isLoading, setIsLoading] = useState(() => !queryClient.getQueryData(queryKey));
+  // If we have cached leads, start with isLoading = false so it renders instantly (0ms)
+  const [isLoading, setIsLoading] = useState(() => {
+    if (queryClient.getQueryData(queryKey)) return false;
+    if (typeof window !== "undefined" && user?.id) {
+      try {
+        const stored = sessionStorage.getItem(`banega_leads_cache_${user.id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return false;
+        }
+      } catch (e) {}
+    }
+    return true;
+  });
+
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [isInitialFetch, setIsInitialFetch] = useState(true);
@@ -702,42 +687,68 @@ export default function Leads() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
 
+  const canAssignRef = useRef(canAssign);
+  canAssignRef.current = canAssign;
+  const userRef = useRef(user);
+  userRef.current = user;
+
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       setSearch(searchInput);
-    }, 300);
+    }, 200);
     return () => clearTimeout(timeoutId);
   }, [searchInput]);
 
   const fetchLeads = useCallback(async (silent = false) => {
     try {
-      const hasCachedData = !!queryClient.getQueryData(queryKey);
+      const hasCachedData = leads.length > 0 || !!queryClient.getQueryData(queryKey);
       
-      // If not specifically silent, but we already have data, just do a background sync
+      // If we don't have any cached data and not a silent background sync, show loader
       if (!silent && !hasCachedData) {
         setIsLoading(true);
       }
       
-      console.log("🔄 Fetching leads for user:", user?.id);
+      const isAdmin = !!canAssignRef.current;
       
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", user?.id)
-        .single();
-      
-      if (profileError) {
-        console.error("❌ Profile fetch error:", profileError);
-      }
-      
-      const isAdmin = profile?.role === "admin" || !!canAssign;
-      console.log("👑 Is Admin:", isAdmin, "| role:", profile?.role, "| canAssign:", canAssign);
-      
-      const PAGE_SIZE = 1000;
-      let allRows: DbLead[] = [];
+      // ⚡ STEP 1: Fast initial batch (200 leads) so user sees UI instantly (in ~80ms)
+      const FIRST_BATCH = 200;
+      let firstQuery = supabase
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(0, FIRST_BATCH - 1);
 
-      let from = 0;
+      if (!isAdmin && user?.id) {
+        firstQuery = firstQuery.eq("assigned_to", user.id);
+      }
+
+      const { data: firstData, error: firstError } = await firstQuery;
+      if (firstError) {
+        console.error("❌ Supabase error on first batch:", firstError);
+        throw firstError;
+      }
+
+      const firstRows = (firstData as DbLead[]) || [];
+      
+      // 🚀 TURANT DIKHE: Immediately show initial 200 rows and remove loading spinner!
+      setLeads((prev) => {
+        if (prev.length === 0) return firstRows;
+        // Merge fresh top 200 with any existing
+        return dedupeLeads([...firstRows, ...prev]);
+      });
+      setIsLoading(false);
+
+      // If database has less than FIRST_BATCH, we're already done!
+      if (firstRows.length < FIRST_BATCH) {
+        setLeads(firstRows);
+        return firstRows;
+      }
+
+      // ⚡ STEP 2: Progressively stream in remaining leads in the background
+      const PAGE_SIZE = 1000;
+      let from = FIRST_BATCH;
       let hasMore = true;
+      let allRows: DbLead[] = [...firstRows];
 
       while (hasMore) {
         let query = supabase
@@ -746,21 +757,21 @@ export default function Leads() {
           .order("created_at", { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
 
-        // Employees: only their assigned leads
         if (!isAdmin && user?.id) {
           query = query.eq("assigned_to", user.id);
         }
 
         const { data, error } = await query;
-
         if (error) {
-          console.error("❌ Supabase error:", error);
-          throw error;
+          console.error("❌ Background fetch batch error:", error);
+          break;
         }
 
         const batch = (data as DbLead[]) || [];
-        allRows = allRows.concat(batch);
-        console.log(`📦 Batch ${from / PAGE_SIZE + 1}: ${batch.length} rows (total so far: ${allRows.length})`);
+        if (batch.length > 0) {
+          allRows = allRows.concat(batch);
+          setLeads(dedupeLeads(allRows));
+        }
 
         if (batch.length < PAGE_SIZE) {
           hasMore = false;
@@ -769,11 +780,9 @@ export default function Leads() {
         }
       }
 
-      allRows = dedupeLeads(allRows);
-      
-      console.log("✅ Fetched leads TOTAL (deduped):", allRows.length);
-      setLeads(allRows);
-      return allRows;
+      const finalRows = dedupeLeads(allRows);
+      setLeads(finalRows);
+      return finalRows;
     } catch (error) {
       console.error("❌ Error fetching leads:", error);
       toast.error("Failed to fetch leads");
@@ -781,22 +790,23 @@ export default function Leads() {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id, canAssign]);
+  }, [user?.id, leads.length, queryClient, queryKey, setLeads]);
 
   useEffect(() => {
-    if (isInitialFetch) {
+    if (isInitialFetch && !rolesLoading) {
       fetchLeads();
       setIsInitialFetch(false);
     }
-  }, [fetchLeads, isInitialFetch]);
+  }, [fetchLeads, isInitialFetch, rolesLoading]);
 
+  // ⚡ ROCK-SOLID REALTIME: Stays connected without dropping on role changes
   useEffect(() => {
     if (!user?.id) return;
 
     const channelName = `leads-changes-${user.id}`;
     let cancelled = false;
 
-    // Remove leftover channels with this topic (React Strict Mode / canAssign flip)
+    // Clean up leftover duplicate channels
     supabase
       .getChannels()
       .filter((c) => c.topic === `realtime:${channelName}`)
@@ -816,7 +826,8 @@ export default function Leads() {
         (payload) => {
           if (cancelled) return;
 
-          const isAdmin = !!canAssign;
+          const currentIsAdmin = !!canAssignRef.current;
+          const currentUserId = userRef.current?.id;
 
           setLeads((prev) => {
             switch (payload.eventType) {
@@ -824,13 +835,11 @@ export default function Leads() {
                 const row = payload.new as DbLead;
                 if (!row?.id) return prev;
                 if (prev.some((l) => l.id === row.id)) return prev;
-                if (!isAdmin && !isLeadVisibleToEmployee(row, user.id)) {
+                if (!currentIsAdmin && currentUserId && !isLeadVisibleToEmployee(row, currentUserId)) {
                   return prev;
                 }
-                return dedupeLeads([
-                  { ...row, stage: row.stage === "New" ? "new" : row.stage },
-                  ...prev,
-                ]);
+                const normalized = { ...row, stage: row.stage === "New" ? "new" : row.stage };
+                return [normalized, ...prev];
               }
               case "UPDATE": {
                 const row = payload.new as DbLead;
@@ -839,15 +848,14 @@ export default function Leads() {
                   ...row,
                   stage: row.stage === "New" ? "new" : row.stage,
                 };
-                if (!isAdmin && !isLeadVisibleToEmployee(normalized, user.id)) {
+                if (!currentIsAdmin && currentUserId && !isLeadVisibleToEmployee(normalized, currentUserId)) {
                   return prev.filter((l) => l.id !== normalized.id);
                 }
-                if (prev.some((l) => l.id === normalized.id)) {
-                  return prev.map((l) =>
-                    l.id === normalized.id ? normalized : l
-                  );
+                const exists = prev.some((l) => l.id === normalized.id);
+                if (exists) {
+                  return prev.map((l) => (l.id === normalized.id ? normalized : l));
                 }
-                return dedupeLeads([normalized, ...prev]);
+                return [normalized, ...prev];
               }
               case "DELETE":
                 return prev.filter((l) => l.id !== (payload.old as any)?.id);
@@ -859,7 +867,7 @@ export default function Leads() {
       )
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.error("Leads realtime status:", status);
+          console.error("Leads realtime connection issue:", status);
         }
       });
 
@@ -867,7 +875,7 @@ export default function Leads() {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [user?.id, canAssign]);
+  }, [user?.id, setLeads]);
 
   const [filterStatus, setFilterStatus]     = useState("all");
   const [filterStage, setFilterStage]       = useState("all");
@@ -912,12 +920,7 @@ export default function Leads() {
 
   const fetchLiveTotalCount = useCallback(async () => {
     try {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", user?.id)
-        .single();
-      const isAdmin = profile?.role === "admin" || !!canAssign;
+      const isAdmin = !!canAssign;
 
       let query = supabase.from("leads").select("*", { count: "exact", head: true });
       if (!isAdmin && user?.id) {
@@ -935,7 +938,7 @@ export default function Leads() {
 
   useEffect(() => {
     fetchLiveTotalCount();
-    const interval = setInterval(fetchLiveTotalCount, 20000);
+    const interval = setInterval(fetchLiveTotalCount, 60000);
     return () => clearInterval(interval);
   }, [fetchLiveTotalCount]);
 
@@ -1230,36 +1233,46 @@ export default function Leads() {
 
   const filtered = useMemo(() => {
     const presetFn = filterPresetOptions[filterPreset as keyof typeof filterPresetOptions] || (() => true);
+    const searchLower = search.trim().toLowerCase();
+    const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
+    const toTime = dateTo ? new Date(dateTo + "T23:59:59").getTime() : null;
     
     return leads.filter(l => {
       const matchSearch =
-        l.name.toLowerCase().includes(search.toLowerCase()) ||
-        (l.company || "").toLowerCase().includes(search.toLowerCase()) ||
-        (l.phone || "").includes(search) ||
-        (l.email || "").toLowerCase().includes(search.toLowerCase());
-      const matchStatus     = filterStatus === "all"     || l.status === filterStatus;
-      const matchStage      = filterStage === "all"      || l.stage === filterStage;
-      const matchLeadType   = filterLeadType === "all"   || l.lead_type === filterLeadType;
-      const matchBudget     = filterBudget === "all"     || l.budget === filterBudget;
-      const matchTemperature = filterTemperature === "all" || l.temperature === filterTemperature;
-      const matchAssignment =
-        filterAssignment === "all" ||
-        (filterAssignment === "mine"       && l.assigned_to === user?.id) ||
-        (filterAssignment === "unassigned" && !l.assigned_to);
-      const matchEmployee =
-        employeeFilter === null ||
-        (employeeFilter === "unassigned" && !l.assigned_to) ||
-        l.assigned_to === employeeFilter;
-      const createdAt = new Date(l.created_at);
-      const matchDateFrom = !dateFrom || createdAt >= new Date(dateFrom);
-      const matchDateTo   = !dateTo   || createdAt <= new Date(dateTo + "T23:59:59");
-      return matchSearch && matchStatus && matchStage && matchLeadType && matchBudget &&
-             matchAssignment && matchEmployee && presetFn(l) && 
-             matchDateFrom && matchDateTo && matchTemperature;
+        !searchLower ||
+        l.name.toLowerCase().includes(searchLower) ||
+        (l.company && l.company.toLowerCase().includes(searchLower)) ||
+        (l.phone && l.phone.includes(searchLower)) ||
+        (l.email && l.email.toLowerCase().includes(searchLower));
+      if (!matchSearch) return false;
+
+      if (filterStatus !== "all" && l.status !== filterStatus) return false;
+      if (filterStage !== "all" && l.stage !== filterStage) return false;
+      if (filterLeadType !== "all" && l.lead_type !== filterLeadType) return false;
+      if (filterBudget !== "all" && l.budget !== filterBudget) return false;
+      if (filterTemperature !== "all" && l.temperature !== filterTemperature) return false;
+
+      if (filterAssignment !== "all") {
+        if (filterAssignment === "mine" && l.assigned_to !== user?.id) return false;
+        if (filterAssignment === "unassigned" && l.assigned_to) return false;
+      }
+
+      if (employeeFilter !== null) {
+        if (employeeFilter === "unassigned" && l.assigned_to) return false;
+        if (employeeFilter !== "unassigned" && l.assigned_to !== employeeFilter) return false;
+      }
+
+      if (fromTime !== null || toTime !== null) {
+        const createdTime = new Date(l.created_at).getTime();
+        if (fromTime !== null && createdTime < fromTime) return false;
+        if (toTime !== null && createdTime > toTime) return false;
+      }
+
+      return presetFn(l);
     });
   }, [leads, search, filterStatus, filterStage, filterAssignment, 
       filterLeadType, filterBudget, filterTemperature, dateFrom, dateTo, 
-      filterPreset, employeeFilter, user, filterPresetOptions]);
+      filterPreset, employeeFilter, user?.id, filterPresetOptions]);
 
   const dashboardLeads = useMemo(() => {
     let base: DbLead[];
@@ -1488,45 +1501,63 @@ export default function Leads() {
 
   const handleUpdate = useCallback(async () => {
     if (!editLead) return;
+    const previous = leads.find(l => l.id === editLead.id);
+    const updated = { ...editLead };
+
+    // Instant UI update and close modal (0ms delay)
+    setLeads(prev => prev.map(l => (l.id === updated.id ? updated : l)));
+    if (detailLead && detailLead.id === updated.id) {
+      setDetailLead(updated);
+    }
+    setEditLead(null);
+    toast.success("Lead updated");
     
     try {
       const { error } = await supabase
         .from("leads")
         .update({
-          name: editLead.name, 
-          email: editLead.email, 
-          phone: editLead.phone,
-          company: editLead.company, 
-          source: editLead.source, 
-          value: editLead.value,
-          status: editLead.status, 
-          business_status: editLead.business_status,
-          lead_type: editLead.lead_type, 
-          address: editLead.address, 
-          cx_comment: editLead.cx_comment,
-          budget: editLead.budget, 
-          stage: editLead.stage, 
-          sub_stage: editLead.sub_stage,
-          remark: editLead.remark, 
-          temperature: editLead.temperature,
-          next_call_date: editLead.next_call_date,
+          name: updated.name, 
+          email: updated.email, 
+          phone: updated.phone,
+          company: updated.company, 
+          source: updated.source, 
+          value: updated.value,
+          status: updated.status, 
+          business_status: updated.business_status,
+          lead_type: updated.lead_type, 
+          address: updated.address, 
+          cx_comment: updated.cx_comment,
+          budget: updated.budget, 
+          stage: updated.stage, 
+          sub_stage: updated.sub_stage,
+          remark: updated.remark, 
+          temperature: updated.temperature,
+          next_call_date: updated.next_call_date,
         })
-        .eq("id", editLead.id);
+        .eq("id", updated.id);
       
       if (error) throw error;
-      
-      setLeads(prev => prev.map(l => (l.id === editLead.id ? { ...l, ...editLead } : l)));
-      logActivity(editLead.id, "updated", `Status: ${editLead.status}`);
-      setEditLead(null);
-      toast.success("Lead updated");
+      logActivity(updated.id, "updated", `Updated lead details`);
     } catch (error: any) {
+      if (previous) {
+        setLeads(prev => prev.map(l => (l.id === previous.id ? previous : l)));
+      }
       console.error("Update error:", error);
       toast.error(error.message || "Failed to update lead");
     }
-  }, [editLead, logActivity]);
+  }, [editLead, leads, detailLead, logActivity, setLeads]);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!confirm("Delete this lead?")) return;
+    const previousLead = leads.find(l => l.id === id);
+
+    // Instant UI removal (0ms delay)
+    setLeads(prev => prev.filter(l => l.id !== id));
+    if (detailLead && detailLead.id === id) {
+      setDetailLead(null);
+    }
+    toast.success("Lead deleted");
+
     try {
       const { error } = await supabase
         .from("leads")
@@ -1534,15 +1565,15 @@ export default function Leads() {
         .eq("id", id);
       
       if (error) throw error;
-      
-      setLeads(prev => prev.filter(l => l.id !== id));
-      setDetailLead(null);
-      toast.success("Lead deleted");
-      await fetchLiveTotalCount();
+      fetchLiveTotalCount();
     } catch (error: any) {
+      // Revert if database error
+      if (previousLead) {
+        setLeads(prev => [previousLead, ...prev]);
+      }
       toast.error(error.message || "Failed to delete lead");
     }
-  }, [fetchLiveTotalCount]);
+  }, [leads, detailLead, fetchLiveTotalCount, setLeads]);
 
   const buildExportRows = useCallback((rows: DbLead[]) => {
     return rows.map(l => ({
@@ -1617,26 +1648,84 @@ export default function Leads() {
   }, [detailLead, logActivity, fetchLeads]);
 
   const stats = useMemo(() => {
-    const visible = canAssign ? leads : leads.filter(l => l.assigned_to === user?.id);
-    const totalLeads = visible.length;
-    const totalValue = visible.reduce((s, l) => s + (l.value || 0), 0);
-    const convertedCount = visible.filter(l => l.status === "converted" || l.stage === "converted").length;
-    const lostCount = visible.filter(l => l.stage === "lost").length;
-    const hotCount = visible.filter(l => l.temperature === "hot").length;
-    const warmCount = visible.filter(l => l.temperature === "warm").length;
-    const coldCount = visible.filter(l => l.temperature === "cold").length;
-    const todayCount = visible.filter(l => isToday(new Date(l.created_at))).length;
-    const followupCount = visible.filter(l => {
-      const b = getFollowupBucket(l.next_call_date);
-      return (b === "overdue" || b === "today") && l.stage !== "converted" && l.stage !== "lost";
-    }).length;
+    const isEmp = !canAssign && !!user?.id;
+    let totalLeads = 0;
+    let totalValue = 0;
+    let convertedCount = 0;
+    let lostCount = 0;
+    let hotCount = 0;
+    let warmCount = 0;
+    let coldCount = 0;
+    let todayCount = 0;
+    let followupCount = 0;
+
+    const todayDateStr = new Date().toDateString();
+
+    for (const l of leads) {
+      if (isEmp && l.assigned_to !== user?.id) continue;
+      totalLeads++;
+      if (l.value) totalValue += l.value;
+      if (l.status === "converted" || l.stage === "converted") convertedCount++;
+      if (l.stage === "lost") lostCount++;
+      if (l.temperature === "hot") hotCount++;
+      else if (l.temperature === "warm") warmCount++;
+      else if (l.temperature === "cold") coldCount++;
+
+      if (new Date(l.created_at).toDateString() === todayDateStr) {
+        todayCount++;
+      }
+
+      if (l.next_call_date && l.stage !== "converted" && l.stage !== "lost") {
+        const b = getFollowupBucket(l.next_call_date);
+        if (b === "overdue" || b === "today") followupCount++;
+      }
+    }
+
     return { totalLeads, totalValue, convertedCount, lostCount, hotCount, warmCount, coldCount, todayCount, followupCount };
   }, [leads, canAssign, user?.id]);
 
-  useEffect(() => {
-    console.log("📊 Leads in state:", leads.length);
-    console.log("📊 Filtered leads:", filtered.length);
-  }, [leads, filtered]);
+  // Pre-computed employee lead counts (single pass)
+  const employeeLeadStats = useMemo(() => {
+    const assignedCounts = new Map<string, number>();
+    const convertedCounts = new Map<string, number>();
+    let assignedTotal = 0;
+    let unassignedTotal = 0;
+
+    for (const l of leads) {
+      if (l.assigned_to) {
+        assignedTotal++;
+        assignedCounts.set(l.assigned_to, (assignedCounts.get(l.assigned_to) || 0) + 1);
+        if (l.stage === "converted") {
+          convertedCounts.set(l.assigned_to, (convertedCounts.get(l.assigned_to) || 0) + 1);
+        }
+      } else {
+        unassignedTotal++;
+      }
+    }
+
+    return { assignedCounts, convertedCounts, assignedTotal, unassignedTotal };
+  }, [leads]);
+
+  // Pre-computed stage counts
+  const stageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const l of leads) {
+      const stage = l.stage || "";
+      counts.set(stage, (counts.get(stage) || 0) + 1);
+    }
+    return counts;
+  }, [leads]);
+
+  // Pre-sorted employee list with counts
+  const sortedEmployees = useMemo(() => {
+    return (profiles as { user_id: string; display_name: string | null; email?: string | null }[])
+      .map(emp => ({
+        ...emp,
+        count: employeeLeadStats.assignedCounts.get(emp.user_id) || 0,
+        converted: employeeLeadStats.convertedCounts.get(emp.user_id) || 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [profiles, employeeLeadStats]);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -2016,7 +2105,6 @@ export default function Leads() {
         </div>
       )}
 
-      <LeadCharts leads={leads} />
 
       {canAssign && typedProfiles.length > 0 && (
         <Card className="mb-4 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
@@ -2044,17 +2132,11 @@ export default function Leads() {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1">
-                  {typedProfiles
-                    .sort((a, b) => {
-                      const aCount = leads.filter(l => l.assigned_to === a.user_id).length;
-                      const bCount = leads.filter(l => l.assigned_to === b.user_id).length;
-                      return bCount - aCount;
-                    })
+                  {sortedEmployees
                     .slice(0, 4)
                     .map(emp => {
-                      const count = leads.filter(l => l.assigned_to === emp.user_id).length;
+                      if (emp.count === 0) return null;
                       const isActive = employeeFilter === emp.user_id;
-                      if (count === 0) return null;
                       return (
                         <Button
                           key={emp.user_id}
@@ -2065,14 +2147,14 @@ export default function Leads() {
                         >
                           <span className="truncate max-w-[60px]">{emp.display_name || "Unknown"}</span>
                           <Badge variant={isActive ? "secondary" : "outline"} className="ml-1 text-[9px] h-4 px-1">
-                            {count}
+                            {emp.count}
                           </Badge>
                         </Button>
                       );
                     })}
                 </div>
                 
-                {leads.filter(l => !l.assigned_to).length > 0 && (
+                {employeeLeadStats.unassignedTotal > 0 && (
                   <Button
                     variant={employeeFilter === "unassigned" ? "default" : "outline"}
                     size="sm"
@@ -2081,7 +2163,7 @@ export default function Leads() {
                   >
                     Unassigned
                     <Badge variant={employeeFilter === "unassigned" ? "secondary" : "outline"} className="ml-1 text-[9px] h-4 px-1">
-                      {leads.filter(l => !l.assigned_to).length}
+                      {employeeLeadStats.unassignedTotal}
                     </Badge>
                   </Button>
                 )}
@@ -2095,28 +2177,18 @@ export default function Leads() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">📋 All Employees</SelectItem>
-                    <SelectItem value="unassigned">❓ Unassigned ({leads.filter(l => !l.assigned_to).length})</SelectItem>
-                    {typedProfiles
-                      .sort((a, b) => {
-                        const aCount = leads.filter(l => l.assigned_to === a.user_id).length;
-                        const bCount = leads.filter(l => l.assigned_to === b.user_id).length;
-                        return bCount - aCount;
-                      })
-                      .map(emp => {
-                        const count = leads.filter(l => l.assigned_to === emp.user_id).length;
-                        const converted = leads.filter(l => l.assigned_to === emp.user_id && l.stage === "converted").length;
-                        return (
-                          <SelectItem key={emp.user_id} value={emp.user_id}>
-                            <span className="flex items-center justify-between w-full gap-4">
-                              <span className="truncate">{emp.display_name || "Unknown"}</span>
-                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>{count} leads</span>
-                                {converted > 0 && <span className="text-green-600">✓{converted}</span>}
-                              </span>
-                            </span>
-                          </SelectItem>
-                        );
-                      })}
+                    <SelectItem value="unassigned">❓ Unassigned ({employeeLeadStats.unassignedTotal})</SelectItem>
+                    {sortedEmployees.map(emp => (
+                      <SelectItem key={emp.user_id} value={emp.user_id}>
+                        <span className="flex items-center justify-between w-full gap-4">
+                          <span className="truncate">{emp.display_name || "Unknown"}</span>
+                          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{emp.count} leads</span>
+                            {emp.converted > 0 && <span className="text-green-600">✓{emp.converted}</span>}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -2125,22 +2197,22 @@ export default function Leads() {
           <CardContent className="pt-0">
             <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1 border-t">
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => l.assigned_to).length}</span> Assigned
+                <span className="font-medium text-foreground">{employeeLeadStats.assignedTotal}</span> Assigned
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => !l.assigned_to).length}</span> Unassigned
+                <span className="font-medium text-foreground">{employeeLeadStats.unassignedTotal}</span> Unassigned
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => l.stage === "converted").length}</span> Converted
+                <span className="font-medium text-foreground">{stats.convertedCount}</span> Converted
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "hot").length}</span> 🔥 Hot
+                <span className="font-medium text-foreground">{stats.hotCount}</span> 🔥 Hot
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "warm").length}</span> ☀️ Warm
+                <span className="font-medium text-foreground">{stats.warmCount}</span> ☀️ Warm
               </span>
               <span className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{leads.filter(l => l.temperature === "cold").length}</span> ❄️ Cold
+                <span className="font-medium text-foreground">{stats.coldCount}</span> ❄️ Cold
               </span>
               {employeeFilter && (
                 <Button 
@@ -2163,7 +2235,7 @@ export default function Leads() {
           <p className="font-semibold text-sm mb-3 text-foreground">Stages</p>
           <div className="flex flex-wrap gap-2">
             {LEAD_STAGES.map(s => {
-              const count = leads.filter(l => l.stage === s.value).length;
+              const count = stageCounts.get(s.value) || 0;
               const active = filterStage === s.value;
               return (
                 <button
@@ -2436,7 +2508,9 @@ export default function Leads() {
         </CardContent>
       </Card>
 
-      <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterAssignment("all"); }} />
+      {empModalOpen && (
+        <EmployeeLeadCountModal leads={leads} profiles={typedProfiles} open={empModalOpen} onClose={() => setEmpModalOpen(false)} onFilterByEmployee={(userId) => { setFilterAssignment("all"); }} />
+      )}
 
       <Dialog open={!!detailLead} onOpenChange={() => setDetailLead(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -2612,17 +2686,45 @@ function EmployeeLeadCountModal({ leads, profiles, open, onClose, onFilterByEmpl
   onClose: () => void;
   onFilterByEmployee: (userId: string) => void;
 }) {
-  const employeeStats = useMemo(() => {
-    return profiles.map(p => {
-      const empLeads = leads.filter(l => l.assigned_to === p.user_id);
-      const stageBreakdown = LEAD_STAGES.map(s => ({
-        ...s, count: empLeads.filter(l => l.stage === s.value).length,
-      }));
-      return { ...p, total: empLeads.length, converted: empLeads.filter(l => l.stage === "converted").length, stageBreakdown };
-    }).sort((a, b) => b.total - a.total);
-  }, [leads, profiles]);
+  const { employeeStats, unassigned } = useMemo(() => {
+    const map = new Map<string, { total: number; converted: number; stageCounts: Record<string, number> }>();
+    let unassignedCount = 0;
 
-  const unassigned = useMemo(() => leads.filter(l => !l.assigned_to).length, [leads]);
+    for (const p of profiles) {
+      map.set(p.user_id, { total: 0, converted: 0, stageCounts: {} });
+    }
+
+    for (const l of leads) {
+      if (!l.assigned_to) {
+        unassignedCount++;
+        continue;
+      }
+      const item = map.get(l.assigned_to);
+      if (item) {
+        item.total++;
+        if (l.stage === "converted") item.converted++;
+        if (l.stage) {
+          item.stageCounts[l.stage] = (item.stageCounts[l.stage] || 0) + 1;
+        }
+      }
+    }
+
+    const stats = profiles.map(p => {
+      const data = map.get(p.user_id) || { total: 0, converted: 0, stageCounts: {} };
+      const stageBreakdown = LEAD_STAGES.map(s => ({
+        ...s,
+        count: data.stageCounts[s.value] || 0,
+      }));
+      return {
+        ...p,
+        total: data.total,
+        converted: data.converted,
+        stageBreakdown,
+      };
+    }).sort((a, b) => b.total - a.total);
+
+    return { employeeStats: stats, unassigned: unassignedCount };
+  }, [leads, profiles]);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
