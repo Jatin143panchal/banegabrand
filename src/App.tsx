@@ -5,10 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { CrmLayout } from "@/components/CrmLayout";
-import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
 import Contacts from "./pages/Contacts";
-import Deals from "./pages/Deals";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Holidays from "./pages/Holidays";
@@ -53,10 +51,9 @@ function ProtectedRoutes() {
   return (
     <CrmLayout>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<Navigate to="/leads" replace />} />
         <Route path="/leads" element={<Leads />} />
         <Route path="/contacts" element={<Contacts />} />
-        <Route path="/deals" element={<Deals />} />
         <Route path="/holidays" element={<Holidays />} />
         <Route path="/helpdesk" element={<Helpdesk />} />
         <Route path="/projects" element={<Projects />} />

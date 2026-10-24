@@ -1,8 +1,6 @@
 import {
-  LayoutDashboard,
   Users,
   UserPlus,
-  Handshake,
   Settings,
   Building2,
   Shield,
@@ -32,9 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const mainItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: UserPlus },
-  { title: "Deals", url: "/deals", icon: Handshake },
   { title: "My Tasks", url: "/my-tasks", icon: ListTodo },
   { title: "Projects", url: "/projects", icon: Briefcase },
 ];
