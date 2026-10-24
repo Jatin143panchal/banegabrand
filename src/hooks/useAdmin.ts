@@ -17,10 +17,31 @@ export function useUserRoles() {
         .select("role")
         .eq("user_id", user.id);
       if (error) throw error;
-      return (data ?? []).map((r) => r.role as AppRole);
+      const roles = (data ?? []).map((r) => r.role as AppRole);
+      if (typeof window !== "undefined") {
+        try {
+          const json = JSON.stringify(roles);
+          localStorage.setItem(`user_roles_${user.id}`, json);
+          localStorage.setItem("user_roles_last", json);
+        } catch (e) {}
+      }
+      return roles;
     },
     enabled: !!user,
-    initialData: [],
+    staleTime: 5 * 60 * 1000,
+    initialData: () => {
+      if (typeof window !== "undefined") {
+        try {
+          if (user?.id) {
+            const cached = localStorage.getItem(`user_roles_${user.id}`);
+            if (cached) return JSON.parse(cached);
+          }
+          const last = localStorage.getItem("user_roles_last");
+          if (last) return JSON.parse(last);
+        } catch (e) {}
+      }
+      return undefined;
+    },
   });
 }
 
@@ -73,7 +94,22 @@ export function useAllProfiles() {
     queryFn: async () => {
       const { data, error } = await supabase.from("profiles").select("*");
       if (error) throw error;
+      if (typeof window !== "undefined" && data) {
+        try {
+          sessionStorage.setItem("all_profiles_cache", JSON.stringify(data));
+        } catch (e) {}
+      }
       return data;
+    },
+    staleTime: 5 * 60 * 1000,
+    initialData: () => {
+      if (typeof window !== "undefined") {
+        try {
+          const cached = sessionStorage.getItem("all_profiles_cache");
+          if (cached) return JSON.parse(cached);
+        } catch (e) {}
+      }
+      return undefined;
     },
   });
 }

@@ -631,14 +631,14 @@ export default function Leads() {
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => ["global_leads_cache", user?.id], [user?.id]);
   
-  // ── State ──
-  // Instant load: Read from React Query in-memory cache or sessionStorage
   const [leads, _setLeads] = useState<DbLead[]>(() => {
     const memory = queryClient.getQueryData<DbLead[]>(queryKey);
     if (memory && memory.length > 0) return memory;
-    if (typeof window !== "undefined" && user?.id) {
+    if (typeof window !== "undefined") {
       try {
-        const stored = sessionStorage.getItem(`banega_leads_cache_${user.id}`);
+        const key = user?.id ? `banega_leads_cache_${user.id}` : "banega_leads_cache_last";
+        const stored = localStorage.getItem(key) || localStorage.getItem("banega_leads_cache_last")
+          || sessionStorage.getItem(key) || sessionStorage.getItem("banega_leads_cache_last");
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -648,14 +648,20 @@ export default function Leads() {
     return [];
   });
   
+  const leadsRef = useRef(leads);
+  leadsRef.current = leads;
+  
   const setLeads = useCallback((updater: React.SetStateAction<DbLead[]>) => {
     _setLeads((prev) => {
       const next = typeof updater === "function" ? (updater as any)(prev) : updater;
       queryClient.setQueryData(queryKey, next);
-      if (typeof window !== "undefined" && user?.id) {
+      if (typeof window !== "undefined") {
         try {
-          // Persist top 1000 leads for 0ms instant reload
-          sessionStorage.setItem(`banega_leads_cache_${user.id}`, JSON.stringify(next.slice(0, 1000)));
+          const sliceJson = JSON.stringify(next.slice(0, 1000));
+          if (user?.id) {
+            localStorage.setItem(`banega_leads_cache_${user.id}`, sliceJson);
+          }
+          localStorage.setItem("banega_leads_cache_last", sliceJson);
         } catch (e) {}
       }
       return next;
@@ -665,9 +671,11 @@ export default function Leads() {
   // If we have cached leads, start with isLoading = false so it renders instantly (0ms)
   const [isLoading, setIsLoading] = useState(() => {
     if (queryClient.getQueryData(queryKey)) return false;
-    if (typeof window !== "undefined" && user?.id) {
+    if (typeof window !== "undefined") {
       try {
-        const stored = sessionStorage.getItem(`banega_leads_cache_${user.id}`);
+        const key = user?.id ? `banega_leads_cache_${user.id}` : "banega_leads_cache_last";
+        const stored = localStorage.getItem(key) || localStorage.getItem("banega_leads_cache_last")
+          || sessionStorage.getItem(key) || sessionStorage.getItem("banega_leads_cache_last");
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) return false;
@@ -679,7 +687,6 @@ export default function Leads() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
-  const [isInitialFetch, setIsInitialFetch] = useState(true);
   const [showAllLeads, setShowAllLeads] = useState(true);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkStageDialogOpen, setBulkStageDialogOpen] = useState(false);
@@ -701,7 +708,7 @@ export default function Leads() {
 
   const fetchLeads = useCallback(async (silent = false) => {
     try {
-      const hasCachedData = leads.length > 0 || !!queryClient.getQueryData(queryKey);
+      const hasCachedData = leadsRef.current.length > 0 || !!queryClient.getQueryData(queryKey);
       
       // If we don't have any cached data and not a silent background sync, show loader
       if (!silent && !hasCachedData) {
@@ -710,16 +717,16 @@ export default function Leads() {
       
       const isAdmin = !!canAssignRef.current;
       
-      // ⚡ STEP 1: Fast initial batch (200 leads) so user sees UI instantly (in ~80ms)
-      const FIRST_BATCH = 200;
+      // ⚡ STEP 1: Fast initial batch (100 leads) so user sees UI instantly (in ~50ms)
+      const FIRST_BATCH = 100;
       let firstQuery = supabase
         .from("leads")
         .select("*")
         .order("created_at", { ascending: false })
         .range(0, FIRST_BATCH - 1);
 
-      if (!isAdmin && user?.id) {
-        firstQuery = firstQuery.eq("assigned_to", user.id);
+      if (!isAdmin && userRef.current?.id) {
+        firstQuery = firstQuery.eq("assigned_to", userRef.current.id);
       }
 
       const { data: firstData, error: firstError } = await firstQuery;
@@ -730,21 +737,20 @@ export default function Leads() {
 
       const firstRows = (firstData as DbLead[]) || [];
       
-      // 🚀 TURANT DIKHE: Immediately show initial 200 rows and remove loading spinner!
+      // 🚀 TURANT DIKHE: Immediately show initial rows and remove loading spinner!
       setLeads((prev) => {
         if (prev.length === 0) return firstRows;
-        // Merge fresh top 200 with any existing
         return dedupeLeads([...firstRows, ...prev]);
       });
       setIsLoading(false);
 
-      // If database has less than FIRST_BATCH, we're already done!
+      // If database has less than FIRST_BATCH, we're done!
       if (firstRows.length < FIRST_BATCH) {
         setLeads(firstRows);
         return firstRows;
       }
 
-      // ⚡ STEP 2: Progressively stream in remaining leads in the background
+      // ⚡ STEP 2: Progressively stream in remaining leads without intermediate UI jank
       const PAGE_SIZE = 1000;
       let from = FIRST_BATCH;
       let hasMore = true;
@@ -757,8 +763,8 @@ export default function Leads() {
           .order("created_at", { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
 
-        if (!isAdmin && user?.id) {
-          query = query.eq("assigned_to", user.id);
+        if (!isAdmin && userRef.current?.id) {
+          query = query.eq("assigned_to", userRef.current.id);
         }
 
         const { data, error } = await query;
@@ -770,7 +776,6 @@ export default function Leads() {
         const batch = (data as DbLead[]) || [];
         if (batch.length > 0) {
           allRows = allRows.concat(batch);
-          setLeads(dedupeLeads(allRows));
         }
 
         if (batch.length < PAGE_SIZE) {
@@ -780,8 +785,11 @@ export default function Leads() {
         }
       }
 
+      // Single smooth update once background loading finishes
       const finalRows = dedupeLeads(allRows);
-      setLeads(finalRows);
+      if (finalRows.length > firstRows.length) {
+        setLeads(finalRows);
+      }
       return finalRows;
     } catch (error) {
       console.error("❌ Error fetching leads:", error);
@@ -790,14 +798,13 @@ export default function Leads() {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id, leads.length, queryClient, queryKey, setLeads]);
+  }, [queryClient, queryKey, setLeads]);
 
   useEffect(() => {
-    if (isInitialFetch && !rolesLoading) {
-      fetchLeads();
-      setIsInitialFetch(false);
+    if (user?.id) {
+      fetchLeads(leadsRef.current.length > 0);
     }
-  }, [fetchLeads, isInitialFetch, rolesLoading]);
+  }, [user?.id, canAssign, fetchLeads]);
 
   // ⚡ ROCK-SOLID REALTIME: Stays connected without dropping on role changes
   useEffect(() => {
@@ -902,8 +909,6 @@ export default function Leads() {
   const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
   const [exportStage, setExportStage] = useState("all");
   const [importSummary, setImportSummary] = useState<{ imported: number } | null>(null);
-  const [liveTotalCount, setLiveTotalCount] = useState<number | null>(null);
-  const [liveCountPulsing, setLiveCountPulsing] = useState(false);
 
   type StatsFilter = "all" | "today" | "followup" | "hot" | "warm" | "cold" | "converted";
   const [statsFilter, setStatsFilter] = useState<StatsFilter>("all");
@@ -917,30 +922,6 @@ export default function Leads() {
     cold: "❄️ Cold Leads",
     converted: "✅ Converted Leads",
   };
-
-  const fetchLiveTotalCount = useCallback(async () => {
-    try {
-      const isAdmin = !!canAssign;
-
-      let query = supabase.from("leads").select("*", { count: "exact", head: true });
-      if (!isAdmin && user?.id) {
-        query = query.eq("assigned_to", user.id);
-      }
-      const { count, error } = await query;
-      if (error) throw error;
-      setLiveTotalCount(count ?? 0);
-      setLiveCountPulsing(true);
-      setTimeout(() => setLiveCountPulsing(false), 700);
-    } catch (error) {
-      console.error("Live count fetch error:", error);
-    }
-  }, [user?.id, canAssign]);
-
-  useEffect(() => {
-    fetchLiveTotalCount();
-    const interval = setInterval(fetchLiveTotalCount, 60000);
-    return () => clearInterval(interval);
-  }, [fetchLiveTotalCount]);
 
   const emptyForm = {
     name: "", email: "", phone: "", company: "", source: "Website", value: "",
@@ -1123,13 +1104,12 @@ export default function Leads() {
       setForm(emptyForm);
       setDialogOpen(false);
       toast.success("Lead added & assigned to you");
-      fetchLiveTotalCount();
     } catch (error: any) {
       console.error("Add lead error:", error);
       toast.error(error.message || "Failed to add lead");
       await fetchLeads(true);
     }
-  }, [form, fetchLeads, emptyForm, user?.id, fetchLiveTotalCount]);
+  }, [form, fetchLeads, emptyForm, user?.id]);
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -1150,8 +1130,6 @@ export default function Leads() {
       
       if (error) throw error;
       
-      await fetchLiveTotalCount();
-      
       toast.success(`${ids.length} lead${ids.length > 1 ? 's' : ''} deleted successfully`);
       
       ids.forEach(id => {
@@ -1163,7 +1141,7 @@ export default function Leads() {
       toast.error(error.message || "Failed to delete leads");
       await fetchLeads(true);
     }
-  }, [selectedIds, leads, fetchLiveTotalCount, logActivity, fetchLeads]);
+  }, [selectedIds, leads, logActivity, fetchLeads]);
 
   const handleBulkStageChange = useCallback(async (stage: string, subStage: string) => {
     if (selectedIds.size === 0 || !stage) return;
@@ -1487,7 +1465,6 @@ export default function Leads() {
     if (fileRef.current) fileRef.current.value = "";
 
     await fetchLeads(true);
-    await fetchLiveTotalCount();
 
     setImportSummary({ imported: success });
 
@@ -1497,7 +1474,7 @@ export default function Leads() {
       toast.success(`${success} leads imported`);
     }
     setUploadOpen(false);
-  }, [uploadPreview, fetchLeads, fetchLiveTotalCount]);
+  }, [uploadPreview, fetchLeads]);
 
   const handleUpdate = useCallback(async () => {
     if (!editLead) return;
@@ -1565,7 +1542,6 @@ export default function Leads() {
         .eq("id", id);
       
       if (error) throw error;
-      fetchLiveTotalCount();
     } catch (error: any) {
       // Revert if database error
       if (previousLead) {
@@ -1573,7 +1549,7 @@ export default function Leads() {
       }
       toast.error(error.message || "Failed to delete lead");
     }
-  }, [leads, detailLead, fetchLiveTotalCount, setLeads]);
+  }, [leads, detailLead, setLeads]);
 
   const buildExportRows = useCallback((rows: DbLead[]) => {
     return rows.map(l => ({
@@ -1970,9 +1946,9 @@ export default function Leads() {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <p className="text-2xl font-bold leading-none">
-                    {liveTotalCount !== null ? liveTotalCount : stats.totalLeads}
+                    {stats.totalLeads}
                   </p>
-                  <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Realtime Live" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                   <Radio className="h-3 w-3" /> Total Leads (Live)
@@ -2114,9 +2090,9 @@ export default function Leads() {
                 <Users className="h-5 w-5 text-primary" />
                 <h2 className="text-lg font-semibold">Employee Leads</h2>
                 <Badge variant="outline" className="text-sm">
-                  Total: {liveTotalCount !== null ? liveTotalCount : leads.length}
+                  Total: {stats.totalLeads}
                 </Badge>
-                <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${liveCountPulsing ? "animate-ping" : "animate-pulse"}`} />
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Realtime Live" />
                 {employeeFilter && (
                   <Badge 
                     variant="default" 
