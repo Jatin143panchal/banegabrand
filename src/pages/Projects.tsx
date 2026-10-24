@@ -3862,15 +3862,31 @@ export default function Projects() {
         .order("name");
       
       if (error) throw error;
-      return ((data || []) as ITTeamMember[]).map((m) => ({
+      const formatted = ((data || []) as ITTeamMember[]).map((m) => ({
         ...m,
         name: displayPersonName(m.name, m.email) || m.name,
       }));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("banega_it_team_members", JSON.stringify(formatted));
+        } catch (e) {}
+      }
+      return formatted;
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
+    initialData: () => {
+      if (typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem("banega_it_team_members");
+          if (cached) return JSON.parse(cached);
+        } catch (e) {}
+      }
+      return undefined;
+    },
   });
 
   // ── Current user's role ──
@@ -3894,6 +3910,9 @@ export default function Projects() {
   // ── Departments Lookup ──
   const { data: departmentOptions = [] } = useQuery({
     queryKey: ["departments_lookup"],
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("departments")
@@ -3938,8 +3957,9 @@ export default function Projects() {
 
   const { data: myTasks = [], isLoading: myTasksLoading } = useQuery({
     queryKey: ["my_tasks", user?.email],
-    enabled: !!user?.email,
-    staleTime: 60 * 1000,
+    enabled: !!user?.email && (mainView === "my_tasks" || mainView === "task_calendar"),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -4878,9 +4898,22 @@ export default function Projects() {
 
   const { data: allProjects = [], isLoading, refetch } = useQuery({
     queryKey: ["projects"],
-    staleTime: 2 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
+    initialData: () => {
+      if (typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem("banega_projects_cache");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
+        } catch (e) {}
+      }
+      return undefined;
+    },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("projects")
@@ -4888,6 +4921,11 @@ export default function Projects() {
         .order("created_at", { ascending: false });
       
       if (error) throw error;
+      if (typeof window !== "undefined" && data) {
+        try {
+          localStorage.setItem("banega_projects_cache", JSON.stringify(data));
+        } catch (e) {}
+      }
       return data as Project[];
     },
   });
@@ -4895,9 +4933,19 @@ export default function Projects() {
   // Latest note per project (for project list cards)
   const { data: lastNotesByProject = {} } = useQuery({
     queryKey: ["project_last_notes"],
-    staleTime: 3 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
+    initialData: () => {
+      if (typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem("banega_project_last_notes");
+          if (cached) return JSON.parse(cached);
+        } catch (e) {}
+      }
+      return undefined;
+    },
     queryFn: async () => {
       const { data, error } = await supabase
         .from("project_notes")
@@ -4929,6 +4977,11 @@ export default function Projects() {
           result[note.project_id] = note;
         }
       }
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("banega_project_last_notes", JSON.stringify(result));
+        } catch (e) {}
+      }
       return result;
     },
   });
@@ -4936,8 +4989,9 @@ export default function Projects() {
   // Track projects where onboarding email has been dispatched
   const { data: onboardingEmailSentProjects = new Set<string>() } = useQuery({
     queryKey: ["onboarding_email_sent_projects"],
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -4958,9 +5012,19 @@ export default function Projects() {
 
   const { data: lastAssigneeByProject = {} } = useQuery({
     queryKey: ["project_last_assignees"],
-    staleTime: 3 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
+    initialData: () => {
+      if (typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem("banega_project_last_assignees");
+          if (cached) return JSON.parse(cached);
+        } catch (e) {}
+      }
+      return undefined;
+    },
     queryFn: async () => {
       // Latest activity per project (updated_at / assigned_at / created_at).
       // In-progress tasks surface over older completed ones when touched more recently.
@@ -5032,6 +5096,11 @@ export default function Projects() {
       for (const [pid, row] of Object.entries(map)) {
         const { _ts, ...rest } = row;
         result[pid] = rest;
+      }
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("banega_project_last_assignees", JSON.stringify(result));
+        } catch (e) {}
       }
       return result;
     },

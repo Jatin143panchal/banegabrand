@@ -7,24 +7,17 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { CrmLayout } from "@/components/CrmLayout";
 import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
-import LeadDashboard from "./pages/LeadDashboard";
 import Contacts from "./pages/Contacts";
 import Deals from "./pages/Deals";
-import Activities from "./pages/Activities";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Holidays from "./pages/Holidays";
 import AdminDashboard from "./pages/AdminDashboard";
 import TaskAssignment from "./pages/TaskAssignment";
 import TeamRoles from "./pages/TeamRoles";
-import TeamAttendance from "./pages/TeamAttendance";
 import Helpdesk from "./pages/Helpdesk";
-import Attendance from "./pages/Attendance";
-import Marketing from "./pages/Marketing";
 import Quotations from "./pages/Quotations";
 import Profile from "./pages/Profile";
-import DailyReports from "./pages/DailyReports";
-import WeeklyReports from "./pages/WeeklyReports";
 import MyTasks from "./pages/MyTasks";
 import TeamTaskReport from "./pages/TeamTaskReport";
 import DigiLocker from "./pages/DigiLocker";
@@ -35,10 +28,8 @@ import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import AllUsers from "./pages/AllUsers";
 import { RoleGuard } from "@/components/RoleGuard";
-import ExpoLeads from "./pages/ExpoLeads";
-import WorkshopLeads from "./pages/WorkshopLeads";
 import Projects from "./pages/Projects";
-import CrmMessenger from "@/components/CrmMessenger"; // <-- ADD THIS
+import CrmMessenger from "@/components/CrmMessenger";
 
 const queryClient = new QueryClient();
 
@@ -64,24 +55,16 @@ function ProtectedRoutes() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/leads" element={<Leads />} />
-        <Route path="/leads/dashboard" element={<LeadDashboard />} />
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/deals" element={<Deals />} />
-        <Route path="/activities" element={<Activities />} />
         <Route path="/holidays" element={<Holidays />} />
         <Route path="/helpdesk" element={<Helpdesk />} />
-        <Route path="/expo-leads" element={<ExpoLeads />} />
-        <Route path="/workshop-leads" element={<WorkshopLeads />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:projectId" element={<Projects />} />
         <Route path="/projects/:projectId/:tabName" element={<Projects />} />
-        <Route path="/messenger" element={<CrmMessenger />} /> {/* <-- ADD THIS */}
-        <Route path="/attendance" element={<Attendance />} />
-        <Route path="/marketing" element={<Marketing />} />
+        <Route path="/messenger" element={<CrmMessenger />} />
         <Route path="/quotations" element={<Quotations />} />
         <Route path="/profile" element={<Profile />} />
-        <Route path="/daily-reports" element={<DailyReports />} />
-        <Route path="/weekly-reports" element={<WeeklyReports />} />
         <Route path="/my-tasks" element={<MyTasks />} />
         <Route path="/team-tasks" element={<RoleGuard allowed={[...managerRoles]}><TeamTaskReport /></RoleGuard>} />
         <Route path="/digilocker" element={<DigiLocker />} />
@@ -91,7 +74,6 @@ function ProtectedRoutes() {
         <Route path="/admin/tasks" element={<RoleGuard allowed={[...managerRoles]}><TaskAssignment /></RoleGuard>} />
         <Route path="/admin/users" element={<RoleGuard allowed={[...fullAccessRoles]}><AllUsers /></RoleGuard>} />
         <Route path="/admin/roles" element={<RoleGuard allowed={[...fullAccessRoles]}><TeamRoles /></RoleGuard>} />
-        <Route path="/admin/attendance" element={<RoleGuard allowed={[...hrRoles, "tl"]}><TeamAttendance /></RoleGuard>} />
         <Route path="/admin/notifications" element={<RoleGuard allowed={[...hrRoles]}><BroadcastNotifications /></RoleGuard>} />
         <Route path="/admin/employees" element={<RoleGuard allowed={[...hrRoles]}><EmployeeDirectory /></RoleGuard>} />
         <Route path="*" element={<NotFound />} />

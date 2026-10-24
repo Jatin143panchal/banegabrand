@@ -3,20 +3,12 @@ import {
   Users,
   UserPlus,
   Handshake,
-  CalendarCheck,
   Settings,
   Building2,
   Shield,
   ClipboardList,
-  Megaphone,
   UserCog,
-  Users2,
-  ClipboardCheck,
-  CalendarRange,
-  Phone,
   UserCircle,
-  Tent,
-  GraduationCap,
   Briefcase,
   ListTodo,
   BarChart2,
@@ -41,16 +33,9 @@ import {
 
 const mainItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Lead Dashboard", url: "/leads/dashboard", icon: Phone },
   { title: "Leads", url: "/leads", icon: UserPlus },
-  { title: "Expo Leads", url: "/expo-leads", icon: Tent },
-  { title: "Workshop Leads", url: "/workshop-leads", icon: GraduationCap },
   { title: "Deals", url: "/deals", icon: Handshake },
-  { title: "Activities", url: "/activities", icon: CalendarCheck },
-  { title: "Marketing", url: "/marketing", icon: Megaphone },
   { title: "My Tasks", url: "/my-tasks", icon: ListTodo },
-  { title: "Daily Reports", url: "/daily-reports", icon: ClipboardCheck },
-  { title: "Weekly Reports", url: "/weekly-reports", icon: CalendarRange },
   { title: "Projects", url: "/projects", icon: Briefcase },
 ];
 
@@ -59,8 +44,7 @@ const fullAdminItems = [
   { title: "Admin Dashboard", url: "/admin", icon: Shield },
   { title: "All Users", url: "/admin/users", icon: Users },
   { title: "Task Assignment", url: "/admin/tasks", icon: ClipboardList },
-  { title: "Team Roles", url: "/admin/roles", icon: UserCog }, // This is here
-  { title: "Team Attendance", url: "/admin/attendance", icon: Users2 },
+  { title: "Team Roles", url: "/admin/roles", icon: UserCog },
   { title: "Team Task Report", url: "/team-tasks", icon: BarChart2 },
   { title: "Send Notifications", url: "/admin/notifications", icon: MegaphoneIcon },
   { title: "Employee Directory", url: "/admin/employees", icon: Users },
@@ -72,7 +56,6 @@ const managerItems = [
 ];
 
 const hrItems = [
-  { title: "Team Attendance", url: "/admin/attendance", icon: Users2 },
   { title: "Send Notifications", url: "/admin/notifications", icon: MegaphoneIcon },
   { title: "Employee Directory", url: "/admin/employees", icon: Users },
 ];
@@ -126,14 +109,9 @@ export function CrmSidebar() {
   const currentPath = location.pathname;
   const isActive = (path: string) => currentPath === path || currentPath.startsWith(path + "/");
   
-  const isOwnerOrAdmin = useIsOwnerOrAdmin();
-  const isManager = useIsManager();
-  const isHR = useHasRole("hr_manager");
-
-  // Debug logging to check roles
-  console.log("Sidebar Roles - isOwnerOrAdmin:", isOwnerOrAdmin);
-  console.log("Sidebar Roles - isManager:", isManager);
-  console.log("Sidebar Roles - isHR:", isHR);
+  const { data: isOwnerOrAdmin = false } = useIsOwnerOrAdmin();
+  const { data: isManager = false } = useIsManager();
+  const { data: isHR = false } = useHasRole("hr_manager");
 
   return (
     <Sidebar collapsible="icon">

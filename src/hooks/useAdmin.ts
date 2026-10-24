@@ -28,7 +28,11 @@ export function useUserRoles() {
       return roles;
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
+    staleTime: Infinity, // ⚡ Check once and cache permanently for session
+    gcTime: 24 * 60 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     initialData: () => {
       if (typeof window !== "undefined") {
         try {

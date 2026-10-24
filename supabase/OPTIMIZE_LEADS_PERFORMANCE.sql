@@ -153,12 +153,49 @@ TO authenticated
 USING (true);
 
 -- ------------------------------------------------------------------------------
--- 5. UPDATE POSTGRES STATISTICS
+-- 5. PROJECTS, NOTES & TASKS INDEXES (Instant Project Section Speed)
+-- ------------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_projects_created_at_desc 
+ON public.projects (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_projects_status 
+ON public.projects (status);
+
+CREATE INDEX IF NOT EXISTS idx_projects_current_stage 
+ON public.projects (current_stage);
+
+CREATE INDEX IF NOT EXISTS idx_project_notes_updated_at_desc 
+ON public.project_notes (updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_project_notes_project_id 
+ON public.project_notes (project_id);
+
+CREATE INDEX IF NOT EXISTS idx_project_tasks_updated_at_desc 
+ON public.project_tasks (updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_project_tasks_project_id 
+ON public.project_tasks (project_id);
+
+CREATE INDEX IF NOT EXISTS idx_project_tasks_assigned_email 
+ON public.project_tasks (assigned_to_email);
+
+CREATE INDEX IF NOT EXISTS idx_project_tasks_status 
+ON public.project_tasks (status);
+
+CREATE INDEX IF NOT EXISTS idx_it_team_members_active_name 
+ON public.it_team_members (active, name);
+
+-- ------------------------------------------------------------------------------
+-- 6. UPDATE POSTGRES STATISTICS
 -- ------------------------------------------------------------------------------
 ANALYZE public.leads;
 ANALYZE public.user_roles;
 ANALYZE public.profiles;
 ANALYZE public.lead_comments;
 ANALYZE public.lead_activity_log;
+ANALYZE public.projects;
+ANALYZE public.project_notes;
+ANALYZE public.project_tasks;
+ANALYZE public.it_team_members;
 
 -- 🏁 Optimization complete! Query execution is now ~100x faster with 0 data loss.
